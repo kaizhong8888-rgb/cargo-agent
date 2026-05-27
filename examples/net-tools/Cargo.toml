@@ -1,0 +1,29 @@
+[package]
+name = "net-tools"
+version = "0.1.0"
+edition = "2021"
+description = "Rust 网络工具集：端口转发、SOCKS5 代理、加密隧道、连接池"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.27"
+rustls = "0.23"
+rustls-pemfile = "2"
+rustls-pki-types = "1"
+webpki-roots = "0.26"
+rcgen = { version = "0.13", features = ["pem"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytes = "1"
+thiserror = "2"
+futures-util = "0.3"
+async-trait = "0.1"
+
+[dev-dependencies]
+tracing-test = "0.2"
+
+[lib]
+name = "net_tools"
+path = "src/lib.rs"

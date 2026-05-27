@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声波驿站 - 个人播客</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <header class="header">
+        <nav class="nav container">
+            <a href="#" class="logo">
+                <span class="logo-icon">🎙️</span>
+                <span class="logo-text">声波驿站</span>
+            </a>
+            <button class="menu-toggle" aria-label="菜单">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-links">
+                <li><a href="#home" class="active">首页</a></li>
+                <li><a href="#episodes">节目</a></li>
+                <li><a href="#about">关于</a></li>
+                <li><a href="#contact">联系</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- 首页英雄区 -->
+    <section id="home" class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-text">
+                    <h1>用声音 <span class="gradient-text">连接世界</span></h1>
+                    <p class="hero-subtitle">欢迎来到声波驿站，一个探索科技、文化与生活的个人播客。每周更新，与你分享有趣的故事和深刻的见解。</p>
+                    <div class="hero-buttons">
+                        <a href="#episodes" class="btn btn-primary">
+                            <span>🎧</span> 立即收听
+                        </a>
+                        <a href="#about" class="btn btn-secondary">
+                            <span>📖</span> 了解更多
+                        </a>
+                    </div>
+                    <div class="hero-stats">
+                        <div class="stat">
+                            <span class="stat-number" data-target="50">0</span>
+                            <span class="stat-label">期节目</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-number" data-target="10000">0</span>
+                            <span class="stat-label">+ 听众</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-number" data-target="4.9">0</span>
+                            <span class="stat-label">⭐ 评分</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="hero-visual">
+                    <div class="sound-waves">
+                        <span></span><span></span><span></span>
+                        <span></span><span></span><span></span>
+                        <span></span><span></span><span></span>
+                    </div>
+                    <div class="floating-mic">🎙️</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 特色栏目 -->
+    <section class="features">
+        <div class="container">
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>深度内容</h3>
+                    <p>每期节目精心策划，带你深入探讨有趣的话题</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎧</div>
+                    <h3>高品质音频</h3>
+                    <p>专业录音设备，为你带来沉浸式的听觉体验</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📅</div>
+                    <h3>每周更新</h3>
+                    <p>固定时间更新，陪伴你的每一个周末</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 播客列表 -->
+    <section id="episodes" class="episodes">
+        <div class="container">
+            <div class="section-header">
+                <h2>最新节目</h2>
+                <p>探索声音的无限可能</p>
+            </div>
+            <div class="episode-filters">
+                <button class="filter-btn active" data-filter="all">全部</button>
+                <button class="filter-btn" data-filter="科技">科技</button>
+                <button class="filter-btn" data-filter="生活">生活</button>
+                <button class="filter-btn" data-filter="文化">文化</button>
+                <button class="filter-btn" data-filter="访谈">访谈</button>
+            </div>
+            <div class="episodes-grid" id="episodesGrid">
+                <!-- 由 JavaScript 动态生成 -->
+            </div>
+        </div>
+    </section>
+
+    <!-- 特色节目推荐 -->
+    <section class="featured-episode">
+        <div class="container">
+            <div class="featured-content">
+                <div class="featured-badge">🌟 精选推荐</div>
+                <h2>本期推荐</h2>
+                <p class="featured-desc">探索人工智能如何改变我们的日常生活，从智能助手到自动驾驶，我们深入浅出地解读科技背后的故事。</p>
+                <div class="featured-meta">
+                    <span>📅 2024年1月</span>
+                    <span>⏱ 45分钟</span>
+                    <span>🏷️ 科技</span>
+                </div>
+                <button class="btn btn-primary play-featured">
+                    <span>▶</span> 播放本期
+                </button>
+            </div>
+            <div class="featured-visual">
+                <div class="vinyl-record">
+                    <div class="record-label">🎵</div>
+                    <div class="record-arm"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 关于我 -->
+    <section id="about" class="about">
+        <div class="container">
+            <div class="about-content">
+                <div class="about-image">
+                    <div class="avatar-frame">
+                        <div class="avatar">🧑‍🎤</div>
+                    </div>
+                </div>
+                <div class="about-text">
+                    <h2>关于主播</h2>
+                    <p class="about-desc">
+                        你好！我是声波驿站的主播小明。从大学时期开始接触播客， 
+                        被声音的魅力深深吸引。我相信每一个故事都值得被聆听， 
+                        每一个想法都能通过声音传递温度。
+                    </p>
+                    <div class="about-info">
+                        <div class="info-item">
+                            <span class="info-label">🎙️</span>
+                            <span>5年播客经验</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">🌍</span>
+                            <span>走过20+国家</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">📚</span>
+                            <span>年阅读50+本书</span>
+                        </div>
+                    </div>
+                    <div class="social-links">
+                        <a href="#" class="social-link" title="微博">📱</a>
+                        <a href="#" class="social-link" title="微信公众号">💬</a>
+                        <a href="#" class="social-link" title="B站">📺</a>
+                        <a href="#" class="social-link" title="小红书">📕</a>
+                        <a href="#" class="social-link" title="知乎">✍️</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 联系我们 -->
+    <section id="contact" class="contact">
+        <div class="container">
+            <div class="section-header">
+                <h2>联系我们</h2>
+                <p>期待听到你的声音</p>
+            </div>
+            <div class="contact-content">
+                <form class="contact-form" id="contactForm">
+                    <div class="form-group">
+                        <input type="text" placeholder="你的名字" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="email" placeholder="你的邮箱" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" placeholder="主题">
+                    </div>
+                    <div class="form-group">
+                        <textarea placeholder="想说的话..." rows="5" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">发送消息 ✉️</button>
+                </form>
+                <div class="contact-info">
+                    <div class="contact-item">
+                        <span class="contact-icon">📧</span>
+                        <div>
+                            <h4>邮箱</h4>
+                            <p>hello@wavepodcast.com</p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <span class="contact-icon">📱</span>
+                        <div>
+                            <h4>微信</h4>
+                            <p>wave_podcast</p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <span class="contact-icon">🎧</span>
+                        <div>
+                            <h4>收听平台</h4>
+                            <p>苹果播客 / 小宇宙 / 喜马拉雅</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 播放器 -->
+    <div class="player-bar" id="playerBar">
+        <div class="player-content container">
+            <button class="player-toggle" id="playerToggle">
+                <span class="play-icon">▶</span>
+            </button>
+            <div class="player-info">
+                <span class="player-title" id="playerTitle">选择一集开始收听</span>
+                <span class="player-author">声波驿站</span>
+            </div>
+            <div class="player-progress">
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="time-display">
+                    <span id="currentTime">0:00</span>
+                    <span id="duration">0:00</span>
+                </div>
+            </div>
+            <div class="player-controls">
+                <button class="vol-btn" id="volBtn">🔊</button>
+                <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="0.8">
+            </div>
+        </div>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="logo-icon">🎙️</span>
+                    <span class="logo-text">声波驿站</span>
+                    <p>用声音温暖每一个夜晚</p>
+                </div>
+                <div class="footer-links">
+                    <h4>快速链接</h4>
+                    <ul>
+                        <li><a href="#home">首页</a></li>
+                        <li><a href="#episodes">节目列表</a></li>
+                        <li><a href="#about">关于我</a></li>
+                    </ul>
+                </div>
+                <div class="footer-links">
+                    <h4>收听平台</h4>
+                    <ul>
+                        <li><a href="#">苹果播客</a></li>
+                        <li><a href="#">小宇宙</a></li>
+                        <li><a href="#">喜马拉雅</a></li>
+                    </ul>
+                </div>
+                <div class="footer-newsletter">
+                    <h4>订阅更新</h4>
+                    <p>第一时间收到新节目通知</p>
+                    <div class="newsletter-form">
+                        <input type="email" placeholder="输入邮箱">
+                        <button class="btn btn-primary">订阅</button>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 声波驿站. All rights reserved.</p>
+                <p>❤️ 用热爱制作每一期节目</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

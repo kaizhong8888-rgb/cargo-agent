@@ -1,0 +1,12 @@
+This directory should contain app icons for production builds.
+For development, icons are not required.
+
+To generate icons, run:
+  cargo tauri icon
+
+Required formats:
+- 32x32.png
+- 128x128.png
+- 128x128@2x.png
+- icon.icns (macOS)
+- icon.ico (Windows)
