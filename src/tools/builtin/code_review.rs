@@ -20,12 +20,16 @@
 //! All regex patterns are compiled once using `once_cell::sync::Lazy` for optimal performance.
 //! Thresholds (function length, nesting depth, line length) are user-configurable.
 
+use crate::tools::builtin::config_store::ConfigStore;
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+
+/// Namespace prefix for saved code_review config profiles in the config store.
+const CONFIG_NAMESPACE: &str = "code_review_config:";
 
 // ============================================================================
 // Global Compiled Regex Patterns (compiled once at startup)
@@ -213,59 +217,150 @@ impl Tool for CodeReviewTool {
                 required: false,
                 parameter_type: "boolean".to_string(),
             },
+            ToolParameter {
+                name: "save_config".to_string(),
+                description: "Save current parameters as a reusable config profile (e.g. 'my_review'). Saved profiles can be loaded later with --load_config.".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "load_config".to_string(),
+                description: "Load a saved config profile by name (e.g. 'my_review'). Parameters passed in the current call override saved values.".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "list_configs".to_string(),
+                description: "List all saved code_review config profiles. No analysis is performed when this is set.".to_string(),
+                required: false,
+                parameter_type: "boolean".to_string(),
+            },
+            ToolParameter {
+                name: "delete_config".to_string(),
+                description: "Delete a saved config profile by name (e.g. 'old_profile').".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
         ]
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params
+        // ── Config persistence ──────────────────────────────────────────────
+        let save_config = params.get("save_config").and_then(|v| v.as_str());
+        let load_config = params.get("load_config").and_then(|v| v.as_str());
+        let list_configs = params.get("list_configs").and_then(|v| v.as_bool()).unwrap_or(false);
+        let delete_config = params.get("delete_config").and_then(|v| v.as_str());
+
+        // Handle list_configs - no analysis needed
+        if list_configs {
+            return list_saved_configs();
+        }
+
+        // Handle delete_config - remove a saved profile
+        if let Some(name) = delete_config {
+            return delete_saved_config(name);
+        }
+
+        // Handle load_config: load saved params as defaults, then override with explicit params
+        let merged_params = if let Some(config_name) = load_config {
+            let store = ConfigStore::load();
+            let key = format!("{CONFIG_NAMESPACE}{config_name}");
+            match store.get(&key) {
+                Some(config_obj) => {
+                    if let Some(obj) = config_obj.as_object() {
+                        let mut merged = HashMap::new();
+                        for (k, v) in obj {
+                            merged.insert(k.clone(), v.clone());
+                        }
+                        // Explicit params override saved values
+                        for (k, v) in params {
+                            merged.insert(k.clone(), v.clone());
+                        }
+                        merged
+                    } else {
+                        return Ok(serde_json::json!({
+                            "status": "error",
+                            "message": format!("Config profile '{config_name}' is corrupted (not an object)."),
+                        }));
+                    }
+                }
+                None => {
+                    return Ok(serde_json::json!({
+                        "status": "error",
+                        "message": format!("Config profile '{config_name}' not found. Use --save_config '{config_name}' to create it, or --list_configs to see available profiles."),
+                    }));
+                }
+            }
+        } else {
+            let mut p = HashMap::new();
+            for (k, v) in params {
+                p.insert(k.clone(), v.clone());
+            }
+            p
+        };
+
+        // Handle save_config: store merged parameters for later reuse
+        if let Some(config_name) = save_config {
+            let store = ConfigStore::load();
+            let key = format!("{CONFIG_NAMESPACE}{config_name}");
+            let mut config = serde_json::Map::new();
+            for param_name in configurable_param_names() {
+                if let Some(val) = merged_params.get(*param_name) {
+                    config.insert(param_name.to_string(), val.clone());
+                }
+            }
+            store.set(&key, Value::Object(config));
+        }
+
+        // ── Parse parameters (merged) ───────────────────────────────────────
+        let path = merged_params
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: path")?;
 
-        let recursive = params
+        let recursive = merged_params
             .get("recursive")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let checks_str = params
+        let checks_str = merged_params
             .get("checks")
             .and_then(|v| v.as_str())
             .unwrap_or("all");
 
-        let format = params
+        let format = merged_params
             .get("format")
             .and_then(|v| v.as_str())
             .unwrap_or("auto");
 
-        // Auto-detect CI environment if format is "auto"
         let effective_format = resolve_format(format);
 
-        let max_results = params
+        let max_results = merged_params
             .get("max_results")
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let min_severity = params
+        let min_severity = merged_params
             .get("min_severity")
             .and_then(|v| v.as_str())
             .unwrap_or("info");
 
-        let max_fn_length = params
+        let max_fn_length = merged_params
             .get("max_fn_length")
             .and_then(|v| v.as_u64())
             .unwrap_or(100) as usize;
 
-        let max_nesting = params
+        let max_nesting = merged_params
             .get("max_nesting")
             .and_then(|v| v.as_u64())
             .unwrap_or(8) as usize;
 
-        let max_line_length = params
+        let max_line_length = merged_params
             .get("max_line_length")
             .and_then(|v| v.as_u64())
             .unwrap_or(120) as usize;
 
-        let parallel = params
+        let parallel = merged_params
             .get("parallel")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
@@ -2218,6 +2313,65 @@ fn shorten_path(path: &str) -> &str {
 
 fn plural(count: u64, word: &str) -> String {
     if count == 1 { format!("{count} {word}") } else { format!("{count} {word}s") }
+}
+
+// ============================================================================
+// Config Persistence
+// ============================================================================
+
+/// Parameters that can be saved/loaded as config profiles.
+/// These are the user-facing parameters (excluding path which is always required).
+fn configurable_param_names() -> &'static [&'static str] {
+    &[
+        "recursive", "checks", "format", "min_severity",
+        "max_fn_length", "max_nesting", "max_line_length", "parallel",
+    ]
+}
+
+/// List all saved config profiles.
+fn list_saved_configs() -> Result<Value, String> {
+    let store = ConfigStore::load();
+    let all_prefs = store.list();
+    let mut profiles: Vec<Value> = Vec::new();
+
+    for (key, value) in &all_prefs {
+        if let Some(name) = key.strip_prefix(CONFIG_NAMESPACE) {
+            if let Some(obj) = value.as_object() {
+                let settings: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+                profiles.push(serde_json::json!({
+                    "name": name,
+                    "settings": settings,
+                }));
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "status": "ok",
+        "configs": profiles,
+        "count": profiles.len(),
+    }))
+}
+
+/// Delete a saved config profile by name.
+fn delete_saved_config(name: &str) -> Result<Value, String> {
+    let store = ConfigStore::load();
+    let key = format!("{CONFIG_NAMESPACE}{name}");
+    let existing = store.get(&key);
+
+    if existing.is_none() {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "message": format!("Config profile '{name}' not found. Use --list_configs to see available profiles."),
+        }));
+    }
+
+    store.delete(&key);
+    Ok(serde_json::json!({
+        "status": "ok",
+        "action": "deleted",
+        "config": name,
+    }))
 }
 
 // ============================================================================
