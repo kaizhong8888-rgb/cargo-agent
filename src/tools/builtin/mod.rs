@@ -27,3 +27,4 @@ pub mod env_secret;
 pub mod notify;
 pub mod image_tool;
 pub mod data_processor;
+pub mod chart_generator;

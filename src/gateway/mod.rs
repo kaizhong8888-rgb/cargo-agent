@@ -88,6 +88,9 @@ impl Gateway {
         // Data Processing: parse, filter, sort, aggregate, stats, merge, convert CSV/JSON
         crate::tools::builtin::data_processor::register_all(&mut tool_registry);
 
+        // Chart Generation: visualize data with pie, bar, line, table, histogram charts
+        crate::tools::builtin::chart_generator::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(
@@ -139,6 +142,8 @@ impl Gateway {
             Use image to analyze and manipulate images (info, resize, thumbnail, convert). \
             Use data_processor for CSV/JSON data processing: parse, filter, sort, aggregate, \
             stats (mean/median/std_dev), merge/join, head/tail, unique, rename, add_column. \
+            Use chart_generator to visualize data: pie (pie chart), bar (horizontal bar), \
+            line (line chart with sparkline), table (markdown table), histogram (from binned data). \
             Reflect on your growth with self_reflect, and record evolution events with record_evolution. \
             When you learn something important, store it as a memory. \
             When you improve yourself, record the evolution event. \

@@ -1453,9 +1453,9 @@ mod tests {
     /// Helper macro to create a HashMap from key-value pairs.
     macro_rules! map {
         ($($key:expr => $value:expr),* $(,)?) => {{
-            let mut m = ::std::collections::HashMap::new();
+            let mut m: ::std::collections::HashMap<String, serde_json::Value> = ::std::collections::HashMap::new();
             $(
-                m.insert($key, $value);
+                m.insert($key.to_string(), $value);
             )*
             m
         }};
