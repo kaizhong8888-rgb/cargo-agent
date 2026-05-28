@@ -3,22 +3,14 @@
 
 use crate::memory::SqliteMemoryStore;
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
-use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-static MEMORY_STORE: Lazy<Arc<SqliteMemoryStore>> = Lazy::new(|| {
-    let db_path = std::path::PathBuf::from(&*crate::constants::AGENT_DIR)
-        .join("memories.db");
-    Arc::new(SqliteMemoryStore::open(db_path).unwrap_or_else(|_e| {
-        let fallback = std::env::temp_dir().join("cargo-agent-memories.db");
-        SqliteMemoryStore::open(fallback).expect("Failed to create memory database")
-    }))
-});
-
 /// Store a memory: key-value pairs with namespace, tags, and importance.
-pub struct StoreMemory;
+pub struct StoreMemory {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for StoreMemory {
@@ -94,7 +86,7 @@ impl Tool for StoreMemory {
             .unwrap_or(5)
             .clamp(1, 10);
 
-        let entry = MEMORY_STORE.store(&key, &value, &namespace, &tags, importance)
+        let entry = self.memory.store(&key, &value, &namespace, &tags, importance)
             .map_err(|e| format!("Storage error: {e}"))?;
 
         Ok(serde_json::json!({
@@ -107,7 +99,9 @@ impl Tool for StoreMemory {
 }
 
 /// Recall/retrieve a memory by key.
-pub struct RecallMemory;
+pub struct RecallMemory {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for RecallMemory {
@@ -133,7 +127,7 @@ impl Tool for RecallMemory {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: key")?;
 
-        match MEMORY_STORE.recall(key).map_err(|e| format!("Recall error: {e}"))? {
+        match self.memory.recall(key).map_err(|e| format!("Recall error: {e}"))? {
             Some(entry) => {
                 let tags_list: Vec<String> = entry.tags
                     .split(',')
@@ -161,7 +155,9 @@ impl Tool for RecallMemory {
 }
 
 /// Search memories by namespace, tags, or text content.
-pub struct SearchMemories;
+pub struct SearchMemories {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for SearchMemories {
@@ -217,7 +213,7 @@ impl Tool for SearchMemories {
             .and_then(|v| v.as_u64())
             .unwrap_or(20) as usize;
 
-        let results = MEMORY_STORE.search(
+        let results = self.memory.search(
             namespace_filter, tag_filter, query, min_importance, limit,
         ).map_err(|e| format!("Search error: {e}"))?;
 
@@ -245,7 +241,9 @@ impl Tool for SearchMemories {
 }
 
 /// List all namespaces.
-pub struct ListNamespaces;
+pub struct ListNamespaces {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for ListNamespaces {
@@ -260,7 +258,7 @@ impl Tool for ListNamespaces {
     }
 
     async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
-        let namespaces = MEMORY_STORE.list_namespaces()
+        let namespaces = self.memory.list_namespaces()
             .map_err(|e| format!("List error: {e}"))?;
 
         let ns_list: Vec<Value> = namespaces.iter().map(|(ns, count)| {
@@ -277,7 +275,9 @@ impl Tool for ListNamespaces {
 }
 
 /// Delete a memory by key.
-pub struct DeleteMemory;
+pub struct DeleteMemory {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for DeleteMemory {
@@ -303,7 +303,7 @@ impl Tool for DeleteMemory {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: key")?;
 
-        let deleted = MEMORY_STORE.delete(key)
+        let deleted = self.memory.delete(key)
             .map_err(|e| format!("Delete error: {e}"))?;
 
         if deleted {
@@ -322,7 +322,9 @@ impl Tool for DeleteMemory {
 }
 
 /// Get memory statistics.
-pub struct MemoryStats;
+pub struct MemoryStats {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for MemoryStats {
@@ -337,7 +339,7 @@ impl Tool for MemoryStats {
     }
 
     async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
-        let stats = MEMORY_STORE.stats()
+        let stats = self.memory.stats()
             .map_err(|e| format!("Stats error: {e}"))?;
 
         let ns_breakdown: Vec<Value> = stats.by_namespace.iter().map(|(ns, count)| {
@@ -362,12 +364,12 @@ impl Tool for MemoryStats {
     }
 }
 
-/// Register all memory tools with the registry.
-pub fn register_all(registry: &mut ToolRegistry) {
-    registry.register(Box::new(StoreMemory));
-    registry.register(Box::new(RecallMemory));
-    registry.register(Box::new(SearchMemories));
-    registry.register(Box::new(ListNamespaces));
-    registry.register(Box::new(DeleteMemory));
-    registry.register(Box::new(MemoryStats));
+/// Register all memory tools with the registry, sharing a single memory store.
+pub fn register_all(registry: &mut ToolRegistry, memory: Arc<SqliteMemoryStore>) {
+    registry.register(Box::new(StoreMemory { memory: memory.clone() }));
+    registry.register(Box::new(RecallMemory { memory: memory.clone() }));
+    registry.register(Box::new(SearchMemories { memory: memory.clone() }));
+    registry.register(Box::new(ListNamespaces { memory: memory.clone() }));
+    registry.register(Box::new(DeleteMemory { memory: memory.clone() }));
+    registry.register(Box::new(MemoryStats { memory }));
 }

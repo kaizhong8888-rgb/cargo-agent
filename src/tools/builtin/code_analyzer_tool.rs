@@ -10,10 +10,48 @@
 //! - **summary**: High-level overview of a Rust file or project
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+
+// ============================================================================
+// Pre-compiled regex patterns (one-time compile, eliminates all unwrap() calls)
+// ============================================================================
+
+// Structure analysis patterns
+static RE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]"#).expect("valid regex"));
+static RE_STRUCT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_ENUM: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_TRAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_IMPL: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s+for\s+[a-zA-Z_][a-zA-Z0-9_<>]*)?)\s*\{?"#).expect("valid regex"));
+static RE_MOD: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\{|;)"#).expect("valid regex"));
+static RE_TYPE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?type\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_CONST: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?macro_rules!\s*\(?\s*([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+
+// Dependency analysis patterns
+static RE_EXTERN_CRATE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*extern\s+crate\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_USE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*use\s+([a-zA-Z_][a-zA-Z0-9_:*{}\s]*(?:;|$))"#).expect("valid regex"));
+
+// Complexity analysis patterns
+static RE_FN_START: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_UNSAFE_BLOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r#"unsafe\s*\{|#\[allow\(unsafe"#).expect("valid regex"));
+
+// Summary analysis patterns
+static RE_FN_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
+static RE_STRUCT_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
+static RE_ENUM_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
+static RE_TRAIT_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
+static RE_IMPL_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+"#).expect("valid regex"));
+static RE_MOD_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
+static RE_TEST: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*#\[test\]"#).expect("valid regex"));
+static RE_UNSAFE_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"unsafe\s*\{"#).expect("valid regex"));
+static RE_DOC_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*///"#).expect("valid regex"));
+static RE_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*//"#).expect("valid regex"));
+static RE_BLANK_LINE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*$"#).expect("valid regex"));
 
 // ============================================================================
 // CodeAnalyzerTool
@@ -160,16 +198,14 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, dept
 
         // Skip hidden directories and common non-source dirs
         if path.is_dir() {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             if name.starts_with('.') || name == "target" || name == "node_modules" {
                 continue;
             }
             if recursive {
                 collect_rust_files(&path, files, true, depth + 1)?;
             }
-        } else if path.is_file()
-            && path.extension().map(|e| e == "rs").unwrap_or(false)
-        {
+        } else if path.is_file() && path.extension().map_or(false, |e| e == "rs") {
             files.push(path.to_string_lossy().to_string());
         }
     }
@@ -189,17 +225,6 @@ fn read_file_content(path: &str) -> Result<String, String> {
 
 /// Analyze the structure of Rust files: functions, structs, enums, traits, impls, modules.
 fn analyze_structure(files: &[String], detail: &str) -> Result<Value, String> {
-    let fn_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]"#).unwrap();
-    let struct_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let enum_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let trait_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let impl_re = Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s+for\s+[a-zA-Z_][a-zA-Z0-9_<>]*)?)\s*\{?"#).unwrap();
-    let mod_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\{|;)"#).unwrap();
-    let type_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?type\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let const_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let static_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let macro_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?macro_rules!\s*\(?\s*([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-
     let mut results = Vec::new();
     let mut total_counts: HashMap<String, usize> = HashMap::new();
 
@@ -207,71 +232,71 @@ fn analyze_structure(files: &[String], detail: &str) -> Result<Value, String> {
         let content = read_file_content(file_path)?;
         let relative_path = file_path.to_string();
 
-        // Extract items
+        // Extract items using pre-compiled regex statics
         let functions: Vec<Value> = if detail == "full" {
-            fn_re.captures_iter(&content)
+            RE_FN.captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            fn_re.captures_iter(&content)
+            RE_FN.captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let structs: Vec<Value> = if detail == "full" {
-            struct_re.captures_iter(&content)
+            RE_STRUCT.captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            struct_re.captures_iter(&content)
+            RE_STRUCT.captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let enums: Vec<Value> = if detail == "full" {
-            enum_re.captures_iter(&content)
+            RE_ENUM.captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            enum_re.captures_iter(&content)
+            RE_ENUM.captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let traits: Vec<Value> = if detail == "full" {
-            trait_re.captures_iter(&content)
+            RE_TRAIT.captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            trait_re.captures_iter(&content)
+            RE_TRAIT.captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let impls: Vec<Value> = if detail == "full" {
-            impl_re.captures_iter(&content)
+            RE_IMPL.captures_iter(&content)
                 .map(|c| serde_json::json!({ "target": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            impl_re.captures_iter(&content)
+            RE_IMPL.captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let modules: Vec<Value> = if detail == "full" {
-            mod_re.captures_iter(&content)
+            RE_MOD.captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            mod_re.captures_iter(&content)
+            RE_MOD.captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
-        let types = type_re.captures_iter(&content).count();
-        let consts = const_re.captures_iter(&content).count();
-        let statics = static_re.captures_iter(&content).count();
-        let macros = macro_re.captures_iter(&content).count();
+        let types = RE_TYPE.captures_iter(&content).count();
+        let consts = RE_CONST.captures_iter(&content).count();
+        let statics = RE_STATIC.captures_iter(&content).count();
+        let macros = RE_MACRO.captures_iter(&content).count();
 
         // Update total counts
         *total_counts.entry("functions".into()).or_insert(0) += functions.len();
@@ -333,10 +358,6 @@ fn analyze_structure(files: &[String], detail: &str) -> Result<Value, String> {
 
 /// Analyze dependencies: use statements and external crate references.
 fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
-    let extern_crate_re = Regex::new(r#"(?m)^\s*extern\s+crate\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let use_re = Regex::new(r#"(?m)^\s*use\s+([a-zA-Z_][a-zA-Z0-9_:*{}\s]*(?:;|$))"#).unwrap();
-    let _dep_re = Regex::new(r#"([a-zA-Z_][a-zA-Z0-9_]*)::"#).unwrap();
-
     let mut all_extern_crates: HashMap<String, Vec<String>> = HashMap::new();
     let mut all_use_statements: HashMap<String, Vec<String>> = HashMap::new();
     let mut crate_references: HashMap<String, usize> = HashMap::new();
@@ -345,8 +366,8 @@ fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
         let content = read_file_content(file_path)?;
         let relative_path = file_path.to_string();
 
-        // Find extern crate declarations
-        let extern_crates: Vec<String> = extern_crate_re
+        // Find extern crate declarations using pre-compiled regex
+        let extern_crates: Vec<String> = RE_EXTERN_CRATE
             .captures_iter(&content)
             .map(|c| c.get(1).map(|m| m.as_str().to_string()).unwrap_or_default())
             .collect();
@@ -354,8 +375,8 @@ fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
             all_extern_crates.insert(relative_path.clone(), extern_crates);
         }
 
-        // Find use statements
-        let use_stmts: Vec<String> = use_re
+        // Find use statements using pre-compiled regex
+        let use_stmts: Vec<String> = RE_USE
             .captures_iter(&content)
             .map(|c| c.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default())
             .collect();
@@ -394,11 +415,6 @@ fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
 
 /// Analyze code complexity: function length, nesting, etc.
 fn analyze_complexity(files: &[String], detail: &str) -> Result<Value, String> {
-    let fn_start_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).unwrap();
-    let unsafe_re = Regex::new(r#"unsafe\s*\{|#\[allow\(unsafe"#).unwrap();
-    let _nesting_re = Regex::new(r#"\{|\["#).unwrap();
-    let _nesting_close_re = Regex::new(r#"\}|\]"#).unwrap();
-
     let mut file_results = Vec::new();
     let mut total_functions = 0usize;
     let mut total_lines = 0usize;
@@ -410,8 +426,8 @@ fn analyze_complexity(files: &[String], detail: &str) -> Result<Value, String> {
         let lines: Vec<&str> = content.lines().collect();
         total_lines += lines.len();
 
-        // Find functions and measure their length
-        let fn_positions: Vec<(usize, String)> = fn_start_re
+        // Find functions and measure their length using pre-compiled regex
+        let fn_positions: Vec<(usize, String)> = RE_FN_START
             .captures_iter(&content)
             .filter_map(|c| {
                 let name = c.get(1).map(|m| m.as_str().to_string())?;
@@ -448,8 +464,8 @@ fn analyze_complexity(files: &[String], detail: &str) -> Result<Value, String> {
             }
         }
 
-        // Count unsafe blocks
-        let unsafe_count = unsafe_re.find_iter(&content).count();
+        // Count unsafe blocks using pre-compiled regex
+        let unsafe_count = RE_UNSAFE_BLOCK.find_iter(&content).count();
 
         // Estimate max nesting depth
         let mut max_nesting = 0usize;
@@ -512,6 +528,9 @@ fn analyze_complexity(files: &[String], detail: &str) -> Result<Value, String> {
 
 /// Analyze code patterns: unsafe blocks, unwrap, expect, todo, unimplemented, panic, dbg!, etc.
 fn analyze_patterns(files: &[String]) -> Result<Value, String> {
+    // Pattern definitions: (key, regex_str, description)
+    // Regex strings are compiled per-call since they're user-visible patterns,
+    // but we use .ok() to avoid unwrap — invalid regex just yields zero matches.
     let patterns: Vec<(&str, &str, &str)> = vec![
         ("unsafe_blocks", r#"unsafe\s*\{"#, "Unsafe blocks (potential memory safety risks)"),
         ("unwrap_calls", r#"\.unwrap\(\)"#, "unwrap() calls (will panic on None/Err)"),
@@ -520,7 +539,7 @@ fn analyze_patterns(files: &[String]) -> Result<Value, String> {
         ("unimplemented", r#"unimplemented!\("#, "unimplemented!() macros"),
         ("panic_calls", r#"(?m)^\s*panic!\("#, "panic!() calls"),
         ("dbg_macros", r#"dbg!\("#, "dbg!() macros (debugging artifacts)"),
-        ("allow_attributes", r#"#\[allow\([^)]*\)\]"#, "#[allow(...)] attributes (suppressed warnings)"),
+        ("allow_attributes", r#"#\[allow\([^)]*\]"#, "#[allow(...)] attributes (suppressed warnings)"),
         ("todo_comments", r#"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND|OPTIMIZE)"#, "TODO/FIXME/HACK comments"),
         ("unwrap_or", r#"\.unwrap_or\("#, "unwrap_or() calls (safe fallback)"),
         ("as_ref_calls", r#"\.as_ref\(\)"#, "as_ref() calls"),
@@ -586,18 +605,6 @@ fn analyze_patterns(files: &[String]) -> Result<Value, String> {
 
 /// Generate a high-level summary of Rust files/projects.
 fn analyze_summary(files: &[String]) -> Result<Value, String> {
-    let fn_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+[a-zA-Z_][a-zA-Z0-9_]*"#).unwrap();
-    let struct_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+[a-zA-Z_][a-zA-Z0-9_]*"#).unwrap();
-    let enum_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+[a-zA-Z_][a-zA-Z0-9_]*"#).unwrap();
-    let trait_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+[a-zA-Z_][a-zA-Z0-9_]*"#).unwrap();
-    let impl_re = Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+"#).unwrap();
-    let mod_re = Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+[a-zA-Z_][a-zA-Z0-9_]*"#).unwrap();
-    let test_re = Regex::new(r#"(?m)^\s*#\[test\]"#).unwrap();
-    let unsafe_re = Regex::new(r#"unsafe\s*\{"#).unwrap();
-    let doc_comment_re = Regex::new(r#"(?m)^\s*///"#).unwrap();
-    let comment_re = Regex::new(r#"(?m)^\s*//"#).unwrap();
-    let blank_line_re = Regex::new(r#"(?m)^\s*$"#).unwrap();
-
     let mut total_fns = 0usize;
     let mut total_structs = 0usize;
     let mut total_enums = 0usize;
@@ -618,10 +625,10 @@ fn analyze_summary(files: &[String]) -> Result<Value, String> {
         let lines: Vec<&str> = content.lines().collect();
         let total_file_lines = lines.len();
 
-        // Count different types of lines
-        let doc_lines = doc_comment_re.find_iter(&content).count();
-        let comment_lines = comment_re.find_iter(&content).count();
-        let blank_lines = blank_line_re.find_iter(&content).count();
+        // Count different types of lines using pre-compiled regex statics
+        let doc_lines = RE_DOC_COMMENT.find_iter(&content).count();
+        let comment_lines = RE_COMMENT.find_iter(&content).count();
+        let blank_lines = RE_BLANK_LINE.find_iter(&content).count();
 
         // Estimate code lines (non-comment, non-blank)
         let code_lines = total_file_lines.saturating_sub(comment_lines + blank_lines);
@@ -631,14 +638,14 @@ fn analyze_summary(files: &[String]) -> Result<Value, String> {
         total_comment_lines += comment_lines;
         total_doc_lines += doc_lines;
 
-        let fns = fn_re.find_iter(&content).count();
-        let structs = struct_re.find_iter(&content).count();
-        let enums = enum_re.find_iter(&content).count();
-        let traits = trait_re.find_iter(&content).count();
-        let impls = impl_re.find_iter(&content).count();
-        let mods = mod_re.find_iter(&content).count();
-        let tests = test_re.find_iter(&content).count();
-        let unsafe_count = unsafe_re.find_iter(&content).count();
+        let fns = RE_FN_SUMMARY.find_iter(&content).count();
+        let structs = RE_STRUCT_SUMMARY.find_iter(&content).count();
+        let enums = RE_ENUM_SUMMARY.find_iter(&content).count();
+        let traits = RE_TRAIT_SUMMARY.find_iter(&content).count();
+        let impls = RE_IMPL_SUMMARY.find_iter(&content).count();
+        let mods = RE_MOD_SUMMARY.find_iter(&content).count();
+        let tests = RE_TEST.find_iter(&content).count();
+        let unsafe_count = RE_UNSAFE_SUMMARY.find_iter(&content).count();
 
         total_fns += fns;
         total_structs += structs;

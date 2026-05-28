@@ -1,11 +1,13 @@
 //! Self-modification tool: read/write/patch source files with build verification.
 //! Supports actions: read_file, write_file, create_file, delete_file, patch_file, cargo_check, cargo_test.
 
+use crate::memory::SqliteMemoryStore;
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 
 pub struct SelfModifyTool;
 
@@ -375,7 +377,9 @@ fn to_snake_case(name: &str) -> String {
 /// - `knowledge_gaps`: Identify namespaces with sparse memories or areas lacking coverage
 /// - `error_patterns`: Look for recurring errors or issues in memories
 /// - `response_quality`: Assess completeness of stored knowledge and skill activation
-pub struct SelfReflectTool;
+pub struct SelfReflectTool {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for SelfReflectTool {
@@ -404,17 +408,14 @@ impl Tool for SelfReflectTool {
             .and_then(|v| v.as_str())
             .unwrap_or("general");
 
-        let db_path = std::path::PathBuf::from(&*crate::constants::AGENT_DIR)
-            .join("memories.db");
-        let store = crate::memory::SqliteMemoryStore::open(db_path)
-            .map_err(|e| format!("Cannot open memory store: {e}"))?;
+        let store = &self.memory;
 
         match focus {
-            "tool_usage" => self.reflect_tool_usage(&store),
-            "knowledge_gaps" => self.reflect_knowledge_gaps(&store),
-            "error_patterns" => self.reflect_error_patterns(&store),
-            "response_quality" => self.reflect_response_quality(&store),
-            _ => self.reflect_general(&store),
+            "tool_usage" => self.reflect_tool_usage(store),
+            "knowledge_gaps" => self.reflect_knowledge_gaps(store),
+            "error_patterns" => self.reflect_error_patterns(store),
+            "response_quality" => self.reflect_response_quality(store),
+            _ => self.reflect_general(store),
         }
     }
 }
@@ -664,7 +665,9 @@ impl SelfReflectTool {
 }
 
 /// Record an evolution event for tracking agent growth over time.
-pub struct RecordEvolutionTool;
+pub struct RecordEvolutionTool {
+    memory: Arc<SqliteMemoryStore>,
+}
 
 #[async_trait::async_trait]
 impl Tool for RecordEvolutionTool {
@@ -731,10 +734,7 @@ impl Tool for RecordEvolutionTool {
 
         let key = format!("evolution_{}", event_type);
 
-        let db_path = std::path::PathBuf::from(&*crate::constants::AGENT_DIR)
-            .join("memories.db");
-        let store = crate::memory::SqliteMemoryStore::open(db_path)
-            .map_err(|e| format!("Cannot open memory store: {e}"))?;
+        let store = &self.memory;
 
         let tags = vec![event_type.to_string(), "evolution".to_string()];
 
@@ -942,10 +942,10 @@ impl Tool for ManageSkillsTool {
     }
 }
 
-pub fn register_all(registry: &mut ToolRegistry) {
+pub fn register_all(registry: &mut ToolRegistry, memory: Arc<SqliteMemoryStore>) {
     registry.register(Box::new(SelfModifyTool));
-    registry.register(Box::new(SelfReflectTool));
-    registry.register(Box::new(RecordEvolutionTool));
+    registry.register(Box::new(SelfReflectTool { memory: memory.clone() }));
+    registry.register(Box::new(RecordEvolutionTool { memory }));
     registry.register(Box::new(ManageSkillsTool));
 }
 

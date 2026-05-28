@@ -2,10 +2,54 @@
 //! Uses regex-based scanning and cargo commands for code analysis.
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+// ============================================================================
+// Pre-compiled regex patterns (one-time compile, no unwrap needed)
+// ============================================================================
+
+static RE_FN_GENERIC: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*<[^>]*>\s*\(").expect("valid regex")
+});
+static RE_FN_SIMPLE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*\(").expect("valid regex")
+});
+static RE_STRUCT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:pub\s+)?struct\s+(\w+)").expect("valid regex")
+});
+static RE_ENUM: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:pub\s+)?enum\s+(\w+)").expect("valid regex")
+});
+static RE_TRAIT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:pub\s+)?trait\s+(\w+)").expect("valid regex")
+});
+static RE_IMPL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"impl(?:\s+<[^>]*>)?\s+(\w+)").expect("valid regex")
+});
+static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\.unwrap\(\)").expect("valid regex")
+});
+static RE_UNSAFE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\bunsafe\b").expect("valid regex")
+});
+static RE_TODO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"//.*TODO|//.*todo").expect("valid regex")
+});
+static RE_FN_NAME: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"fn\s+(\w+)").expect("valid regex")
+});
+static RE_MUT_KW: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\bmut\b").expect("valid regex")
+});
+
+// ============================================================================
+// Tool definition
+// ============================================================================
 
 pub struct CodeAnalyzerTool;
 
@@ -90,77 +134,51 @@ impl CodeAnalyzerTool {
         std::fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))
     }
 
-    /// Extract Rust items from source using regex patterns.
+    /// Extract Rust items from source using pre-compiled regex patterns.
     fn extract_items(content: &str) -> RustStructure {
         let mut items = RustStructure::default();
 
-        // Extract functions
-        for cap in regex::Regex::new(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*<[^>]*>\s*\(")
-            .unwrap()
+        // Extract functions (generic version first, fallback to simple)
+        for cap in RE_FN_GENERIC
             .captures_iter(content)
             .filter(|c| c.get(1).is_some())
         {
             items.functions.push(cap[1].to_string());
         }
-        // Fallback: simple fn match
         if items.functions.is_empty() {
-            for cap in regex::Regex::new(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*\(")
-                .unwrap()
-                .captures_iter(content)
-            {
+            for cap in RE_FN_SIMPLE.captures_iter(content) {
                 items.functions.push(cap[1].to_string());
             }
         }
 
         // Extract structs
-        for cap in regex::Regex::new(r"(?:pub\s+)?struct\s+(\w+)")
-            .unwrap()
-            .captures_iter(content)
-        {
+        for cap in RE_STRUCT.captures_iter(content) {
             items.structs.push(cap[1].to_string());
         }
 
         // Extract enums
-        for cap in regex::Regex::new(r"(?:pub\s+)?enum\s+(\w+)")
-            .unwrap()
-            .captures_iter(content)
-        {
+        for cap in RE_ENUM.captures_iter(content) {
             items.enums.push(cap[1].to_string());
         }
 
         // Extract traits
-        for cap in regex::Regex::new(r"(?:pub\s+)?trait\s+(\w+)")
-            .unwrap()
-            .captures_iter(content)
-        {
+        for cap in RE_TRAIT.captures_iter(content) {
             items.traits.push(cap[1].to_string());
         }
 
         // Extract impl blocks
-        for cap in regex::Regex::new(r"impl(?:\s+<[^>]*>)?\s+(\w+)")
-            .unwrap()
-            .captures_iter(content)
-        {
+        for cap in RE_IMPL.captures_iter(content) {
             items.impls.push(cap[1].to_string());
         }
 
         // Count unwrap calls
-        items.unwrap_count = regex::Regex::new(r"\.unwrap\(\)")
-            .unwrap()
-            .captures_iter(content)
-            .count();
+        items.unwrap_count = RE_UNWRAP.captures_iter(content).count();
 
         // Count unsafe blocks
-        items.unsafe_count = regex::Regex::new(r"\bunsafe\b")
-            .unwrap()
-            .captures_iter(content)
-            .count();
+        items.unsafe_count = RE_UNSAFE.captures_iter(content).count();
 
         // Count TODO comments
-        items.todo_count = regex::Regex::new(r"//.*TODO|//.*todo")
-            .unwrap()
-            .captures_iter(content)
-            .count();
+        items.todo_count = RE_TODO.captures_iter(content).count();
 
         // Count lines
         items.line_count = content.lines().count();
@@ -282,7 +300,7 @@ impl CodeAnalyzerTool {
             .unwrap_or("src");
 
         let full_path = self.resolve_path(path)?;
-        let re = regex::Regex::new(pattern)
+        let re = Regex::new(pattern)
             .map_err(|e| format!("Invalid regex pattern: {e}"))?;
 
         let mut matches: Vec<Value> = Vec::new();
@@ -424,18 +442,15 @@ impl CodeAnalyzerTool {
                 for (i, line) in lines.iter().enumerate() {
                     let trimmed = line.trim();
 
-                    if let Some(cap) = regex::Regex::new(r"fn\s+(\w+)")
-                        .unwrap().captures(trimmed)
-                    {
+                    // Use pre-compiled regex to detect function start
+                    if let Some(cap) = RE_FN_NAME.captures(trimmed) {
                         if in_function && brace_depth == 0 {
-                            // End of previous function
-                            let complexity = (mut_count as f64 / (func_start..i).len() as f64 * 100.0).round();
                             complexities.push(serde_json::json!({
                                 "file": entry.strip_prefix(self.project_root()?).unwrap_or(&entry).to_string_lossy(),
                                 "function": func_name,
                                 "lines": i - func_start,
                                 "mut_count": mut_count,
-                            });
+                            }));
                         }
                         in_function = true;
                         func_name = cap[1].to_string();
@@ -443,7 +458,7 @@ impl CodeAnalyzerTool {
                         mut_count = 0;
                     }
 
-                    mut_count += regex::Regex::new(r"\bmut\b").unwrap().captures_iter(trimmed).count();
+                    mut_count += RE_MUT_KW.captures_iter(trimmed).count();
 
                     brace_depth += trimmed.matches('{').count();
                     brace_depth -= trimmed.matches('}').count();
@@ -571,8 +586,8 @@ mod tests {
 
     #[test]
     fn test_walk_dir_skips_target() {
-        let root = std::env::current_dir().unwrap();
-        let entries = walk_dir(&root).unwrap();
+        let root = std::env::current_dir().expect("valid current dir");
+        let entries = walk_dir(&root).expect("walk_dir succeeds");
         // Should not contain any target/ entries
         for entry in &entries {
             let path_str = entry.to_string_lossy();

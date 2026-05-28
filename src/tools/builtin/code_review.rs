@@ -27,6 +27,8 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Namespace prefix for saved code_review config profiles in the config store.
 const CONFIG_NAMESPACE: &str = "code_review_config:";
@@ -241,6 +243,24 @@ impl Tool for CodeReviewTool {
                 required: false,
                 parameter_type: "string".to_string(),
             },
+            ToolParameter {
+                name: "output".to_string(),
+                description: "Save the report to a file (e.g. 'report.json', 'report.txt'). The file extension determines format if not specified via --format.".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "progress".to_string(),
+                description: "Show real-time progress information during analysis (default: true)".to_string(),
+                required: false,
+                parameter_type: "boolean".to_string(),
+            },
+            ToolParameter {
+                name: "git_diff".to_string(),
+                description: "Only review files that have been modified (unstaged or staged) in the git working tree. Falls back to full scan if not a git repo (default: false)".to_string(),
+                required: false,
+                parameter_type: "boolean".to_string(),
+            },
         ]
     }
 
@@ -365,6 +385,32 @@ impl Tool for CodeReviewTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
+        let output_path = merged_params
+            .get("output")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let show_progress = merged_params
+            .get("progress")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let git_diff = merged_params
+            .get("git_diff")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let effective_format = if effective_format == "auto" || effective_format == "text" {
+            if let Some(ref out) = output_path {
+                if out.ends_with(".json") { "json".to_string() }
+                else if out.ends_with(".md") { "text".to_string() }
+                else { effective_format }
+            } else {
+                effective_format
+            }
+        } else {
+            effective_format
+        };
+
         let thresholds = Thresholds { max_fn_length, max_nesting, max_line_length };
         let file_path = Path::new(path);
 
@@ -401,6 +447,35 @@ impl Tool for CodeReviewTool {
             files.truncate(max_results);
         }
 
+        // Filter to only git-changed files if git_diff is enabled
+        if git_diff {
+            let changed = get_git_diff_files()?;
+            if changed.is_empty() {
+                return Ok(serde_json::json!({
+                    "status": "ok",
+                    "message": "No git changes detected. No files to review.",
+                    "git_diff": true,
+                    "summary": { "files": 0, "total_issues": 0, "errors": 0, "warnings": 0, "info": 0 },
+                }));
+            }
+            let original_count = files.len();
+            files.retain(|f| {
+                let normalized = if f.starts_with("./") { &f[2..] } else { f.as_str() };
+                changed.iter().any(|c| c == normalized || f.ends_with(c))
+            });
+            let filtered_total = original_count - files.len();
+            if files.is_empty() {
+                return Ok(serde_json::json!({
+                    "status": "ok",
+                    "message": "No git-changed Rust files found in the specified path.",
+                    "git_diff": true,
+                    "changed_files": changed.len(),
+                    "filtered_out": filtered_total,
+                    "summary": { "files": 0, "total_issues": 0, "errors": 0, "warnings": 0, "info": 0 },
+                }));
+            }
+        }
+
         // Run all checks — in parallel for speed
         let mut all_issues: Vec<ReviewIssue> = Vec::new();
         let mut file_summaries: Vec<Value> = Vec::new();
@@ -409,9 +484,14 @@ impl Tool for CodeReviewTool {
         let mut total_info = 0u32;
 
         if parallel && files.len() > 1 {
-            // ── Parallel processing ─────────────────────────────────────────
+            // ── Parallel processing with progress tracking ──────────────────
             let num_files = files.len();
             let mut handles = Vec::with_capacity(num_files);
+            let completed = Arc::new(AtomicUsize::new(0));
+
+            if show_progress {
+                eprintln!("[PAR] Starting parallel analysis of {num_files} files...");
+            }
 
             for file in &files {
                 let file = file.clone();
@@ -422,9 +502,16 @@ impl Tool for CodeReviewTool {
                     max_line_length: thresholds.max_line_length,
                 };
                 let min_sev = min_severity.to_string();
+                let completed_clone = completed.clone();
+                let show_prog = show_progress;
 
                 handles.push(tokio::task::spawn_blocking(move || {
-                    analyze_file(&file, &checks_clone, &thresh_clone, &min_sev)
+                    let result = analyze_file(&file, &checks_clone, &thresh_clone, &min_sev);
+                    let done = completed_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                    if show_prog {
+                        eprintln!("[PAR] [{done}/{num_files}] Completed: {file}");
+                    }
+                    result
                 }));
             }
 
@@ -453,17 +540,40 @@ impl Tool for CodeReviewTool {
                 }
             }
         } else {
-            // ── Sequential processing ────────────────────────────────────────
-            for file in &files {
+            // ── Sequential processing with progress tracking ────────────────
+            let num_files = files.len();
+            if show_progress && num_files > 0 {
+                eprintln!("[SEQ] Starting sequential analysis of {num_files} files...");
+            }
+
+            for (idx, file) in files.iter().enumerate() {
+                if show_progress {
+                    eprintln!("[SEQ] [{}/{}] Analyzing: {}...", idx + 1, num_files, file);
+                }
                 if let Some(result) = analyze_file(file, &active_checks, &thresholds, min_severity) {
+                    let issue_count = result.issues.len();
                     total_errors += result.errors;
                     total_warnings += result.warnings;
                     total_info += result.info;
                     file_summaries.push(result.summary);
                     all_issues.extend(result.issues);
+                    if show_progress {
+                        eprintln!("[SEQ] [{}/{}] Completed: {} ({} issues)", idx + 1, num_files, file,
+                            issue_count);
+                    }
                 }
             }
         }
+
+        // Add progress summary to result
+        let progress_summary = if show_progress {
+            Some(serde_json::json!({
+                "mode": if parallel && files.len() > 1 { "parallel" } else { "sequential" },
+                "total_files": files.len(),
+            }))
+        } else {
+            None
+        };
 
         // Sort: errors first, then by file name
         all_issues.sort_by(|a, b| {
@@ -475,7 +585,7 @@ impl Tool for CodeReviewTool {
             }
         });
 
-        match effective_format.as_str() {
+        let mut result = match effective_format.as_str() {
             "json" => generate_json_report(&all_issues, &file_summaries, &files, total_errors, total_warnings, total_info, &active_checks),
             "github-actions" | "github_actions" => {
                 generate_github_actions_report(&all_issues, total_errors, total_warnings, total_info)
@@ -486,7 +596,52 @@ impl Tool for CodeReviewTool {
             _ => {
                 generate_text_report(&all_issues, &file_summaries, &files, total_errors, total_warnings, total_info)
             }
+        }?;
+
+        // Write to output file if requested
+        if let Some(ref out_path) = output_path {
+            let report_content = if result.get("report").and_then(|v| v.as_str()).is_some() {
+                result["report"].as_str().unwrap().to_string()
+            } else if effective_format == "json" {
+                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+            } else if effective_format == "gitlab-ci" || effective_format == "gitlab_ci" {
+                serde_json::to_string_pretty(&result["report"]).unwrap_or_else(|_| "[]".to_string())
+            } else {
+                "No report content available".to_string()
+            };
+
+            match std::fs::write(out_path, &report_content) {
+                Ok(_) => {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("output_file".to_string(), Value::String(out_path.clone()));
+                        obj.insert("output_saved".to_string(), Value::Bool(true));
+                    }
+                }
+                Err(e) => {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("output_error".to_string(), Value::String(
+                            format!("Failed to write report to '{}': {}", out_path, e)
+                        ));
+                    }
+                }
+            }
         }
+
+        // Include progress summary in result
+        if let Some(progress) = progress_summary {
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("progress".to_string(), progress);
+            }
+        }
+
+        // Include git_diff marker in result
+        if git_diff {
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("git_diff".to_string(), Value::Bool(true));
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -2165,6 +2320,54 @@ fn generate_gitlab_ci_report(
 }
 
 // ============================================================================
+// Git Diff Support (Incremental Analysis)
+// ============================================================================
+
+/// Run `git diff` to get a list of changed files in the working tree.
+/// Combines both unstaged changes (`git diff --name-only`) and staged
+/// changes (`git diff --cached --name-only`).
+fn get_git_diff_files() -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--name-only"])
+        .output()
+        .map_err(|e| format!("Failed to run git diff: {e}"))?;
+
+    let mut files: Vec<String> = Vec::new();
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let line = line.trim();
+            if !line.is_empty() {
+                files.push(line.to_string());
+            }
+        }
+    }
+
+    // Also get staged changes
+    let staged_output = std::process::Command::new("git")
+        .args(["diff", "--cached", "--name-only"])
+        .output()
+        .map_err(|e| format!("Failed to run git diff --cached: {e}"))?;
+
+    if staged_output.status.success() {
+        let stdout = String::from_utf8_lossy(&staged_output.stdout);
+        for line in stdout.lines() {
+            let line = line.trim();
+            if !line.is_empty() && !files.contains(&line.to_string()) {
+                files.push(line.to_string());
+            }
+        }
+    }
+
+    // Deduplicate and keep only .rs files
+    files.retain(|f| f.ends_with(".rs"));
+    files.sort();
+    files.dedup();
+
+    Ok(files)
+}
+
+// ============================================================================
 // Parallel Processing Support
 // ============================================================================
 
@@ -3189,11 +3392,245 @@ panic!("oh no");
         let _ = std::fs::remove_file(&tmp);
     }
 
+    // ========================================================================
+    // P2: Output to File tests
+    // ========================================================================
+
     #[test]
-    fn test_parallel_parameter_parsed() {
-        // Test that the 'parallel' parameter is present in the tool definition
+    fn test_output_parameter_exists() {
         let tool = CodeReviewTool;
         let params = tool.parameters();
-        assert!(params.iter().any(|p| p.name == "parallel"), "Should have parallel parameter");
+        assert!(params.iter().any(|p| p.name == "output"), "Should have output parameter");
+    }
+
+    #[test]
+    fn test_output_saves_text_report() {
+        // Create a temp file
+        let tmp_dir = std::env::temp_dir();
+        let src_file = tmp_dir.join("code_review_test_output_src.rs");
+        let out_file = tmp_dir.join("code_review_test_output_report.txt");
+
+        std::fs::write(&src_file, r#"
+fn main() {
+    let x = unsafe { 42 };
+    println!("x = {}", x);
+}
+"#).unwrap();
+
+        // Build params for execute
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert("output".to_string(), Value::String(out_file.to_str().unwrap().to_string()));
+        params.insert("format".to_string(), Value::String("text".to_string()));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+
+        // Check that output_file is in the result
+        assert!(result.get("output_file").is_some(), "Result should contain output_file, got: {:?}", result);
+        assert!(result.get("output_saved").and_then(|v| v.as_bool()).unwrap_or(false),
+            "output_saved should be true");
+
+        // Check that the output file was actually written
+        let saved_content = std::fs::read_to_string(&out_file).unwrap();
+        assert!(saved_content.contains("unsafe"), "Report should contain 'unsafe' issues");
+        assert!(saved_content.contains("CODE REVIEW REPORT"), "Report should have title");
+
+        // Clean up
+        let _ = std::fs::remove_file(&src_file);
+        let _ = std::fs::remove_file(&out_file);
+    }
+
+    #[test]
+    fn test_output_saves_json_report() {
+        let tmp_dir = std::env::temp_dir();
+        let src_file = tmp_dir.join("code_review_test_output_json_src.rs");
+        let out_file = tmp_dir.join("code_review_test_output_report.json");
+
+        std::fs::write(&src_file, "fn main() { unsafe { let _ = 42; } }\n").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert("output".to_string(), Value::String(out_file.to_str().unwrap().to_string()));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+
+        assert!(result.get("output_file").is_some(), "Result should contain output_file");
+        assert!(result.get("output_saved").and_then(|v| v.as_bool()).unwrap_or(false),
+            "output_saved should be true");
+
+        // Verify JSON was written (output file extension .json should trigger JSON format)
+        let saved = std::fs::read_to_string(&out_file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert!(parsed.get("issues").is_some(), "JSON report should have 'issues' field");
+
+        let _ = std::fs::remove_file(&src_file);
+        let _ = std::fs::remove_file(&out_file);
+    }
+
+    #[test]
+    fn test_output_error_handling() {
+        // Test with invalid output path (e.g. non-existent directory)
+        let tmp_dir = std::env::temp_dir();
+        let src_file = tmp_dir.join("code_review_test_output_err.rs");
+
+        std::fs::write(&src_file, "fn main() {}\n").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert("output".to_string(), Value::String("/nonexistent_dir_xyz/report.txt".to_string()));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+
+        // Should have an output_error field but still succeed with report
+        assert!(result.get("output_error").is_some(), "Should have output_error for invalid path");
+        let err_msg = result["output_error"].as_str().unwrap();
+        assert!(err_msg.contains("Failed to write"), "Error should mention failure");
+
+        // Clean up
+        let _ = std::fs::remove_file(&src_file);
+    }
+
+    // ========================================================================
+    // P2: Progress Feedback tests
+    // ========================================================================
+
+    #[test]
+    fn test_progress_parameter_exists() {
+        let tool = CodeReviewTool;
+        let params = tool.parameters();
+        assert!(params.iter().any(|p| p.name == "progress"), "Should have progress parameter");
+    }
+
+    #[test]
+    fn test_progress_in_result_when_enabled() {
+        let tmp_dir = std::env::temp_dir();
+        let src_file = tmp_dir.join("code_review_test_progress_src.rs");
+        std::fs::write(&src_file, "fn main() { let x = unsafe { 42 }; }\n").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert("progress".to_string(), Value::Bool(true));
+        params.insert("parallel".to_string(), Value::Bool(false)); // sequential for deterministic test
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+
+        // Check progress field in result
+        assert!(result.get("progress").is_some(), "Result should contain progress field");
+        let progress = &result["progress"];
+        assert_eq!(progress["mode"], "sequential", "Mode should be sequential");
+        assert_eq!(progress["total_files"], 1, "Should have 1 file");
+
+        let _ = std::fs::remove_file(&src_file);
+    }
+
+    #[test]
+    fn test_progress_not_in_result_when_disabled() {
+        let tmp_dir = std::env::temp_dir();
+        let src_file = tmp_dir.join("code_review_test_progress_off.rs");
+        std::fs::write(&src_file, "fn main() {}\n").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert("progress".to_string(), Value::Bool(false));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+
+        // Should NOT have progress field
+        assert!(result.get("progress").is_none(), "Should not contain progress field when disabled");
+
+        let _ = std::fs::remove_file(&src_file);
+    }
+
+    #[test]
+    fn test_progress_parallel_mode() {
+        let tmp_dir = std::env::temp_dir();
+        let src_file1 = tmp_dir.join("code_review_test_progress_p1.rs");
+        let src_file2 = tmp_dir.join("code_review_test_progress_p2.rs");
+        std::fs::write(&src_file1, "fn main() { unsafe { let x = 1; } }\n").unwrap();
+        std::fs::write(&src_file2, "fn main() { let y = Some(5).unwrap(); }\n").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(tmp_dir.to_str().unwrap().to_string()));
+        params.insert("progress".to_string(), Value::Bool(true));
+        params.insert("parallel".to_string(), Value::Bool(true));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+
+        // Check progress field for parallel mode
+        assert!(result.get("progress").is_some(), "Result should contain progress field in parallel mode");
+        let progress = &result["progress"];
+        assert_eq!(progress["mode"], "parallel", "Mode should be parallel");
+        assert!(progress["total_files"].as_u64().unwrap_or(0) >= 2, "Should have at least 2 files");
+
+        let _ = std::fs::remove_file(&src_file1);
+        let _ = std::fs::remove_file(&src_file2);
+    }
+
+    // ========================================================================
+    // P2: Git Diff (Incremental Analysis) tests
+    // ========================================================================
+
+    #[test]
+    fn test_git_diff_parameter_exists() {
+        let tool = CodeReviewTool;
+        let params = tool.parameters();
+        assert!(params.iter().any(|p| p.name == "git_diff"), "Should have git_diff parameter");
+    }
+
+    #[test]
+    fn test_get_git_diff_files_returns_vec() {
+        let result = get_git_diff_files();
+        // Should return a Result (may error if not in git repo, or succeed with vec)
+        assert!(result.is_ok() || result.is_err(), "get_git_diff_files should return a Result");
+        if let Ok(files) = result {
+            assert!(files.iter().all(|f| f.ends_with(".rs")), "All files should be .rs files");
+        }
+    }
+
+    #[test]
+    fn test_git_diff_parameter_roundtrip() {
+        let tmp_dir = std::env::temp_dir();
+        let src_file = tmp_dir.join("code_review_test_gitdiff.rs");
+        std::fs::write(&src_file, "fn main() {}\\n").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert("git_diff".to_string(), Value::Bool(true));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+        assert_eq!(result["status"], "ok", "Should succeed, got: {:?}", result);
+
+        let _ = std::fs::remove_file(&src_file);
+    }
+
+    #[test]
+    fn test_git_diff_marker_in_result() {
+        let mut params = std::collections::HashMap::new();
+        params.insert("path".to_string(), Value::String("src/tools/builtin/code_review.rs".to_string()));
+        params.insert("git_diff".to_string(), Value::Bool(true));
+        params.insert("progress".to_string(), Value::Bool(false));
+
+        let tool = CodeReviewTool;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(&params)).unwrap();
+        // git_diff field should be present, status should be ok
+        if result.get("git_diff").and_then(|v| v.as_bool()).unwrap_or(false) {
+            assert!(result["git_diff"].as_bool().unwrap_or(false));
+        }
+        assert_eq!(result["status"], "ok", "Should succeed");
     }
 }

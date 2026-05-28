@@ -19,3 +19,5 @@ pub mod config_store;
 pub mod scheduler;
 pub mod llm_tool;
 pub mod code_review;
+
+pub mod database_tool;

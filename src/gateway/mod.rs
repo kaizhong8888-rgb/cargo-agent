@@ -18,11 +18,20 @@ impl Gateway {
 
         let client = ModelClient::new(api_key, model_name, base_url);
 
+        // Create shared memory store for tools that need it (created early)
+        let memory_store = AIAgent::create_memory_store();
+
         let mut tool_registry = ToolRegistry::new();
         crate::tools::builtin::hello_tool::register_all(&mut tool_registry);
         crate::tools::builtin::file_tools::register_all(&mut tool_registry);
-        crate::tools::builtin::memory_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::evolution_tools::register_all(&mut tool_registry);
+
+        // Memory and evolution tools share the same SQLite-backed store
+        if let Some(store) = &memory_store {
+            crate::tools::builtin::memory_tool::register_all(&mut tool_registry, store.clone());
+            crate::tools::builtin::evolution_tools::register_all(&mut tool_registry, store.clone());
+            crate::tools::builtin::task_planner::register(&mut tool_registry, store.clone());
+        }
+
         crate::tools::builtin::task_pool::register_all(&mut tool_registry);
         crate::tools::builtin::fs_tools::register_all(&mut tool_registry);
         crate::tools::builtin::net_tools::register_all(&mut tool_registry);
@@ -47,11 +56,8 @@ impl Gateway {
         // LLM Integration: call OpenAI/Anthropic/Ollama for code gen, review, Q&A
         crate::tools::builtin::llm_tool::register_all(&mut tool_registry);
 
-        // Create shared memory store for tools that need it
-        let memory_store = AIAgent::create_memory_store();
-        if let Some(store) = &memory_store {
-            crate::tools::builtin::task_planner::register(&mut tool_registry, store.clone());
-        }
+        // Database: SQL queries, table management, CSV import/export, backup
+        crate::tools::builtin::database_tool::register_all(&mut tool_registry);
 
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
