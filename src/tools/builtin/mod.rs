@@ -26,3 +26,4 @@ pub mod quantitative_trading_tool;
 pub mod env_secret;
 pub mod notify;
 pub mod image_tool;
+pub mod data_processor;

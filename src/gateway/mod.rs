@@ -85,6 +85,9 @@ impl Gateway {
         // Image: analyze and manipulate images (info, resize, thumbnail, convert)
         crate::tools::builtin::image_tool::register_all(&mut tool_registry);
 
+        // Data Processing: parse, filter, sort, aggregate, stats, merge, convert CSV/JSON
+        crate::tools::builtin::data_processor::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(
@@ -134,6 +137,8 @@ impl Gateway {
             Use env_secret to manage environment variables and secrets (list, get, set, remove). \
             Use notify to send notifications via webhooks (Slack, DingTalk, custom URLs). \
             Use image to analyze and manipulate images (info, resize, thumbnail, convert). \
+            Use data_processor for CSV/JSON data processing: parse, filter, sort, aggregate, \
+            stats (mean/median/std_dev), merge/join, head/tail, unique, rename, add_column. \
             Reflect on your growth with self_reflect, and record evolution events with record_evolution. \
             When you learn something important, store it as a memory. \
             When you improve yourself, record the evolution event. \
