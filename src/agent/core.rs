@@ -66,35 +66,36 @@ impl AIAgent {
     }
 
     /// Inject relevant memories as a context message before the user message.
+    /// Uses TF-IDF semantic scoring for better relevance than simple keyword matching.
     fn inject_memory_context(&mut self, user_message: &str) {
         let Some(store) = &self.memory_store else { return };
 
-        // Extract potential search terms from the user message
-        let words: Vec<&str> = user_message
-            .split_whitespace()
-            .filter(|w| w.len() > 2)
-            .take(3)
-            .collect();
+        // Primary: TF-IDF semantic search
+        let mut all_memories = store.semantic_search(user_message, 5).unwrap_or_default();
 
-        let mut all_memories = Vec::new();
+        // Fallback: keyword search for high-importance memories
+        if all_memories.len() < 5 {
+            let words: Vec<&str> = user_message
+                .split_whitespace()
+                .filter(|w| w.len() > 2)
+                .take(3)
+                .collect();
 
-        // Search by each word
-        for word in &words {
-            if let Ok(results) = store.search(None, None, Some(word), Some(3), 5) {
-                all_memories.extend(results);
+            for word in &words {
+                if let Ok(results) = store.search(None, None, Some(word), Some(7), 5) {
+                    for m in results {
+                        if !all_memories.iter().any(|s: &crate::memory::sqlite_store::ScoredMemory| s.entry.key == m.key) {
+                            all_memories.push(crate::memory::sqlite_store::ScoredMemory {
+                                entry: m,
+                                score: 0.0,
+                            });
+                        }
+                    }
+                }
             }
         }
 
-        // Also get high-importance memories (importance >= 7)
-        if let Ok(results) = store.search(None, None, None, Some(7), 5) {
-            all_memories.extend(results);
-        }
-
-        // Deduplicate by key
-        all_memories.sort_by_key(|m| (m.key.clone(), m.importance));
-        all_memories.dedup_by_key(|m| m.key.clone());
-
-        // Keep top 10 by importance
+        // Keep top 10 by score
         all_memories.truncate(10);
 
         if all_memories.is_empty() {
@@ -103,7 +104,13 @@ impl AIAgent {
 
         let context_lines: Vec<String> = all_memories
             .iter()
-            .map(|m| format!("- [{}] (namespace: {}, importance: {}): {}", m.key, m.namespace, m.importance, m.value))
+            .map(|m| {
+                if m.score > 0.0 {
+                    format!("- [{}] (namespace: {}, relevance: {:.2}): {}", m.entry.key, m.entry.namespace, m.score, m.entry.value)
+                } else {
+                    format!("- [{}] (namespace: {}, importance: {}): {}", m.entry.key, m.entry.namespace, m.entry.importance, m.entry.value)
+                }
+            })
             .collect();
 
         let context_msg = format!(

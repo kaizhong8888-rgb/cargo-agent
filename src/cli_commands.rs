@@ -41,7 +41,11 @@ pub fn handle(input: &str) -> SlashResult {
         }
         "/status" => SlashResult::Handled(status_text()),
         "/tools" => SlashResult::Handled(tools_text()),
-        "/model" => SlashResult::Handled("Ask the agent: what model are you running on?".into()),
+        "/model" => SlashResult::Handled(
+            "Model routing is automatic based on task complexity. \
+             Ask the agent: 'what model complexity is this task?'."
+            .into(),
+        ),
         "/config" => SlashResult::Handled(
             "Config file: ~/.cargo-agent/config.yaml\n\
                      Skills dir:  ~/.cargo-agent/skills/\n\
@@ -62,6 +66,8 @@ fn help_text() -> String {
         ("/clear, /cls   Clear the terminal screen", false),
         ("/status        Show agent status", false),
         ("/tools         List available tools", false),
+        ("/usage         Show token usage statistics", false),
+        ("/model         Show model routing info", false),
         ("/quit, /exit   Exit the agent", false),
         ("", false),
         ("Note: Commands like /skills, /memory, /tasks, /prompt", false),

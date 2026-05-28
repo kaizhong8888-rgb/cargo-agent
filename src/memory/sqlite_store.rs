@@ -5,6 +5,7 @@
 
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Result as SqliteResult};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -268,6 +269,90 @@ impl SqliteMemoryStore {
             by_importance,
         })
     }
+
+    /// Semantic search with TF-IDF-style scoring.
+    ///
+    /// Scores each memory by: term frequency in key/value,
+    /// importance weight, and recency decay. Returns results
+    /// sorted by composite score (highest first).
+    pub fn semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> SqliteResult<Vec<ScoredMemory>> {
+        // Fetch candidate memories (broad match)
+        let all = self.search(None, None, None, None, 100)?;
+        if all.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query_lower = query.to_lowercase();
+        let query_terms: Vec<&str> = query_lower
+            .split_whitespace()
+            .filter(|w| w.len() > 1)
+            .collect();
+        let total_docs = all.len() as f64;
+
+        // Build IDF: how many docs contain each term
+        let mut idf: HashMap<&str, f64> = HashMap::new();
+        for term in &query_terms {
+            let doc_freq = all
+                .iter()
+                .filter(|m| {
+                    let text = format!("{} {}", m.key.to_lowercase(), m.value.to_lowercase());
+                    text.contains(term)
+                })
+                .count() as f64;
+            // Smoothed IDF
+            idf.insert(term, ((total_docs + 1.0) / (doc_freq + 1.0)).ln() + 1.0);
+        }
+
+        // Score each memory
+        let mut scored: Vec<ScoredMemory> = all
+            .into_iter()
+            .filter_map(|m| {
+                let key_lower = m.key.to_lowercase();
+                let value_lower = m.value.to_lowercase();
+                let combined = format!("{key_lower} {value_lower}");
+
+                // TF: count term occurrences in combined text
+                let mut tf_score = 0.0;
+                for term in &query_terms {
+                    let tf = combined.matches(*term).count() as f64;
+                    // Key match weighted 3x (keys are more specific)
+                    let key_tf = key_lower.matches(*term).count() as f64 * 3.0;
+                    let idf_weight = idf.get(term).copied().unwrap_or(1.0);
+                    tf_score += (tf + key_tf) * idf_weight;
+                }
+
+                // Importance weight (0.0-1.0 scale)
+                let imp_weight = m.importance as f64 / 10.0;
+
+                // Recency decay: older memories score slightly less
+                let recency = if let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&m.updated_at) {
+                    let age_hours = (Utc::now() - updated.with_timezone(&Utc)).num_hours() as f64;
+                    (1.0 / (1.0 + age_hours * 0.01)).min(1.0)
+                } else {
+                    0.5
+                };
+
+                // Composite: TF-IDF * importance * recency
+                let composite = tf_score * imp_weight * recency;
+                if composite > 0.0 {
+                    Some(ScoredMemory {
+                        entry: m,
+                        score: composite,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(limit);
+        Ok(scored)
+    }
 }
 
 /// Statistics about the memory system.
@@ -275,6 +360,13 @@ pub struct MemoryStats {
     pub total: usize,
     pub by_namespace: Vec<(String, usize)>,
     pub by_importance: Vec<(u8, usize)>,
+}
+
+/// A memory entry with its semantic relevance score.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ScoredMemory {
+    pub entry: MemoryEntry,
+    pub score: f64,
 }
 
 #[cfg(test)]
@@ -394,5 +486,24 @@ mod tests {
         let stats = store.stats().unwrap();
         assert_eq!(stats.total, 3);
         assert_eq!(stats.by_namespace.len(), 2);
+    }
+
+    #[test]
+    fn test_semantic_search_basic() {
+        let store = temp_store();
+        store.store("rust_ownership", "Rust uses ownership and borrowing for memory safety", "rust", &[], 8).unwrap();
+        store.store("python_gc", "Python uses reference counting with cycle detection GC", "python", &[], 5).unwrap();
+        store.store("hello", "Hi there", "greeting", &[], 1).unwrap();
+
+        let results = store.semantic_search("rust memory safety", 5).unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].entry.key, "rust_ownership");
+    }
+
+    #[test]
+    fn test_semantic_search_empty_store() {
+        let store = temp_store();
+        let results = store.semantic_search("anything", 5).unwrap();
+        assert!(results.is_empty());
     }
 }

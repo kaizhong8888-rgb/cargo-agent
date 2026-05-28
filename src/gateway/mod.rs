@@ -1,6 +1,7 @@
 use crate::agent::core::AIAgent;
 use crate::config::CargoConfig;
 use crate::model::client::ModelClient;
+use crate::model::router::ModelRouter;
 use crate::skills::SkillRegistry;
 use crate::tools::builtin::env_secret::SecretStore;
 use crate::tools::ToolRegistry;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 
 pub struct Gateway {
     agent: AIAgent,
+    model_router: ModelRouter,
 }
 
 impl Gateway {
@@ -23,7 +25,7 @@ impl Gateway {
         let model_name = config.model.name.clone();
         let base_url = config.resolve_base_url();
 
-        let client = ModelClient::new(api_key, model_name, base_url);
+        let client = ModelClient::new(api_key, model_name.clone(), base_url);
 
         // Create shared memory store for tools that need it (created early)
         let memory_store = AIAgent::create_memory_store();
@@ -105,6 +107,9 @@ impl Gateway {
             agent.set_memory_store(store);
         }
 
+        // Configure model router for task-complexity-based model selection
+        let model_router = ModelRouter::new(model_name.clone());
+
         agent.set_system_prompt(
             "You are cargo-agent, a self-evolving AI assistant. \
             You can modify your own source code using the self_modify tool (actions: read_file, write_file, create_file, delete_file, patch_file, create_tool, cargo_check, cargo_test). \
@@ -135,7 +140,7 @@ impl Gateway {
             Always run cargo check after code modifications to verify correctness.",
         );
 
-        Self { agent }
+        Self { agent, model_router }
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -166,5 +171,15 @@ impl Gateway {
     /// Reset token usage counters (e.g. after /clear).
     pub fn reset_token_usage(&mut self) {
         self.agent.reset_token_usage();
+    }
+
+    /// Return the model routing decision for a given message.
+    pub fn model_routing_info(&self, message: &str) -> String {
+        self.model_router.describe(message)
+    }
+
+    /// Override the model for the next request based on message complexity.
+    pub fn select_model_for_message(&self, message: &str) -> &str {
+        self.model_router.select(message)
     }
 }
