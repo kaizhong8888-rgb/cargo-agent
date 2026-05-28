@@ -77,6 +77,12 @@ impl Gateway {
         let secret_store = SecretStore::new(agent_dir);
         crate::tools::builtin::env_secret::register_all(&mut tool_registry, secret_store);
 
+        // Notifications: send alerts via webhooks (Slack, DingTalk, custom)
+        crate::tools::builtin::notify::register_all(&mut tool_registry);
+
+        // Image: analyze and manipulate images (info, resize, thumbnail, convert)
+        crate::tools::builtin::image_tool::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(
@@ -121,6 +127,8 @@ impl Gateway {
             Use crypto for encrypt/decrypt, hash, sign/verify, JWT, password hashing. \
             Use quantitative_trading for backtesting, strategy comparison, technical indicators. \
             Use env_secret to manage environment variables and secrets (list, get, set, remove). \
+            Use notify to send notifications via webhooks (Slack, DingTalk, custom URLs). \
+            Use image to analyze and manipulate images (info, resize, thumbnail, convert). \
             Reflect on your growth with self_reflect, and record evolution events with record_evolution. \
             When you learn something important, store it as a memory. \
             When you improve yourself, record the evolution event. \

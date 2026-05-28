@@ -1,5 +1,7 @@
 use anyhow::{Result, bail};
+use futures::Stream;
 use serde_json::Value;
+use std::pin::Pin;
 
 /// Maximum retry attempts for transient API errors.
 const MAX_RETRIES: u32 = 3;
@@ -174,6 +176,25 @@ impl ModelClient {
             finish_reason,
             usage,
         })
+    }
+
+    /// Stream a chat completion response as an async stream of text chunks.
+    ///
+    /// Returns a stream that yields each text delta as it arrives from the API.
+    /// Useful for real-time display of LLM responses.
+    ///
+    /// Note: Full SSE streaming implementation pending — currently returns
+    /// an empty stream. Use `chat()` for synchronous responses.
+    pub async fn chat_stream(
+        &self,
+        _messages: &[serde_json::Value],
+        _tools: Option<&[Value]>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+        // SSE streaming requires a more complex state machine with proper
+        // line-buffered parsing. The infrastructure is wired up (stream flag,
+        // Accept header) but the parser is deferred.
+        let empty_stream = futures::stream::empty::<Result<String>>();
+        Ok(Box::pin(empty_stream))
     }
 }
 

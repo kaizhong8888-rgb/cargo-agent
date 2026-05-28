@@ -115,6 +115,8 @@ fn tools_text() -> String {
         ("crypto", "Encrypt/decrypt, hash, sign/verify, JWT, password hashing"),
         ("quantitative_trading", "Backtesting, strategy comparison, technical indicators"),
         ("env_secret", "Manage environment variables and secrets"),
+        ("notify", "Send notifications via webhooks (Slack, DingTalk, custom)"),
+        ("image", "Analyze and manipulate images (info, resize, thumbnail, convert)"),
         ("hello", "Greeting tool (demo)"),
     ];
 

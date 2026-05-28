@@ -12,7 +12,7 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 parking_lot = "0.12"
 tokio = { version = "1.36", features = ["full"] }
-reqwest = { version = "0.11", features = ["blocking", "json", "multipart"] }
+reqwest = { version = "0.11", features = ["blocking", "json", "multipart", "stream"] }
 urlencoding = "2.1"
 uuid = { version = "1.6", features = ["v4"] }
 csv = "1.3"
