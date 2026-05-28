@@ -21,3 +21,6 @@ pub mod llm_tool;
 pub mod code_review;
 
 pub mod database_tool;
+pub mod crypto_tool;
+pub mod quantitative_trading_tool;
+pub mod env_secret;

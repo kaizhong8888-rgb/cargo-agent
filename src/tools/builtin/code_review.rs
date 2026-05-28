@@ -460,7 +460,7 @@ impl Tool for CodeReviewTool {
             }
             let original_count = files.len();
             files.retain(|f| {
-                let normalized = if f.starts_with("./") { &f[2..] } else { f.as_str() };
+                let normalized = f.strip_prefix("./").unwrap_or(f.as_str());
                 changed.iter().any(|c| c == normalized || f.ends_with(c))
             });
             let filtered_total = original_count - files.len();
@@ -2067,11 +2067,9 @@ fn generate_text_report(
     let total_issues = issues.len();
     let mut report = String::new();
 
-    report.push_str(&format!(
-        "╔══════════════════════════════════════════════════════════════════╗\n\
+    report.push_str("╔══════════════════════════════════════════════════════════════════╗\n\
          ║                       CODE REVIEW REPORT                       ║\n\
-         ╚══════════════════════════════════════════════════════════════════╝\n\n"
-    ));
+         ╚══════════════════════════════════════════════════════════════════╝\n\n");
     report.push_str(&format!("Files reviewed: {}\n", files.len()));
     report.push_str(&format!("Total issues found: {total_issues}\n"));
     report.push_str(&format!(

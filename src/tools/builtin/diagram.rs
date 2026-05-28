@@ -119,7 +119,7 @@ fn generate_module_deps_diagram(
         diagram.push_str(&format!("    {}[\"{}\"]\n", module.node_id, module.display_name));
     }
 
-    diagram.push_str("\n");
+    diagram.push('\n');
 
     // Add dependency edges
     for dep in &deps {
@@ -151,7 +151,7 @@ fn generate_call_graph_diagram(
         diagram.push_str(&format!("        {}[\"{}\"]\n", func.node_id, func.display_name));
     }
 
-    diagram.push_str("\n");
+    diagram.push('\n');
 
     for call in &calls {
         diagram.push_str(&format!("        {} --> {}\n", call.from, call.to));
@@ -264,6 +264,8 @@ fn collect_functions(
 
     static FN_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let fn_re = FN_RE.get_or_init(|| regex::Regex::new(r"^pub\s+(async\s+)?fn\s+(\w+)").unwrap());
+    static CALL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let call_re = CALL_RE.get_or_init(|| regex::Regex::new(r"(\w+)::(\w+)\(").unwrap());
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
@@ -292,8 +294,6 @@ fn collect_functions(
 
                 // Detect function calls in the body
                 if current_fn.is_some() && trimmed.contains('(') && !trimmed.starts_with("fn ") && !trimmed.starts_with("pub ") {
-                    static CALL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-                    let call_re = CALL_RE.get_or_init(|| regex::Regex::new(r"(\w+)::(\w+)\(").unwrap());
                     for caps in call_re.captures_iter(trimmed) {
                         let module = &caps[1];
                         let func = &caps[2];

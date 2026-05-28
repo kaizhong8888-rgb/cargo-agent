@@ -101,6 +101,30 @@ impl CargoConfig {
         self.model.base_url.clone()
             .unwrap_or_else(|| "https://api.openai.com".to_string())
     }
+
+    /// Validate critical configuration fields at startup.
+    pub fn validate(&self) -> Vec<String> {
+        let mut issues = Vec::new();
+
+        if self.model.name.is_empty() {
+            issues.push("model.name is empty — set a valid LLM model".into());
+        }
+
+        // API key will be checked at first use since env vars may resolve it
+        // but warn if config has an empty explicit key
+        if let Some(key) = &self.api_key {
+            if key.is_empty() {
+                issues.push("api_key is set but empty in config — remove it or provide a valid key".into());
+            }
+        }
+
+        let base_url = self.resolve_base_url();
+        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+            issues.push(format!("base_url '{base_url}' does not start with http:// or https://"));
+        }
+
+        issues
+    }
 }
 
 pub fn load_env_file() -> Result<()> {

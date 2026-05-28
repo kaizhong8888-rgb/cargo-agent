@@ -8,6 +8,7 @@
 //! - `/tools` — list available tools
 //! - `/model` — show current model info
 //! - `/config` — show config file location
+//! - `/usage` — show token usage statistics
 
 use colored::Colorize;
 
@@ -42,9 +43,12 @@ pub fn handle(input: &str) -> SlashResult {
         "/tools" => SlashResult::Handled(tools_text()),
         "/model" => SlashResult::Handled("Ask the agent: what model are you running on?".into()),
         "/config" => SlashResult::Handled(
-            format!("Config file: ~/.cargo-agent/config.yaml\n\
+            "Config file: ~/.cargo-agent/config.yaml\n\
                      Skills dir:  ~/.cargo-agent/skills/\n\
-                     Memories:    ~/.cargo-agent/memories/memories.db"),
+                     Memories:    ~/.cargo-agent/memories/memories.db".to_string(),
+        ),
+        "/usage" => SlashResult::Handled(
+            "Token usage is tracked per conversation. Ask the agent: 'show token usage'.".into(),
         ),
         other => SlashResult::Handled(format!("Unknown command: {other}\nType /help for available commands.")),
     }
@@ -101,10 +105,16 @@ fn tools_text() -> String {
         ("project_scaffold", "Generate project structures (cli/lib/web/game)"),
         ("dep_manager", "Manage dependencies (add/rm/update/tree/audit)"),
         ("code_transform", "Safe code refactoring (derive, unwrap, rename, visibility)"),
+        ("code_review", "Review code for quality, security, and best practices"),
         ("doc_search", "Search docs.rs and crates.io for crate info"),
         ("diagram", "Generate Mermaid architecture diagrams"),
         ("config", "Persist user preferences across sessions"),
         ("scheduler", "Manage recurring scheduled tasks"),
+        ("llm", "Call external LLMs for code generation, review, Q&A"),
+        ("database", "SQL queries, table management, CSV import/export"),
+        ("crypto", "Encrypt/decrypt, hash, sign/verify, JWT, password hashing"),
+        ("quantitative_trading", "Backtesting, strategy comparison, technical indicators"),
+        ("env_secret", "Manage environment variables and secrets"),
         ("hello", "Greeting tool (demo)"),
     ];
 

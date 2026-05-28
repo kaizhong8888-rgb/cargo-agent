@@ -205,7 +205,7 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, dept
             if recursive {
                 collect_rust_files(&path, files, true, depth + 1)?;
             }
-        } else if path.is_file() && path.extension().map_or(false, |e| e == "rs") {
+        } else if path.is_file() && path.extension().is_some_and(|e| e == "rs") {
             files.push(path.to_string_lossy().to_string());
         }
     }

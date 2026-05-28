@@ -50,6 +50,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Interactive mode
     ui::show_banner();
+
+    // Start health endpoint on port 8787 (non-blocking)
+    if let Err(e) = cargo_agent::health::start_status_server(8787).await {
+        tracing::warn!("Could not start health server on port 8787: {e}");
+    }
+
     let mut gateway = Gateway::new(config);
 
     let stdin = io::stdin();
@@ -61,6 +67,12 @@ async fn main() -> anyhow::Result<()> {
         }
 
         // Check for local slash commands first
+        if input == "/usage" {
+            println!("\n{}\n", gateway.token_usage_info());
+            ui::thin_separator();
+            continue;
+        }
+
         match handle_slash(input) {
             SlashResult::Handled(output) => {
                 if output.is_empty() {
@@ -70,6 +82,10 @@ async fn main() -> anyhow::Result<()> {
                         ui::print_info("Goodbye!");
                         println!();
                         break;
+                    }
+                    // /clear — reset token usage
+                    if input == "/clear" || input == "/cls" {
+                        gateway.reset_token_usage();
                     }
                     // /clear already printed its escape sequence
                     continue;

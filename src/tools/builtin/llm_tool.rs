@@ -178,6 +178,7 @@ impl Tool for LlmChatTool {
 // OpenAI Provider
 // ============================================================================
 
+#[allow(clippy::too_many_arguments)]
 async fn call_openai(
     api_key: &str,
     model: &str,
@@ -279,6 +280,7 @@ async fn call_openai(
 // Anthropic Provider
 // ============================================================================
 
+#[allow(clippy::too_many_arguments)]
 async fn call_anthropic(
     api_key: &str,
     model: &str,

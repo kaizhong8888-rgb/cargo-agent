@@ -221,8 +221,7 @@ fn pragma_to_json(conn: &Connection, sql: &str) -> Result<Vec<Value>, String> {
     let rows_iter = stmt
         .query_map([], move |row| {
             let mut obj = serde_json::Map::new();
-            for i in 0..col_count {
-                let name = &names_clone[i];
+            for (i, name) in names_clone.iter().enumerate().take(col_count) {
                 let val: rusqlite::types::Value = row.get_unwrap(i);
                 obj.insert(name.clone(), sqlite_value_to_json(&val));
             }
@@ -281,8 +280,7 @@ async fn execute_query(db_path: &str, params: &HashMap<String, Value>) -> Result
     let rows_iter = stmt
         .query_map(param_refs.as_slice(), move |row| {
             let mut obj = serde_json::Map::new();
-            for i in 0..c_count {
-                let name = &names_for_closure[i];
+            for (i, name) in names_for_closure.iter().enumerate().take(c_count) {
                 let val: rusqlite::types::Value = row.get_unwrap(i);
                 obj.insert(name.clone(), sqlite_value_to_json(&val));
             }
@@ -979,8 +977,7 @@ async fn export_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
             let c_count = col_names.len();
             move |row| {
                 let mut obj = serde_json::Map::new();
-                for i in 0..c_count {
-                    let name = &names_for_closure[i];
+                for (i, name) in names_for_closure.iter().enumerate().take(c_count) {
                     let val: rusqlite::types::Value = row.get_unwrap(i);
                     obj.insert(name.clone(), sqlite_value_to_json(&val));
                 }
@@ -1274,29 +1271,27 @@ async fn list_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resu
         let entries = std::fs::read_dir(dir)
             .map_err(|e| format!("Failed to read migrations directory: {}", e))?;
 
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("sql") {
-                    if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
-                        let version = file_name.split('_').next().unwrap_or(file_name).to_string();
-                        let is_applied = applied_versions.contains(&version);
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+                if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                    let version = file_name.split('_').next().unwrap_or(file_name).to_string();
+                    let is_applied = applied_versions.contains(&version);
 
-                        let desc = file_name
-                            .strip_prefix(&format!("{}_", version))
-                            .or_else(|| file_name.strip_prefix(&version))
-                            .unwrap_or("")
-                            .strip_suffix(".sql")
-                            .unwrap_or("")
-                            .to_string();
+                    let desc = file_name
+                        .strip_prefix(&format!("{}_", version))
+                        .or_else(|| file_name.strip_prefix(&version))
+                        .unwrap_or("")
+                        .strip_suffix(".sql")
+                        .unwrap_or("")
+                        .to_string();
 
-                        available.push(json!({
-                            "version": version,
-                            "filename": file_name,
-                            "description": desc,
-                            "status": if is_applied { "applied" } else { "pending" },
-                        }));
-                    }
+                    available.push(json!({
+                        "version": version,
+                        "filename": file_name,
+                        "description": desc,
+                        "status": if is_applied { "applied" } else { "pending" },
+                    }));
                 }
             }
         }

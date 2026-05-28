@@ -475,7 +475,7 @@ fn to_camel_case(name: &str) -> String {
 }
 
 fn to_snake_case(name: &str) -> String {
-    name.replace('-', "_").replace(' ', "_").to_lowercase()
+    name.replace(['-', ' '], "_").to_lowercase()
 }
 
 fn format_author_line(author: Option<&str>) -> String {

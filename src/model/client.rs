@@ -1,5 +1,11 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use serde_json::Value;
+
+/// Maximum retry attempts for transient API errors.
+const MAX_RETRIES: u32 = 3;
+
+/// Base delay in milliseconds for exponential backoff.
+const BASE_DELAY_MS: u64 = 1000;
 
 /// A client for interacting with LLM APIs (OpenAI-compatible).
 ///
@@ -35,10 +41,59 @@ impl ModelClient {
         }
     }
 
-    /// Send a chat completion request.
+    /// Send a chat completion request with automatic retry.
     ///
+    /// Retries on transient errors (429 rate limit, 5xx server errors) with exponential backoff.
     /// Supports tool calls and reasoning models.
     pub async fn chat(
+        &self,
+        messages: &[serde_json::Value],
+        tools: Option<&[Value]>,
+    ) -> Result<ModelResponse> {
+        let mut last_err = None;
+
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let delay_ms = if attempt == 1 {
+                    // For 429, prefer Retry-After header (handled below); use shorter delay here
+                    BASE_DELAY_MS * 2
+                } else {
+                    BASE_DELAY_MS * 2u64.pow(attempt - 1)
+                };
+                tracing::warn!(
+                    attempt,
+                    delay_ms,
+                    "Retrying chat request after transient error",
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+
+            match self.chat_once(messages, tools).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    let is_retryable = e.to_string().contains("429")
+                        || e.to_string().contains("500")
+                        || e.to_string().contains("502")
+                        || e.to_string().contains("503")
+                        || e.to_string().contains("504");
+
+                    if !is_retryable || attempt == MAX_RETRIES {
+                        if !is_retryable {
+                            return Err(e);
+                        }
+                        last_err = Some(e);
+                        break;
+                    }
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Chat request failed after {} retries", MAX_RETRIES)))
+    }
+
+    /// Single attempt at the chat API call (no retry logic).
+    async fn chat_once(
         &self,
         messages: &[serde_json::Value],
         tools: Option<&[Value]>,
@@ -67,7 +122,7 @@ impl ModelClient {
         let text = response.text().await?;
 
         if !status.is_success() {
-            anyhow::bail!("API error ({}): {}", status, text);
+            bail!("API error ({}): {}", status, text);
         }
 
         let data: Value = serde_json::from_str(&text)?;

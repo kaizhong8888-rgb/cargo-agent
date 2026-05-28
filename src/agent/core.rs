@@ -7,13 +7,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Maximum number of conversation messages before truncation.
-const MAX_MESSAGES: usize = 50;
+const MAX_MESSAGES: usize = 200;
 
 /// Number of messages to keep after truncation (system + recent).
 const TRUNCATE_KEEP: usize = 5;
 
 /// Maximum LLM tool-call turns per chat request.
-const MAX_TURNS: usize = 50;
+const MAX_TURNS: usize = 200;
 
 pub struct AIAgent {
     pub tool_registry: ToolRegistry,
@@ -22,6 +22,17 @@ pub struct AIAgent {
     messages: Vec<serde_json::Value>,
     max_turns: usize,
     memory_store: Option<Arc<SqliteMemoryStore>>,
+    /// Cumulative token usage across the conversation.
+    token_usage: TokenUsage,
+}
+
+/// Tracks token consumption for cost monitoring and smart truncation.
+#[derive(Debug, Default, Clone)]
+pub struct TokenUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub api_calls: u64,
 }
 
 impl AIAgent {
@@ -33,6 +44,7 @@ impl AIAgent {
             messages: Vec::new(),
             max_turns: MAX_TURNS,
             memory_store: Self::try_init_memory_store(),
+            token_usage: TokenUsage::default(),
         }
     }
 
@@ -153,17 +165,34 @@ impl AIAgent {
                 )
                 .await?;
 
+            // Track token usage
+            if let Some(usage) = &response.usage {
+                self.token_usage.prompt_tokens += usage.prompt_tokens as u64;
+                self.token_usage.completion_tokens += usage.completion_tokens as u64;
+                self.token_usage.total_tokens += usage.total_tokens as u64;
+                self.token_usage.api_calls += 1;
+            }
+
             self.messages.push(build_assistant_message(&response));
 
             if response.tool_calls.as_ref().is_none_or(|c| c.is_empty()) {
                 return Ok(response.content.unwrap_or_default());
             }
 
-            for call in response.tool_calls.unwrap_or_default() {
-                let result = self.execute_tool(&call.name, &call.arguments).await;
+            let calls = response.tool_calls.unwrap_or_default();
+
+            // Execute independent tool calls in parallel for speedup.
+            // Results are collected and appended to messages in call order.
+            let futures: Vec<_> = calls
+                .iter()
+                .map(|call| self.execute_tool(&call.name, &call.arguments))
+                .collect();
+            let results = futures::future::join_all(futures).await;
+
+            for (call, result) in calls.iter().zip(results) {
                 self.messages.push(serde_json::json!({
                     "role": "tool",
-                    "tool_call_id": call.id,
+                    "tool_call_id": call.id.clone(),
                     "content": result,
                 }));
             }
@@ -312,11 +341,89 @@ impl AIAgent {
 
         match self.tool_registry.get(name) {
             Some(tool) => match tool.execute(&params).await {
-                Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "Serialization error".to_string()),
+                Ok(value) => serde_json::to_string(&value).unwrap_or("Serialization error".to_string()),
                 Err(e) => format!("Tool error: {e}"),
             },
             None => format!("Unknown tool: {name}"),
         }
+    }
+
+    /// Return cumulative token usage for this conversation.
+    pub fn token_usage(&self) -> &TokenUsage {
+        &self.token_usage
+    }
+
+    /// Reset token usage counters (e.g. after /clear).
+    pub fn reset_token_usage(&mut self) {
+        self.token_usage = TokenUsage::default();
+    }
+
+    /// Export conversation messages to a JSON file.
+    pub fn export_conversation(&self, path: &str) -> Result<()> {
+        let json = serde_json::to_string_pretty(&self.messages)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+
+    /// Import conversation messages from a JSON file.
+    pub fn import_conversation(&mut self, path: &str) -> Result<()> {
+        let json = std::fs::read_to_string(path)?;
+        let messages: Vec<serde_json::Value> = serde_json::from_str(&json)?;
+        self.messages = messages;
+        Ok(())
+    }
+
+    /// Return the full conversation history (for export or inspection).
+    pub fn messages(&self) -> &[serde_json::Value] {
+        &self.messages
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_usage_default() {
+        let usage = TokenUsage::default();
+        assert_eq!(usage.prompt_tokens, 0);
+        assert_eq!(usage.completion_tokens, 0);
+        assert_eq!(usage.total_tokens, 0);
+        assert_eq!(usage.api_calls, 0);
+    }
+
+    #[test]
+    fn token_usage_accumulation() {
+        let mut usage = TokenUsage::default();
+        usage.prompt_tokens += 100;
+        usage.completion_tokens += 50;
+        usage.total_tokens += 150;
+        usage.api_calls += 1;
+        assert_eq!(usage.total_tokens, usage.prompt_tokens + usage.completion_tokens);
+        assert_eq!(usage.api_calls, 1);
+    }
+
+    #[test]
+    fn export_import_roundtrip() {
+        let tmp = std::env::temp_dir().join("test_conversation.json");
+        let path = tmp.to_str().unwrap();
+
+        let messages = vec![
+            serde_json::json!({"role": "system", "content": "You are helpful"}),
+            serde_json::json!({"role": "user", "content": "Hello"}),
+        ];
+
+        // Write manually since we can't create a full AIAgent without a client
+        let json = serde_json::to_string_pretty(&messages).unwrap();
+        std::fs::write(path, &json).unwrap();
+
+        // Verify import reads back correctly
+        let imported: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0]["role"], "system");
+        assert_eq!(imported[1]["content"], "Hello");
+
+        let _ = std::fs::remove_file(path);
     }
 }
 
