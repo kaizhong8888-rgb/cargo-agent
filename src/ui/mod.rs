@@ -151,13 +151,13 @@ fn render_inline_bold(text: &str) -> String {
     // Simple: replace **text** with colored/bold text
     // We use regex to find **...** patterns
     static BOLD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = BOLD_RE.get_or_init(|| regex::Regex::new(r"\*\*(.+?)\*\*").unwrap());
+    let re = BOLD_RE.get_or_init(|| regex::Regex::new(r"\*\*(.+?)\*\*").expect("invalid regex: bold markdown"));
 
     let mut result = String::new();
     let mut last_end = 0;
 
     for cap in re.captures_iter(text) {
-        let m = cap.get(0).unwrap();
+        let Some(m) = cap.get(0) else { continue };
         let inner = &cap[1];
         result.push_str(&text[last_end..m.start()]);
         result.push_str(&format!("{}{}", "\x1b[1m", inner));

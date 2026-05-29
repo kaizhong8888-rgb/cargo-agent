@@ -261,7 +261,7 @@ impl MacdStrategy {
             + closes[start..=i]
                 .iter()
                 .enumerate()
-                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
 
@@ -269,20 +269,20 @@ impl MacdStrategy {
             + macd_line[start..=i]
                 .iter()
                 .enumerate()
-                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
 
         if price_low_idx > 0 && macd_low_idx > 0 {
             let prev_price_low = closes[price_low_idx - 1..=price_low_idx]
                 .iter()
-                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
                 .unwrap_or(closes[price_low_idx]);
 
             let prev_macd_low = macd_line[macd_low_idx - 1..=macd_low_idx]
                 .iter()
-                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
                 .unwrap_or(macd_line[macd_low_idx]);
 
@@ -308,7 +308,7 @@ impl MacdStrategy {
             + closes[start..=i]
                 .iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
 
@@ -316,20 +316,20 @@ impl MacdStrategy {
             + macd_line[start..=i]
                 .iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
 
         if price_high_idx > 0 && macd_high_idx > 0 {
             let prev_price_high = closes[price_high_idx - 1..=price_high_idx]
                 .iter()
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
                 .unwrap_or(closes[price_high_idx]);
 
             let prev_macd_high = macd_line[macd_high_idx - 1..=macd_high_idx]
                 .iter()
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .copied()
                 .unwrap_or(macd_line[macd_high_idx]);
 

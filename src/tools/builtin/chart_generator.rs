@@ -170,7 +170,7 @@ fn extract_data(params: &HashMap<String, Value>) -> Result<Vec<(String, f64)>, S
     Ok(labels
         .into_iter()
         .map(|s| s.to_string())
-        .zip(values.into_iter())
+        .zip(values)
         .collect())
 }
 
@@ -335,7 +335,7 @@ fn cmd_bar(params: &HashMap<String, Value>) -> Result<Value, String> {
             0
         };
         let bar_len = bar_len.max(1).min(max_width);
-        let bar: String = std::iter::repeat('█').take(bar_len).collect();
+        let bar = "█".repeat(bar_len);
         let padded_label = if label.len() < label_width {
             format!("{}{}", label, " ".repeat(label_width - label.len()))
         } else {
@@ -594,7 +594,7 @@ fn generate_table_from_json(
         match item {
             Value::Object(map) => {
                 for h in &headers {
-                    let val = map.get(h).map(|v| format_value(v)).unwrap_or_default();
+                    let val = map.get(h).map(format_value).unwrap_or_default();
                     md.push_str(&format!(" {} |", val));
                 }
             }
@@ -673,7 +673,7 @@ fn cmd_histogram(params: &HashMap<String, Value>) -> Result<Value, String> {
             0
         };
         let bar_len = bar_len.max(1).min(bar_width);
-        let bar: String = std::iter::repeat('█').take(bar_len).collect();
+        let bar = "█".repeat(bar_len);
         let padded_label = if labels[i].len() < label_width {
             format!("{}{}", labels[i], " ".repeat(label_width - labels[i].len()))
         } else {

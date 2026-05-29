@@ -1,14 +1,31 @@
-//! Slash commands: local CLI commands that bypass the LLM.
+//! Slash commands: local CLI shortcuts that bypass the LLM.
 //!
-//! Commands:
-//! - `/help` — list all available commands
-//! - `/quit` or `/exit` — exit the CLI
-//! - `/clear` or `/cls` — clear the screen
-//! - `/status` — show agent status (version, OS, paths)
-//! - `/tools` — list available tools
-//! - `/model` — show current model info
-//! - `/config` — show config file location
-//! - `/usage` — show token usage statistics
+//! # Quick Reference
+//!
+//! | Command | Shortcut | Description |
+//! |---------|----------|-------------|
+//! | `/help` | `/h` | Show categorized help |
+//! | `/help:tools` | — | Tool-specific help |
+//! | `/help:memory` | — | Memory commands help |
+//! | `/help:git` | — | Git shortcuts help |
+//! | `/version` | `/v` | Show version info |
+//! | `/status` | — | Agent status |
+//! | `/clear` | `/cls` | Clear screen |
+//! | `/quit` | `/exit` | Exit agent |
+//! | `/tools` | — | List available tools |
+//! | `/tool:name` | — | Show tool details |
+//! | `/mem` | — | Memory overview |
+//! | `/mem:ns` | — | List namespaces |
+//! | `/mem:search q` | — | Search memories |
+//! | `/git` | — | Git status summary |
+//! | `/git:log` | — | Recent commits |
+//! | `/tasks` | — | Task overview |
+//! | `/tasks:todo` | — | Pending tasks |
+//! | `/skills` | — | List skills |
+//! | `/usage` | — | Token usage |
+//! | `/model` | — | Model info |
+//! | `/config` | — | Config paths |
+//! | `/export` | — | Export conversation |
 
 use colored::Colorize;
 
@@ -20,129 +37,417 @@ pub enum SlashResult {
     PassThrough,
 }
 
+/// Parse a slash command into (command, args).
+/// Supports both `/cmd args` and `/cmd:args` syntax.
+pub fn parse(input: &str) -> (&str, &str) {
+    if !input.starts_with('/') {
+        return ("", "");
+    }
+    let rest = &input[1..];
+
+    // Try `/cmd:args` syntax first
+    if let Some(pos) = rest.find(':') {
+        let cmd = &rest[..pos];
+        let args = rest[pos + 1..].trim();
+        return (cmd, args);
+    }
+
+    // Fallback to `/cmd args` syntax
+    if let Some(pos) = rest.find(' ') {
+        (&rest[..pos], rest[pos + 1..].trim())
+    } else {
+        (rest, "")
+    }
+}
+
 /// Handle a slash command if the input starts with `/`.
+///
+/// Returns `SlashResult::Handled(output)` for recognized commands,
+/// or `SlashResult::PassThrough` if it's not a slash command.
+/// Commands that need dynamic data (like tool registry, memory store)
+/// should return `SlashResult::PassThrough` to be handled by `Gateway::handle_slash()`.
 pub fn handle(input: &str) -> SlashResult {
     if !input.starts_with('/') {
         return SlashResult::PassThrough;
     }
 
-    let (cmd, _rest) = if let Some(pos) = input.find(' ') {
-        (&input[..pos], input[pos + 1..].trim())
-    } else {
-        (input, "")
-    };
+    let (cmd, args) = parse(input);
 
     match cmd {
-        "/help" => SlashResult::Handled(help_text()),
-        "/quit" | "/exit" => SlashResult::Handled(String::new()),
-        "/clear" | "/cls" => {
+        // ── Navigation / Meta ──────────────────────────────
+        "help" | "h" => {
+            if args.is_empty() {
+                SlashResult::Handled(help_general())
+            } else {
+                SlashResult::Handled(help_topic(args))
+            }
+        }
+
+        "version" | "v" => SlashResult::Handled(version_text()),
+
+        "status" => SlashResult::Handled(status_text()),
+
+        "clear" | "cls" => {
             print!("\x1b[2J\x1b[H");
             SlashResult::Handled(String::new())
         }
-        "/status" => SlashResult::Handled(status_text()),
-        "/tools" => SlashResult::Handled(tools_text()),
-        "/model" => SlashResult::Handled(
-            "Model routing is automatic based on task complexity. \
-             Ask the agent: 'what model complexity is this task?'."
-            .into(),
+
+        "quit" | "exit" => SlashResult::Handled(String::new()),
+
+        // ── Session / Usage ───────────────────────────────
+        "usage" => {
+            SlashResult::Handled(
+                "Token usage is tracked per conversation.\nAsk the agent: 'show token usage'.".into()
+            )
+        }
+
+        "model" => {
+            SlashResult::Handled(
+                "Model routing is automatic based on task complexity.\n\
+                 Ask the agent: 'what model complexity is this task?'".into()
+            )
+        }
+
+        "config" => {
+            SlashResult::Handled(config_text())
+        }
+
+        // ── Dynamic commands (handled by Gateway) ─────────
+        // These pass through because they need access to the tool registry,
+        // memory store, git, or other runtime state.
+        "tools" | "tool" |
+        "mem" | "memory" |
+        "git" |
+        "tasks" | "task" |
+        "skills" | "skill" |
+        "export" |
+        "stats" => SlashResult::PassThrough,
+
+        // ── Unknown ───────────────────────────────────────
+        other => SlashResult::Handled(
+            format!("❌ Unknown command: `/{other}`\n  Type `/help` for available commands.")
         ),
-        "/config" => SlashResult::Handled(
-            "Config file: ~/.cargo-agent/config.yaml\n\
-                     Skills dir:  ~/.cargo-agent/skills/\n\
-                     Memories:    ~/.cargo-agent/memories/memories.db".to_string(),
-        ),
-        "/usage" => SlashResult::Handled(
-            "Token usage is tracked per conversation. Ask the agent: 'show token usage'.".into(),
-        ),
-        other => SlashResult::Handled(format!("Unknown command: {other}\nType /help for available commands.")),
     }
 }
 
-fn help_text() -> String {
-    let lines = vec![
-        ("Available Commands", true),
-        ("", false),
-        ("/help          Show this help message", false),
-        ("/clear, /cls   Clear the terminal screen", false),
-        ("/status        Show agent status", false),
-        ("/tools         List available tools", false),
-        ("/usage         Show token usage statistics", false),
-        ("/model         Show model routing info", false),
-        ("/quit, /exit   Exit the agent", false),
-        ("", false),
-        ("Note: Commands like /skills, /memory, /tasks, /prompt", false),
-        ("are handled through tools — just ask the agent!", false),
-    ];
+// ============================================================================
+// Help system
+// ============================================================================
 
+fn help_general() -> String {
     let mut out = String::new();
-    for (line, is_header) in lines {
-        if is_header {
-            out.push_str(&format!("  {}\n", line.cyan().bold()));
-        } else {
-            out.push_str(&format!("  {line}\n"));
-        }
-    }
+
+    // Header
+    out.push_str(&format!("  {}  {}\n\n", "⌨".bold(), "Slash Commands".cyan().bold()));
+
+    // Navigation
+    section(&mut out, "Navigation", &[
+        ("/help", "Show this help"),
+        ("/help:topic", "Help on a specific topic"),
+        ("/version | /v", "Show version info"),
+        ("/status", "Agent status & paths"),
+    ]);
+
+    // Session
+    section(&mut out, "Session", &[
+        ("/clear | /cls", "Clear terminal screen"),
+        ("/quit | /exit", "Exit the agent"),
+        ("/usage", "Token usage statistics"),
+        ("/model", "Model routing info"),
+        ("/config", "Show config file paths"),
+    ]);
+
+    // Tools
+    section(&mut out, "Tools & Skills", &[
+        ("/tools", "List all available tools"),
+        ("/tool:name", "Show details for a specific tool"),
+        ("/skills", "List loaded skills"),
+    ]);
+
+    // Memory
+    section(&mut out, "Memory", &[
+        ("/mem", "Memory overview & stats"),
+        ("/mem:ns", "List all namespaces"),
+        ("/mem:search q", "Search memories"),
+    ]);
+
+    // Git
+    section(&mut out, "Git", &[
+        ("/git", "Git status summary"),
+        ("/git:log", "Recent commit history"),
+    ]);
+
+    // Tasks
+    section(&mut out, "Tasks", &[
+        ("/tasks", "Task overview & stats"),
+        ("/tasks:todo", "Show pending tasks"),
+    ]);
+
+    out.push_str(&format!("\n  {}", "Tip: Use `/help:topic` — e.g. `/help:memory`, `/help:git`".dimmed()));
+
     out
 }
 
-fn tools_text() -> String {
-    let tools = [
-        ("code_analyze", "Analyze Rust code structure and patterns"),
-        ("task_planner", "Create and track tasks with SQLite persistence"),
-        ("memory_store", "Store and retrieve memories by namespace/tag"),
-        ("file_read", "Read file contents"),
-        ("file_write", "Write/create files"),
-        ("file_list", "List directory contents"),
-        ("file_grep", "Search files for patterns"),
-        ("self_modify", "Modify agent's own source code"),
-        ("self_reflect", "Reflect on agent growth and identify gaps"),
-        ("record_evolution", "Record evolution events"),
-        ("manage_skills", "List/show/create/update/delete skills"),
-        ("task_pool", "Execute concurrent shell commands"),
-        ("url_fetch", "Fetch content from URLs (GET only)"),
-        ("http_client", "Full HTTP client (GET/POST/PUT/DELETE, JSON, headers, cookies, multipart)"),
-        ("git_status", "Show Git working tree status"),
-        ("git_diff", "Show changes between commits or working tree"),
-        ("git_log", "Show commit history with filtering"),
-        ("git_clone", "Clone a Git repository"),
-        ("git_commit", "Stage files and create a commit"),
-        ("git_push", "Push commits to remote"),
-        ("code_execute", "Compile and run Rust code in isolated sandbox"),
-        ("project_scaffold", "Generate project structures (cli/lib/web/game)"),
-        ("dep_manager", "Manage dependencies (add/rm/update/tree/audit)"),
-        ("code_transform", "Safe code refactoring (derive, unwrap, rename, visibility)"),
-        ("code_review", "Review code for quality, security, and best practices"),
-        ("doc_search", "Search docs.rs and crates.io for crate info"),
-        ("diagram", "Generate Mermaid architecture diagrams"),
-        ("config", "Persist user preferences across sessions"),
-        ("scheduler", "Manage recurring scheduled tasks"),
-        ("llm", "Call external LLMs for code generation, review, Q&A"),
-        ("database", "SQL queries, table management, CSV import/export"),
-        ("crypto", "Encrypt/decrypt, hash, sign/verify, JWT, password hashing"),
-        ("quantitative_trading", "Backtesting, strategy comparison, technical indicators"),
-        ("env_secret", "Manage environment variables and secrets"),
-        ("notify", "Send notifications via webhooks (Slack, DingTalk, custom)"),
-        ("image", "Analyze and manipulate images (info, resize, thumbnail, convert)"),
-        ("hello", "Greeting tool (demo)"),
-    ];
-
-    let mut out = String::new();
-    out.push_str(&format!("  {}\n\n", "Available Tools".cyan().bold()));
-    for (name, desc) in tools {
-        out.push_str(&format!("  {}  {}\n", name.magenta().bold(), desc.dimmed()));
+fn help_topic(topic: &str) -> String {
+    match topic {
+        "tools" | "tool" => help_tools_detail(),
+        "mem" | "memory" => help_memory_detail(),
+        "git" => help_git_detail(),
+        "tasks" | "task" | "task_planner" => help_tasks_detail(),
+        "skills" | "skill" => help_skills_detail(),
+        "commands" | "shortcuts" | "all" => help_general(),
+        _ => format!("No help available for `{topic}`.\nTry: tools, memory, git, tasks, skills, commands"),
     }
-    out.push_str(&format!("\n  {}", "Ask the agent to use any of these tools.".dimmed()));
+}
+
+fn help_tools_detail() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {}  {}\n\n", "🔧".bold(), "Tools — Quick Reference".cyan().bold()));
+    out.push_str("  /tools              List all registered tools\n");
+    out.push_str("  /tool:name          Show tool parameters & description\n");
+    out.push_str(&format!("\n  {}\n", "All tools can be invoked by asking the agent directly.".dimmed()));
+    out
+}
+
+fn help_memory_detail() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {}  {}\n\n", "🧠".bold(), "Memory — Quick Reference".cyan().bold()));
+    out.push_str("  /mem                Show memory stats (total, per-namespace)\n");
+    out.push_str("  /mem:ns             List all namespaces with counts\n");
+    out.push_str("  /mem:search <q>     Search memories by query text\n");
+    out.push_str(&format!("\n  {}\n", "For full memory operations, ask the agent to use memory tools.".dimmed()));
+    out
+}
+
+fn help_git_detail() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {}  {}\n\n", "📦".bold(), "Git — Quick Reference".cyan().bold()));
+    out.push_str("  /git                Show working tree status\n");
+    out.push_str("  /git:log            Show recent commits\n");
+    out.push_str(&format!("\n  {}\n", "Full Git operations (commit, push, diff, clone) — ask the agent.".dimmed()));
+    out
+}
+
+fn help_tasks_detail() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {}  {}\n\n", "📋".bold(), "Tasks — Quick Reference".cyan().bold()));
+    out.push_str("  /tasks              Task overview (total, by status)\n");
+    out.push_str("  /tasks:todo         List pending/in-progress tasks\n");
+    out.push_str(&format!("\n  {}\n", "Full task management — ask the agent to use task_planner.".dimmed()));
+    out
+}
+
+fn help_skills_detail() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {}  {}\n\n", "🎯".bold(), "Skills — Quick Reference".cyan().bold()));
+    out.push_str("  /skills             List all loaded skills\n");
+    out.push_str(&format!("\n  {}\n", "Skill management — ask the agent to use manage_skills.".dimmed()));
+    out
+}
+
+// ============================================================================
+// Info text helpers
+// ============================================================================
+
+fn section(out: &mut String, title: &str, items: &[(&str, &str)]) {
+    out.push_str(&format!("  {}  {}\n", "▸".cyan().bold(), title.bold()));
+    for (cmd, desc) in items {
+        out.push_str(&format!("    {}  {}\n", cmd.magenta().bold(), desc.dimmed()));
+    }
+    out.push('\n');
+}
+
+fn version_text() -> String {
+    let mut out = String::new();
+    let version = env!("CARGO_PKG_VERSION");
+    let name = env!("CARGO_PKG_NAME");
+    let desc = env!("CARGO_PKG_DESCRIPTION");
+    out.push_str(&format!("  {}  {} v{}\n", "🚀".bold(), name.cyan().bold(), version.bold()));
+    out.push_str(&format!("  {}\n", desc.dimmed()));
+    out.push_str(&format!("\n  {} https://github.com/cargo-agent/cargo-agent\n", "🔗".dimmed()));
     out
 }
 
 fn status_text() -> String {
     let mut out = String::new();
-    out.push_str(&format!("  {}\n\n", "Agent Status".cyan().bold()));
-
-    // Show version
     let version = env!("CARGO_PKG_VERSION");
+    out.push_str(&format!("  {}  {}\n\n", "📊".bold(), "Agent Status".cyan().bold()));
     out.push_str(&format!("  {} v{}\n", "Version".dimmed(), version.bold()));
 
-    out.push_str(&format!("\n  {}", "Run `/help` for available commands.".dimmed()));
+    // OS info
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    out.push_str(&format!("  {} {}/{}\n", "Platform".dimmed(), os, arch));
+
+    // Home dir
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        out.push_str(&format!("  {} {}/.cargo-agent\n", "Data Dir".dimmed(), home));
+    }
+
+    out.push_str(&format!("  {} {}\n", "Config".dimmed(), "~/.cargo-agent/config.yaml".dimmed()));
+    out.push_str(&format!("  {} {}\n", "Memories".dimmed(), "~/.cargo-agent/memories.db".dimmed()));
+    out.push_str(&format!("  {} {}\n", "Skills".dimmed(), "~/.cargo-agent/skills/".dimmed()));
+
+    out.push_str(&format!("\n  {} Use `/help` for all available commands.\n", "💡".dimmed()));
     out
+}
+
+fn config_text() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {}  {}\n\n", "⚙".bold(), "Configuration Paths".cyan().bold()));
+    out.push_str("  Config file:   ~/.cargo-agent/config.yaml\n");
+    out.push_str("  Skills dir:    ~/.cargo-agent/skills/\n");
+    out.push_str("  Memories DB:   ~/.cargo-agent/memories.db\n");
+    out.push_str("  Secrets:       ~/.cargo-agent/secrets.json\n");
+    out.push_str("  Preferences:   ~/.cargo-agent/preferences.json\n");
+    out.push_str(&format!("\n  {}\n", "https://docs.rs/cargo_agent".dimmed()));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_slash_colon() {
+        let (cmd, args) = parse("/tool:code_analyze");
+        assert_eq!(cmd, "tool");
+        assert_eq!(args, "code_analyze");
+    }
+
+    #[test]
+    fn test_parse_slash_space() {
+        let (cmd, args) = parse("/help tools");
+        assert_eq!(cmd, "help");
+        assert_eq!(args, "tools");
+    }
+
+    #[test]
+    fn test_parse_no_args() {
+        let (cmd, args) = parse("/help");
+        assert_eq!(cmd, "help");
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_parse_not_slash() {
+        let (cmd, args) = parse("hello world");
+        assert!(cmd.is_empty());
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_handle_pass_through() {
+        let result = handle("hello world");
+        assert!(matches!(result, SlashResult::PassThrough));
+    }
+
+    #[test]
+    fn test_handle_help() {
+        let result = handle("/help");
+        if let SlashResult::Handled(output) = result {
+            assert!(output.contains("Slash Commands"));
+            assert!(output.contains("/version"));
+            assert!(output.contains("/tools"));
+        } else {
+            panic!("Expected Handled");
+        }
+    }
+
+    #[test]
+    fn test_handle_help_alias() {
+        let result = handle("/h");
+        assert!(matches!(result, SlashResult::Handled(_)));
+    }
+
+    #[test]
+    fn test_handle_help_topic() {
+        let result = handle("/help:memory");
+        if let SlashResult::Handled(output) = result {
+            assert!(output.contains("Memory"));
+            assert!(output.contains("/mem:ns"));
+        } else {
+            panic!("Expected Handled");
+        }
+    }
+
+    #[test]
+    fn test_handle_version() {
+        let result = handle("/version");
+        if let SlashResult::Handled(output) = result {
+            assert!(output.contains(env!("CARGO_PKG_VERSION")));
+        } else {
+            panic!("Expected Handled");
+        }
+    }
+
+    #[test]
+    fn test_handle_version_alias() {
+        let result = handle("/v");
+        assert!(matches!(result, SlashResult::Handled(_)));
+    }
+
+    #[test]
+    fn test_handle_status() {
+        let result = handle("/status");
+        if let SlashResult::Handled(output) = result {
+            assert!(output.contains("Agent Status"));
+        } else {
+            panic!("Expected Handled");
+        }
+    }
+
+    #[test]
+    fn test_handle_config() {
+        let result = handle("/config");
+        if let SlashResult::Handled(output) = result {
+            assert!(output.contains("config.yaml"));
+            assert!(output.contains("memories.db"));
+        } else {
+            panic!("Expected Handled");
+        }
+    }
+
+    #[test]
+    fn test_handle_unknown() {
+        let result = handle("/xyzzy");
+        if let SlashResult::Handled(output) = result {
+            assert!(output.contains("Unknown command"));
+            assert!(output.contains("/xyzzy"));
+        } else {
+            panic!("Expected Handled");
+        }
+    }
+
+    #[test]
+    fn test_handle_dynamic_commands_pass_through() {
+        // These need Gateway access, so they should pass through
+        for cmd in &["/tools", "/mem", "/git", "/tasks", "/skills", "/export", "/stats"] {
+            let result = handle(cmd);
+            assert!(matches!(result, SlashResult::PassThrough),
+                "Expected PassThrough for `{cmd}`");
+        }
+    }
+
+    #[test]
+    fn test_parse_colon_with_spaces() {
+        let (cmd, args) = parse("/mem:search hello world");
+        assert_eq!(cmd, "mem");
+        assert_eq!(args, "search hello world");
+    }
+
+    #[test]
+    fn test_help_topic_invalid() {
+        let result = help_topic("nonexistent");
+        assert!(result.contains("No help available"));
+    }
+
+    #[test]
+    fn test_section_format() {
+        let mut out = String::new();
+        section(&mut out, "Test", &[("/cmd", "description")]);
+        assert!(out.contains("Test"));
+        assert!(out.contains("/cmd"));
+        assert!(out.contains("description"));
+    }
 }

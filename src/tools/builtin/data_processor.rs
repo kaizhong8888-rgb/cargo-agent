@@ -303,7 +303,6 @@ fn parse_json(content: &str) -> Result<(Vec<HashMap<String, Value>>, String), St
                 .map(|item| match item {
                     Value::Object(map) => Ok(map
                         .into_iter()
-                        .map(|(k, v)| (k, v))
                         .collect::<HashMap<String, Value>>()),
                     other => Ok({
                         let mut m = HashMap::new();
@@ -321,7 +320,7 @@ fn parse_json(content: &str) -> Result<(Vec<HashMap<String, Value>>, String), St
         Value::Object(map) => {
             // Single object -> wrap as single-row array
             let mut rows = Vec::new();
-            let row: HashMap<String, Value> = map.into_iter().map(|(k, v)| (k, v)).collect();
+            let row: HashMap<String, Value> = map.into_iter().collect();
             rows.push(row);
             Ok((rows, "json".to_string()))
         }
@@ -641,7 +640,7 @@ fn cmd_stats(params: &HashMap<String, Value>) -> Result<Value, String> {
     // Median
     let mut sorted = values.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median = if sorted.len() % 2 == 0 {
+    let median = if sorted.len().is_multiple_of(2) {
         let mid = sorted.len() / 2;
         (sorted[mid - 1] + sorted[mid]) / 2.0
     } else {
@@ -1407,28 +1406,28 @@ fn filter_rows(
                 if is_numeric_compare {
                     get_numeric(row, column) > cmp_value
                 } else {
-                    get_string(row, column) > value.to_string()
+                    get_string(row, column).as_str() > value
                 }
             }
             ">=" => {
                 if is_numeric_compare {
                     get_numeric(row, column) >= cmp_value
                 } else {
-                    get_string(row, column) >= value.to_string()
+                    get_string(row, column).as_str() >= value
                 }
             }
             "<" => {
                 if is_numeric_compare {
                     get_numeric(row, column) < cmp_value
                 } else {
-                    get_string(row, column) < value.to_string()
+                    get_string(row, column).as_str() < value
                 }
             }
             "<=" => {
                 if is_numeric_compare {
                     get_numeric(row, column) <= cmp_value
                 } else {
-                    get_string(row, column) <= value.to_string()
+                    get_string(row, column).as_str() <= value
                 }
             }
             "contains" => get_string(row, column).to_lowercase().contains(&value.to_lowercase()),

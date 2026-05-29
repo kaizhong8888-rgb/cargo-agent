@@ -38,63 +38,63 @@ const CONFIG_NAMESPACE: &str = "code_review_config:";
 // ============================================================================
 
 // Unsafe code patterns
-static RE_UNSAFE_BLOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r"unsafe\s*\{").unwrap());
-static RE_UNSAFE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+(?:extern\s+)?fn\s+").unwrap());
-static RE_UNSAFE_TRAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+trait\s+").unwrap());
-static RE_PTR_DEREF: Lazy<Regex> = Lazy::new(|| Regex::new(r"\*\s*(?:const|mut)\s+").unwrap());
-static RE_TRANSMUTE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:std::)?mem::transmute\b").unwrap());
+static RE_UNSAFE_BLOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r"unsafe\s*\{").expect("invalid regex: unsafe block"));
+static RE_UNSAFE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+(?:extern\s+)?fn\s+").expect("invalid regex: unsafe fn"));
+static RE_UNSAFE_TRAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+trait\s+").expect("invalid regex: unsafe trait"));
+static RE_PTR_DEREF: Lazy<Regex> = Lazy::new(|| Regex::new(r"\*\s*(?:const|mut)\s+").expect("invalid regex: ptr deref"));
+static RE_TRANSMUTE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:std::)?mem::transmute\b").expect("invalid regex: transmute"));
 
 // Error handling patterns
-static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.unwrap\s*\(\s*\)").unwrap());
-static RE_EXPECT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.expect\s*\(").unwrap());
-static RE_PANIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*panic!\s*\(").unwrap());
-static RE_IGNORE_RESULT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*let\s+_\s*=\s*.+;$").unwrap());
-static RE_WRITELN_RESULT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(?:write!|writeln!)\s*\([^)]*\)\s*;").unwrap());
+static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.unwrap\s*\(\s*\)").expect("invalid regex: unwrap"));
+static RE_EXPECT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.expect\s*\(").expect("invalid regex: expect"));
+static RE_PANIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*panic!\s*\(").expect("invalid regex: panic"));
+static RE_IGNORE_RESULT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*let\s+_\s*=\s*.+;$").expect("invalid regex: ignore result"));
+static RE_WRITELN_RESULT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(?:write!|writeln!)\s*\([^)]*\)\s*;").expect("invalid regex: writeln result"));
 
 // Performance patterns
-static RE_CLONE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.clone\s*\(\s*\)").unwrap());
-static RE_BOX_NEW: Lazy<Regex> = Lazy::new(|| Regex::new(r"Box::new\s*\(").unwrap());
-static RE_VEC_CAPACITY: Lazy<Regex> = Lazy::new(|| Regex::new(r"Vec::with_capacity\s*\(\s*(\d+)\s*\)").unwrap());
-static RE_COLLECT_VEC: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.collect::<Vec<_>>\s*\(\)").unwrap());
+static RE_CLONE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.clone\s*\(\s*\)").expect("invalid regex: clone"));
+static RE_BOX_NEW: Lazy<Regex> = Lazy::new(|| Regex::new(r"Box::new\s*\(").expect("invalid regex: box new"));
+static RE_VEC_CAPACITY: Lazy<Regex> = Lazy::new(|| Regex::new(r"Vec::with_capacity\s*\(\s*(\d+)\s*\)").expect("invalid regex: vec capacity"));
+static RE_COLLECT_VEC: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.collect::<Vec<_>>\s*\(\)").expect("invalid regex: collect vec"));
 
 // Style patterns
-static RE_FN_START: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)").unwrap());
-static RE_NON_SNAKE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Z][a-zA-Z0-9_]*)").unwrap());
-static RE_TODO_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND)").unwrap());
+static RE_FN_START: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)").expect("invalid regex: fn start"));
+static RE_NON_SNAKE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Z][a-zA-Z0-9_]*)").expect("invalid regex: non-snake fn"));
+static RE_TODO_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND)").expect("invalid regex: todo comment"));
 
 // Safety patterns
-static RE_MAYBE_UNINIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"MaybeUninit").unwrap());
-static RE_PTR_OFFSET: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.offset\s*\(").unwrap());
+static RE_MAYBE_UNINIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"MaybeUninit").expect("invalid regex: maybe uninit"));
+static RE_PTR_OFFSET: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.offset\s*\(").expect("invalid regex: ptr offset"));
 
 // Correctness patterns
-static RE_TODO_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*todo!\s*\(").unwrap());
-static RE_UNIMPLEMENTED: Lazy<Regex> = Lazy::new(|| Regex::new(r"unimplemented!\s*\(").unwrap());
-static RE_UNREACHABLE: Lazy<Regex> = Lazy::new(|| Regex::new(r"unreachable!\s*\(").unwrap());
-static RE_MATCH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*match\s+").unwrap());
-static RE_DEREF_IMPL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*impl\s+(?:<[^>]*>\s+)?Deref\s+for\s+").unwrap());
+static RE_TODO_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*todo!\s*\(").expect("invalid regex: todo macro"));
+static RE_UNIMPLEMENTED: Lazy<Regex> = Lazy::new(|| Regex::new(r"unimplemented!\s*\(").expect("invalid regex: unimplemented"));
+static RE_UNREACHABLE: Lazy<Regex> = Lazy::new(|| Regex::new(r"unreachable!\s*\(").expect("invalid regex: unreachable"));
+static RE_MATCH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*match\s+").expect("invalid regex: match"));
+static RE_DEREF_IMPL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*impl\s+(?:<[^>]*>\s+)?Deref\s+for\s+").expect("invalid regex: deref impl"));
 
 // Concurrency patterns
-static RE_REFCELL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:RefCell|Cell)\s*<").unwrap());
-static RE_STD_MUTEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"std::sync::Mutex").unwrap());
-static RE_UNSAFE_SEND_SYNC: Lazy<Regex> = Lazy::new(|| Regex::new(r"unsafe\s+impl\s+(Send|Sync)").unwrap());
-static RE_STATIC_MUT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*static\s+mut\s+").unwrap());
-static RE_ARC: Lazy<Regex> = Lazy::new(|| Regex::new(r"Arc<").unwrap());
+static RE_REFCELL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:RefCell|Cell)\s*<").expect("invalid regex: refcell"));
+static RE_STD_MUTEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"std::sync::Mutex").expect("invalid regex: std mutex"));
+static RE_UNSAFE_SEND_SYNC: Lazy<Regex> = Lazy::new(|| Regex::new(r"unsafe\s+impl\s+(Send|Sync)").expect("invalid regex: unsafe send/sync"));
+static RE_STATIC_MUT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*static\s+mut\s+").expect("invalid regex: static mut"));
+static RE_ARC: Lazy<Regex> = Lazy::new(|| Regex::new(r"Arc<").expect("invalid regex: arc"));
 
 // Documentation patterns
-static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]").unwrap());
+static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]").expect("invalid regex: pub fn"));
 
 // Naming patterns - using inline regex in check_naming for specific patterns
 // RE_LOWERCASE_STRUCT and RE_LOWERCASE_ENUM defined below
 
 // Async patterns
-static RE_ASYNC_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?async\s+fn\s+").unwrap());
-static RE_AWAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.await\b").unwrap());
-static RE_STD_MUTEX_LOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r"std::sync::Mutex[\s\S]*?\.lock\s*\(").unwrap());
-static RE_BLOCKING_IO: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(std::)?(fs|net|process|thread)::").unwrap());
+static RE_ASYNC_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?async\s+fn\s+").expect("invalid regex: async fn"));
+static RE_AWAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.await\b").expect("invalid regex: await"));
+static RE_STD_MUTEX_LOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r"std::sync::Mutex[\s\S]*?\.lock\s*\(").expect("invalid regex: std mutex lock"));
+static RE_BLOCKING_IO: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(std::)?(fs|net|process|thread)::").expect("invalid regex: blocking io"));
 
 // Non-snake_case type names (should be CamelCase)
-static RE_LOWERCASE_STRUCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?struct\s+([a-z][a-zA-Z0-9_]*)").unwrap());
-static RE_LOWERCASE_ENUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?enum\s+([a-z][a-zA-Z0-9_]*)").unwrap());
+static RE_LOWERCASE_STRUCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?struct\s+([a-z][a-zA-Z0-9_]*)").expect("invalid regex: lowercase struct"));
+static RE_LOWERCASE_ENUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?enum\s+([a-z][a-zA-Z0-9_]*)").expect("invalid regex: lowercase enum"));
 
 // ============================================================================
 // Security patterns
@@ -106,7 +106,7 @@ static RE_SQL_INJECTION: Lazy<Regex> = Lazy::new(|| {
         (?:format!|concat!|write!|writeln!)\s*\(
         [^)]*["']
         (?:SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC)\b
-    "##).unwrap()
+    "##).expect("invalid regex: SQL injection")
 });
 
 /// Hardcoded secrets: api_key/secret/password/token assigned a long string value
@@ -114,22 +114,22 @@ static RE_HARDCODED_SECRET: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r##"(?i)(?x)
         (?:api[_-]?key|apikey|secret|password|token|auth|credential|private_key)
         \s*[=:]\s*["'][A-Za-z0-9_\-]{16,}["']
-    "##).unwrap()
+    "##).expect("invalid regex: hardcoded secret")
 });
 
 /// Private key / certificate content embedded in string
 static RE_PRIVATE_KEY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r##"["']-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----"##).unwrap()
+    Regex::new(r##"["']-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----"##).expect("invalid regex: private key")
 });
 
 /// OpenAI API key pattern
 static RE_OPENAI_KEY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r##"["']sk-[A-Za-z0-9]{32,}["']"##).unwrap()
+    Regex::new(r##"["']sk-[A-Za-z0-9]{32,}["']"##).expect("invalid regex: OpenAI key")
 });
 
 // Non-SCREAMING_CASE constants/statics
-static RE_NON_SCREAMING_CONST: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?const\s+([a-z][a-zA-Z0-9_]*)").unwrap());
-static RE_NON_SCREAMING_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-z][a-zA-Z0-9_]*)").unwrap());
+static RE_NON_SCREAMING_CONST: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?const\s+([a-z][a-zA-Z0-9_]*)").expect("invalid regex: non-screaming const"));
+static RE_NON_SCREAMING_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-z][a-zA-Z0-9_]*)").expect("invalid regex: non-screaming static"));
 
 // ============================================================================
 // Ignore system: // code-review: ignore[check1,check2,all]
@@ -137,7 +137,7 @@ static RE_NON_SCREAMING_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*
 
 /// Matches inline ignore directives: `// code-review: ignore[unsafe,style]` anywhere on a line
 static RE_IGNORE_DIRECTIVE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"//\s*code-review:\s*ignore\s*\[([^\]]*)\]").unwrap()
+    Regex::new(r"//\s*code-review:\s*ignore\s*\[([^\]]*)\]").expect("invalid regex: ignore directive")
 });
 
 // ============================================================================
@@ -601,7 +601,7 @@ impl Tool for CodeReviewTool {
         // Write to output file if requested
         if let Some(ref out_path) = output_path {
             let report_content = if result.get("report").and_then(|v| v.as_str()).is_some() {
-                result["report"].as_str().unwrap().to_string()
+                result["report"].as_str().unwrap_or_default().to_string()
             } else if effective_format == "json" {
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
             } else if effective_format == "gitlab-ci" || effective_format == "gitlab_ci" {
@@ -846,7 +846,7 @@ fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
     }
 
     for caps in RE_UNSAFE_FN.captures_iter(content) {
-        let m = caps.get(0).unwrap();
+        let Some(m) = caps.get(0) else { continue; };
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "unsafe".to_string(),
@@ -862,7 +862,7 @@ fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
     }
 
     for caps in RE_UNSAFE_TRAIT.captures_iter(content) {
-        let m = caps.get(0).unwrap();
+        let Some(m) = caps.get(0) else { continue; };
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "unsafe".to_string(),
@@ -1147,7 +1147,7 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
     // Non-snake_case functions
     for caps in RE_NON_SNAKE_FN.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let m0 = caps.get(0).unwrap();
+            let Some(m0) = caps.get(0) else { continue; };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "style".to_string(),
@@ -1165,7 +1165,7 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
     // TODO/FIXME comments
     for caps in RE_TODO_COMMENT.captures_iter(content) {
         let tag = caps.get(1).map(|t| t.as_str()).unwrap_or("TODO");
-        let m0 = caps.get(0).unwrap();
+        let Some(m0) = caps.get(0) else { continue; };
         let line_num = line_at(content, m0.start()) - 1;
         let s: &str = lines.get(line_num).map(|s| s.trim()).unwrap_or("");
         issues.push(ReviewIssue {
@@ -1479,7 +1479,7 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
     // Struct names should be CamelCase (start with uppercase)
     for caps in RE_LOWERCASE_STRUCT.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let m0 = caps.get(0).unwrap();
+            let Some(m0) = caps.get(0) else { continue; };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "naming".to_string(),
@@ -1497,7 +1497,7 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
     // Enum names should be CamelCase
     for caps in RE_LOWERCASE_ENUM.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let m0 = caps.get(0).unwrap();
+            let Some(m0) = caps.get(0) else { continue; };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "naming".to_string(),
@@ -1519,7 +1519,7 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
             let n = name.as_str();
             if n.chars().any(|c| c.is_uppercase()) && n.contains('_') { continue; }
             if n.len() <= 2 { continue; } // short names are ok
-            let m0 = caps.get(0).unwrap();
+            let Some(m0) = caps.get(0) else { continue; };
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "naming".to_string(),
@@ -1540,7 +1540,7 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
             let n = name.as_str();
             if n.chars().any(|c| c.is_uppercase()) && n.contains('_') { continue; }
             if n.len() <= 2 { continue; }
-            let m0 = caps.get(0).unwrap();
+            let Some(m0) = caps.get(0) else { continue; };
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "naming".to_string(),
@@ -1716,7 +1716,7 @@ fn check_security(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<R
 
 /// Regex to match function parameters section
 static RE_FN_PARAMS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+\w+\s*\(([^)]*)\)").unwrap()
+    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+\w+\s*\(([^)]*)\)").expect("invalid regex: fn params")
 });
 
 fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
@@ -1745,7 +1745,7 @@ fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<
             .count();
 
         if param_count > 5 {
-            let m0 = caps.get(0).unwrap();
+            let Some(m0) = caps.get(0) else { continue; };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "complexity".to_string(),
@@ -1854,8 +1854,8 @@ fn find_line_start(content: &str, line_num: usize) -> usize {
 // Check: Testing Quality
 // ============================================================================
 
-static RE_TEST_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*#\[test\]\s*$").unwrap());
-static RE_ASSERT_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"\bassert(|_eq|_ne|_approx_eq)!").unwrap());
+static RE_TEST_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*#\[test\]\s*$").expect("invalid regex: test fn"));
+static RE_ASSERT_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"\bassert(|_eq|_ne|_approx_eq)!").expect("invalid regex: assert macro"));
 
 fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     // 1. Find all #[test] functions and check for assertions
@@ -1939,7 +1939,7 @@ fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Rev
 // Check: Debug Residuals
 // ============================================================================
 
-static RE_DBG_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(dbg!|eprintln!|println!)\s*\(").unwrap());
+static RE_DBG_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(dbg!|eprintln!|println!)\s*\(").expect("invalid regex: dbg macro"));
 
 fn check_debug(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     for m in RE_DBG_MACRO.find_iter(content) {
@@ -1983,7 +1983,8 @@ fn check_debug(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Revi
 fn parse_ignore_directives(content: &str) -> Vec<(usize, String)> {
     let mut ignores: Vec<(usize, String)> = Vec::new();
     for caps in RE_IGNORE_DIRECTIVE.captures_iter(content) {
-        let line_num = line_at(content, caps.get(0).unwrap().start());
+        let Some(cap) = caps.get(0) else { continue; };
+        let line_num = line_at(content, cap.start());
         let checks_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         for check in checks_str.split(',') {
             let c = check.trim().to_lowercase();

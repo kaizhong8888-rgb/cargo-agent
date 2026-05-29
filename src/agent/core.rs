@@ -58,6 +58,11 @@ impl AIAgent {
         self.memory_store = Some(store);
     }
 
+    /// Get a reference to the memory store, if available.
+    pub fn memory_store(&self) -> Option<&Arc<SqliteMemoryStore>> {
+        self.memory_store.as_ref()
+    }
+
     pub fn set_system_prompt(&mut self, prompt: &str) {
         self.messages.push(serde_json::json!({
             "role": "system",

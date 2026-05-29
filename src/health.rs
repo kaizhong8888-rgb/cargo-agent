@@ -49,7 +49,13 @@ pub async fn start_status_server(port: u16) -> std::io::Result<()> {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
             // Drain the HTTP request
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut reader = match stream.try_clone() {
+                Ok(cloned) => BufReader::new(cloned),
+                Err(e) => {
+                    eprintln!("Health check: failed to clone stream: {e}");
+                    continue;
+                }
+            };
             let mut line = String::new();
             loop {
                 line.clear();

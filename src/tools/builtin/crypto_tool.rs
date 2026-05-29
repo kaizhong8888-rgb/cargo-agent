@@ -23,7 +23,7 @@ fn derive_key_argon2id(password: &str) -> ([u8; 32], String) {
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        argon2::Params::new(65536, 3, 4, Some(32)).unwrap(),
+        argon2::Params::new(65536, 3, 4, Some(32)).expect("invalid argon2 params: 64MB mem, 3 iterations, 4 parallelism, 32 bytes"),
     );
     let _ = argon2.hash_password_into(password.as_bytes(), &salt, &mut key);
     let salt_b64 = general_purpose::STANDARD.encode(salt);
@@ -52,7 +52,7 @@ fn rederive_key_argon2id(password: &str, salt_b64: &str) -> Result<[u8; 32], Str
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        argon2::Params::new(65536, 3, 4, Some(32)).unwrap(),
+        argon2::Params::new(65536, 3, 4, Some(32)).expect("invalid argon2 params: 64MB mem, 3 iterations, 4 parallelism, 32 bytes"),
     );
     argon2
         .hash_password_into(password.as_bytes(), &salt_bytes, &mut key)

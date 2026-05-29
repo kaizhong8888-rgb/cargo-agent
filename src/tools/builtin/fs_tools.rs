@@ -396,17 +396,23 @@ fn list_dir_flat(
                     .ok()
                     .map(|c| c.lines().count() as u64)
                     .unwrap_or(0);
-                item.as_object_mut().unwrap().insert(
-                    "preview".to_string(), Value::Array(
-                        preview.into_iter().map(Value::String).collect()
-                    )
-                );
-                item.as_object_mut().unwrap().insert(
-                    "preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated))
-                );
-                item.as_object_mut().unwrap().insert(
-                    "total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines))
-                );
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert(
+                        "preview".to_string(), Value::Array(
+                            preview.into_iter().map(Value::String).collect()
+                        )
+                    );
+                }
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert(
+                        "preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated))
+                    );
+                }
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert(
+                        "total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines))
+                    );
+                }
             }
         }
 
@@ -478,9 +484,9 @@ fn list_dir_recursive(
         if file_type.is_dir() {
             let children = list_dir_recursive(root, &full_path, depth + 1, max_depth, max_preview_lines, gitignore)?;
             if !children.is_empty() {
-                item.as_object_mut()
-                    .unwrap()
-                    .insert("children".to_string(), Value::Array(children));
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert("children".to_string(), Value::Array(children));
+                }
             }
         }
 
@@ -492,17 +498,23 @@ fn list_dir_recursive(
                     .ok()
                     .map(|c| c.lines().count() as u64)
                     .unwrap_or(0);
-                item.as_object_mut().unwrap().insert(
-                    "preview".to_string(), Value::Array(
-                        preview.into_iter().map(Value::String).collect()
-                    )
-                );
-                item.as_object_mut().unwrap().insert(
-                    "preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated))
-                );
-                item.as_object_mut().unwrap().insert(
-                    "total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines))
-                );
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert(
+                        "preview".to_string(), Value::Array(
+                            preview.into_iter().map(Value::String).collect()
+                        )
+                    );
+                }
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert(
+                        "preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated))
+                    );
+                }
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert(
+                        "total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines))
+                    );
+                }
             }
         }
 
@@ -654,7 +666,7 @@ impl Tool for GrepTool {
                 .replace('*', ".*")
                 .replace('?', ".");
             Regex::new(&format!("(?i)^{glob_re}$"))
-                .unwrap_or_else(|_| Regex::new(".*").unwrap())
+                .unwrap_or_else(|_| Regex::new(".*").expect("invalid regex: fallback .*"))
         });
 
         // Walk the directory and search

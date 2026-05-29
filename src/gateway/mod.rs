@@ -6,6 +6,7 @@ use crate::skills::SkillRegistry;
 use crate::tools::builtin::env_secret::SecretStore;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
+use colored::Colorize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -191,5 +192,514 @@ impl Gateway {
     /// Override the model for the next request based on message complexity.
     pub fn select_model_for_message(&self, message: &str) -> &str {
         self.model_router.select(message)
+    }
+
+    /// Handle a dynamic slash command that needs access to runtime state.
+    ///
+    /// These are commands that cannot be handled statically in `cli_commands::handle()`
+    /// because they need the tool registry, memory store, or other runtime data.
+    ///
+    /// Returns `None` if the command was not recognized (should pass through to LLM).
+    pub async fn handle_slash(&self, cmd: &str, args: &str) -> Option<String> {
+        match cmd {
+            "tools" => Some(self.slash_tools(args)),
+            "tool" => Some(self.slash_tool_detail(args)),
+            "mem" | "memory" => Some(self.slash_memory(args).await),
+            "git" => Some(self.slash_git(args)),
+            "tasks" | "task" => Some(self.slash_tasks(args)),
+            "skills" | "skill" => Some(self.slash_skills(args)),
+            "export" => Some(self.slash_export(args)),
+            "stats" => Some(self.slash_stats()),
+            _ => None,
+        }
+    }
+
+    // ── Tool commands ──────────────────────────────────────
+
+    fn slash_tools(&self, _args: &str) -> String {
+        let tools = self.agent.tool_registry.list_tools();
+        let mut out = String::new();
+        out.push_str(&format!("  {}  {}\n\n", "🔧".bold(), format!("Tools ({} registered)", tools.len()).cyan().bold()));
+
+        // Group tools by category for better readability
+        let mut categories: Vec<(&str, Vec<(&str, &str)>)> = vec![
+            ("Code", vec![]),
+            ("Git", vec![]),
+            ("Data", vec![]),
+            ("System", vec![]),
+            ("AI/LLM", vec![]),
+            ("Utils", vec![]),
+        ];
+
+        for tool in &tools {
+            let name = tool.name();
+            let desc = tool.description();
+            let cat = match name {
+                "code_analyze" | "code_analyzer" | "code_transform" | "code_review"
+                | "code_execute" | "scaffold" | "dep_manager" | "self_modify" => 0,
+                "git_status" | "git_diff" | "git_log" | "git_clone" | "git_commit" | "git_push" => 1,
+                "data_processor" | "chart_generator" | "database" | "config_store"
+                | "doc_search" | "diagram" => 2,
+                "task_planner" | "task_pool" | "scheduler" | "env_secret" | "notify"
+                | "memory_store" | "evolution" | "manage_skills" => 3,
+                "llm" | "self_reflect" | "record_evolution" => 4,
+                _ => 5,
+            };
+            categories[cat].1.push((name, desc));
+        }
+
+        // Determine which label to use for the catch-all
+        let labels = ["Code", "Git", "Data", "System", "AI/LLM", "Utils"];
+
+        for (idx, (_, items)) in categories.iter_mut().enumerate() {
+            if items.is_empty() {
+                continue;
+            }
+            items.sort_by(|a, b| a.0.cmp(b.0));
+            out.push_str(&format!("  {}  {}\n", "▸".cyan().bold(), labels[idx].bold()));
+            for (name, desc) in items {
+                out.push_str(&format!("    {}  {}\n", name.magenta().bold(), desc.dimmed()));
+            }
+            out.push('\n');
+        }
+
+        out.push_str(&format!("  {} {}", "💡".dimmed(), "Use `/tool:name` for details on a specific tool.".dimmed()));
+        out
+    }
+
+    fn slash_tool_detail(&self, name: &str) -> String {
+        if name.is_empty() {
+            return format!("  {}  {}\n\n  {}", "❓".bold(), "Tool Lookup".cyan().bold(),
+                "Usage: `/tool:tool_name` (e.g. `/tool:code_analyze`)".dimmed());
+        }
+        match self.agent.tool_registry.get(name) {
+            Some(tool) => {
+                let mut out = String::new();
+                out.push_str(&format!("  {}  {}\n\n", "🔧".bold(), format!("Tool: {}", tool.name()).cyan().bold()));
+                out.push_str(&format!("  {}\n\n", tool.description().dimmed()));
+
+                let params = tool.parameters();
+                if params.is_empty() {
+                    out.push_str("  No parameters\n");
+                } else {
+                    out.push_str(&format!("  {} ({})\n\n", "Parameters".bold(), params.len()));
+                    for p in &params {
+                        let req = if p.required { "required" } else { "optional" };
+                        out.push_str(&format!(
+                            "    {} [{}] ({})  {}\n",
+                            p.name.magenta().bold(),
+                            p.parameter_type.dimmed(),
+                            req.dimmed(),
+                            p.description.dimmed()
+                        ));
+                    }
+                }
+                out
+            }
+            None => format!("  ❌ Tool `{name}` not found.\n  Use `/tools` to see all available tools."),
+        }
+    }
+
+    // ── Memory commands ────────────────────────────────────
+
+    async fn slash_memory(&self, args: &str) -> String {
+        // Access memory store through the agent
+        let store: Option<std::sync::Arc<crate::memory::SqliteMemoryStore>> = self.agent.memory_store().cloned();
+        let store = match store {
+            Some(s) => s,
+            None => return "  ❌ Memory store is not available (run the agent first).".to_string(),
+        };
+
+        let (subcmd, subargs) = if let Some(pos) = args.find(' ') {
+            (&args[..pos], args[pos + 1..].trim())
+        } else {
+            (args, "")
+        };
+
+        match subcmd {
+            "ns" | "namespaces" | "namespace" => {
+                match store.list_namespaces() {
+                    Ok(ns_list) => {
+                        if ns_list.is_empty() {
+                            return "  📭 No memories stored yet.\n  Ask the agent to store something!".to_string();
+                        }
+                        let total: usize = ns_list.iter().map(|(_, c)| c).sum();
+                        let mut out = String::new();
+                        out.push_str(&format!("  {}  {}\n\n", "🗂".bold(), format!("Namespaces ({total} total)").cyan().bold()));
+                        for (ns, count) in &ns_list {
+                            out.push_str(&format!("    {}  {:>4} memories\n", ns.magenta().bold(), count));
+                        }
+                        out
+                    }
+                    Err(e) => format!("  ❌ Error reading memory store: {e}"),
+                }
+            }
+            "search" | "s" | "find" | "q" => {
+                if subargs.is_empty() {
+                    return "  Usage: `/mem:search <query>` — e.g. `/mem:search rust ownership`".to_string();
+                }
+                match store.search(None, None, Some(subargs), None, 10) {
+                    Ok(results) => {
+                        if results.is_empty() {
+                            return format!("  🔍 No memories found for: `{subargs}`");
+                        }
+                        let mut out = String::new();
+                        out.push_str(&format!("  {}  {} results for \"{}\"\n\n", "🔍".bold(), results.len(), subargs.cyan()));
+                        for m in &results {
+                            let preview = if m.value.len() > 80 {
+                                format!("{}...", &m.value[..77])
+                            } else {
+                                m.value.clone()
+                            };
+                            out.push_str(&format!(
+                                "    {}  [imp:{}] {}\n",
+                                m.key.magenta().bold(),
+                                m.importance,
+                                preview.dimmed()
+                            ));
+                        }
+                        out
+                    }
+                    Err(e) => format!("  ❌ Search error: {e}"),
+                }
+            }
+            "stats" | "" => {
+                match store.stats() {
+                    Ok(stats) => {
+                        let mut out = String::new();
+                        out.push_str(&format!("  {}  {}\n\n", "🧠".bold(), "Memory Stats".cyan().bold()));
+                        out.push_str(&format!("  {} {}\n\n", "Total memories:".dimmed(), stats.total.to_string().bold()));
+
+                        out.push_str(&format!("  {} \n", "By Namespace:".bold()));
+                        for (ns, count) in &stats.by_namespace {
+                            out.push_str(&format!("    {} {}\n", ns.magenta().bold(), count));
+                        }
+
+                        out.push_str(&format!("\n  {} \n", "By Importance:".bold()));
+                        for (imp, count) in &stats.by_importance {
+                            let bar = "█".repeat(*count);
+                            out.push_str(&format!("    {}  {} ({})\n", format!("{:>2}", imp).dimmed(), bar, count));
+                        }
+                        out
+                    }
+                    Err(e) => format!("  ❌ Stats error: {e}"),
+                }
+            }
+            _ => format!("  ❌ Unknown memory subcommand: `{subcmd}`\n  Use: stats, ns, search <query>"),
+        }
+    }
+
+    // ── Git commands ───────────────────────────────────────
+
+    fn slash_git(&self, args: &str) -> String {
+        match args {
+            "log" | "l" => {
+                let output = std::process::Command::new("git")
+                    .args(["log", "--oneline", "--abbrev-commit", "-15"])
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let log = String::from_utf8_lossy(&out.stdout);
+                        let mut formatted = String::new();
+                        formatted.push_str(&format!("  {}  {}\n\n", "📦".bold(), "Recent Commits".cyan().bold()));
+                        for line in log.lines() {
+                            formatted.push_str(&format!("    {}\n", line.dimmed()));
+                        }
+                        formatted
+                    }
+                    Ok(out) => format!("  ❌ git log failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Err(e) => format!("  ❌ git not available: {e}"),
+                }
+            }
+            "diff" | "d" => {
+                let output = std::process::Command::new("git")
+                    .args(["diff", "--stat"])
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let diff = String::from_utf8_lossy(&out.stdout);
+                        if diff.trim().is_empty() {
+                            return "  ✅ Working tree is clean, no uncommitted changes.".to_string();
+                        }
+                        let mut formatted = String::new();
+                        formatted.push_str(&format!("  {}  {}\n\n", "📝".bold(), "Uncommitted Changes".cyan().bold()));
+                        for line in diff.lines() {
+                            formatted.push_str(&format!("    {}\n", line.dimmed()));
+                        }
+                        formatted.push_str(&"\n  Use `/git:diff:full` for detailed diff.".dimmed().to_string());
+                        formatted
+                    }
+                    Ok(out) => format!("  ❌ git diff failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Err(e) => format!("  ❌ git not available: {e}"),
+                }
+            }
+            "diff:full" | "df" => {
+                let output = std::process::Command::new("git")
+                    .args(["diff"])
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let diff = String::from_utf8_lossy(&out.stdout);
+                        if diff.trim().is_empty() {
+                            return "  ✅ No uncommitted changes.".to_string();
+                        }
+                        format!("  📝 Full diff:\n\n{}", diff)
+                    }
+                    Ok(out) => format!("  ❌ git diff failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Err(e) => format!("  ❌ git not available: {e}"),
+                }
+            }
+            "branch" | "b" => {
+                let output = std::process::Command::new("git")
+                    .args(["branch", "-a"])
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let branches = String::from_utf8_lossy(&out.stdout);
+                        let mut formatted = String::new();
+                        formatted.push_str(&format!("  {}  {}\n\n", "🌿".bold(), "Branches".cyan().bold()));
+                        for line in branches.lines() {
+                            if line.starts_with('*') {
+                                formatted.push_str(&format!("    {} (current)\n", line.green().bold()));
+                            } else {
+                                formatted.push_str(&format!("    {}\n", line.dimmed()));
+                            }
+                        }
+                        formatted
+                    }
+                    Ok(out) => format!("  ❌ git branch failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Err(e) => format!("  ❌ git not available: {e}"),
+                }
+            }
+            "" | "status" | "s" => {
+                let output = std::process::Command::new("git")
+                    .args(["status", "--short"])
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {
+                        let status = String::from_utf8_lossy(&out.stdout);
+                        let mut formatted = String::new();
+
+                        // Get current branch
+                        let branch_output = std::process::Command::new("git")
+                            .args(["branch", "--show-current"])
+                            .output();
+                        let branch = branch_output.ok()
+                            .filter(|o| o.status.success())
+                            .and_then(|o| String::from_utf8(o.stdout).ok())
+                            .map(|s| s.trim().to_string())
+                            .unwrap_or_else(|| "?".to_string());
+
+                        formatted.push_str(&format!("  {}  {}  {}\n\n", "📦".bold(), "Git Status".cyan().bold(), format!("[{}]", branch).dimmed()));
+
+                        if status.trim().is_empty() {
+                            formatted.push_str(&format!("  {}  Working tree is clean\n", "✅".green()));
+                        } else {
+                            for line in status.lines() {
+                                let (prefix, file) = if line.len() > 3 {
+                                    (&line[..2], &line[3..])
+                                } else {
+                                    (line, "")
+                                };
+                                let icon = match prefix.trim() {
+                                    "M" | "MM" => "📝",
+                                    "A" => "➕",
+                                    "D" => "🗑",
+                                    "??" => "❓",
+                                    "R" => "🔄",
+                                    _ => "  ",
+                                };
+                                formatted.push_str(&format!("    {} {}  {}\n", icon, prefix.dimmed(), file.yellow()));
+                            }
+                        }
+                        formatted.push_str(&"\n  Use `/git:log` for commit history, `/git:diff` for changes.".dimmed());
+                        formatted
+                    }
+                    Ok(out) => format!("  ❌ git status failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Err(e) => format!("  ❌ git not available: {e}"),
+                }
+            }
+            _ => format!("  ❌ Unknown git subcommand: `{args}`\n  Use: status, log, diff, branch"),
+        }
+    }
+
+    // ── Task commands ──────────────────────────────────────
+
+    fn slash_tasks(&self, args: &str) -> String {
+        // Task stats require querying the task planner's SQLite DB
+        let db_path = crate::constants::AGENT_DIR.as_str().to_owned() + "/tasks.db";
+        let path = std::path::Path::new(&db_path);
+
+        if !path.exists() {
+            return "  📋 No tasks database found.\n  Ask the agent to create a task first using task_planner.".to_string();
+        }
+
+        match args {
+            "todo" | "pending" | "in_progress" => {
+                // Try to read tasks from the database
+                match rusqlite::Connection::open(path) {
+                    Ok(conn) => {
+                        let mut stmt = match conn.prepare(
+                            "SELECT id, title, status, created_at FROM tasks WHERE status IN ('pending', 'in_progress') ORDER BY created_at DESC LIMIT 15"
+                        ) {
+                            Ok(s) => s,
+                            Err(e) => return format!("  ❌ Failed to query tasks: {e}"),
+                        };
+
+                        let rows = match stmt.query_map([], |row| {
+                            let id: String = row.get(0)?;
+                            let title: String = row.get(1)?;
+                            let status: String = row.get(2)?;
+                            let created: String = row.get(3)?;
+                            Ok((id, title, status, created))
+                        }) {
+                            Ok(r) => r,
+                            Err(e) => return format!("  ❌ Failed to read tasks: {e}"),
+                        };
+
+                        let mut out = String::new();
+                        out.push_str(&format!("  {}  {}\n\n", "📋".bold(), "Pending Tasks".cyan().bold()));
+
+                        let mut count = 0;
+                        for (_id, title, status, _created) in rows.flatten() {
+                            let icon = if status == "in_progress" { "🔄" } else { "⏳" };
+                            out.push_str(&format!("    {}  {}  ({})\n", icon, title.bold(), status.dimmed()));
+                            count += 1;
+                        }
+
+                        if count == 0 {
+                            out.push_str(&format!("  {}  No pending tasks! 🎉\n", "  "));
+                        }
+                        out
+                    }
+                    Err(e) => format!("  ❌ Failed to open tasks database: {e}"),
+                }
+            }
+            "" | "stats" | "all" => {
+                match rusqlite::Connection::open(path) {
+                    Ok(conn) => {
+                        // Get counts by status
+                        let total: usize = conn.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap_or(0);
+                        let pending: usize = conn.query_row("SELECT COUNT(*) FROM tasks WHERE status = 'pending'", [], |r| r.get(0)).unwrap_or(0);
+                        let in_progress: usize = conn.query_row("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'", [], |r| r.get(0)).unwrap_or(0);
+                        let completed: usize = conn.query_row("SELECT COUNT(*) FROM tasks WHERE status = 'completed'", [], |r| r.get(0)).unwrap_or(0);
+
+                        let mut out = String::new();
+                        out.push_str(&format!("  {}  {}\n\n", "📊".bold(), "Task Overview".cyan().bold()));
+                        out.push_str(&format!("  {} {}\n", "Total tasks:".dimmed(), total.to_string().bold()));
+                        out.push_str(&format!("  {} {} {}\n", "⏳".dimmed(), "Pending:".dimmed(), pending));
+                        out.push_str(&format!("  {} {} {}\n", "🔄".dimmed(), "In Progress:".dimmed(), in_progress));
+                        out.push_str(&format!("  {} {} {}\n", "✅".dimmed(), "Completed:".dimmed(), completed));
+
+                        if pending + in_progress > 0 {
+                            out.push_str(&"\n  Use `/tasks:todo` to see pending tasks.".dimmed());
+                        }
+                        out
+                    }
+                    Err(e) => format!("  ❌ Failed to open tasks database: {e}"),
+                }
+            }
+            _ => format!("  ❌ Unknown tasks subcommand: `{args}`\n  Use: stats, todo"),
+        }
+    }
+
+    // ── Skills commands ────────────────────────────────────
+
+    fn slash_skills(&self, _args: &str) -> String {
+        let skills = self.agent.skill_registry.list();
+        let active_count = self.agent.skill_registry.active_skills().len();
+
+        let mut out = String::new();
+        out.push_str(&format!("  {}  {} ({})\n\n", "🎯".bold(), "Skills".cyan().bold(),
+            format!("{} loaded, {} active", skills.len(), active_count).dimmed()));
+
+        if skills.is_empty() {
+            out.push_str(&format!("  {}  No skills loaded.\n", "📭".dimmed()));
+            out.push_str(&format!("  {}  Ask the agent to create a skill with manage_skills.\n", "💡".dimmed()));
+            return out;
+        }
+
+        // Group by active/inactive
+        for (name, desc, active) in &skills {
+            let status = if *active {
+                "🟢 always-on"
+            } else {
+                "🔵 on-demand"
+            };
+            out.push_str(&format!("    {}  {}  {}\n", name.magenta().bold(), status.dimmed(), desc.dimmed()));
+        }
+
+        out.push_str(&"\n  Use `/help:skills` for more info.".dimmed());
+        out
+    }
+
+    // ── Export command ─────────────────────────────────────
+
+    fn slash_export(&self, args: &str) -> String {
+        let path = if args.is_empty() {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("conversation_{ts}.json")
+        } else {
+            args.to_string()
+        };
+
+        match self.agent.export_conversation(&path) {
+            Ok(()) => format!("  ✅ Conversation exported to: {}\n  ({:.1} messages, {} tokens)",
+                path.cyan(),
+                self.agent.messages().len(),
+                self.agent.token_usage().total_tokens,
+            ),
+            Err(e) => format!("  ❌ Export failed: {e}"),
+        }
+    }
+
+    // ── Stats command ──────────────────────────────────────
+
+    fn slash_stats(&self) -> String {
+        let usage = self.agent.token_usage();
+        let msg_count = self.agent.messages().len();
+
+        let mut out = String::new();
+        out.push_str(&format!("  {}  {}\n\n", "📊".bold(), "Session Statistics".cyan().bold()));
+
+        // Conversation
+        out.push_str(&format!("  {}  {}\n", "Conversation".bold(), ""));
+        out.push_str(&format!("    Messages:     {}\n", msg_count));
+
+        // Token usage
+        out.push_str(&format!("\n  {}  {}\n", "Token Usage".bold(), ""));
+        if usage.api_calls == 0 {
+            out.push_str("    No API calls made yet.\n");
+        } else {
+            out.push_str(&format!("    API calls:    {}\n", usage.api_calls));
+            out.push_str(&format!("    Prompt:       {} tokens\n", usage.prompt_tokens));
+            out.push_str(&format!("    Completion:   {} tokens\n", usage.completion_tokens));
+            out.push_str(&format!("    Total:        {} tokens\n", usage.total_tokens));
+        }
+
+        // Tools
+        let tool_count = self.agent.tool_registry.list_tools().len();
+        out.push_str(&format!("\n  {}  {}\n", "System".bold(), ""));
+        out.push_str(&format!("    Tools registered: {}\n", tool_count));
+
+        let skills_count = self.agent.skill_registry.list().len();
+        out.push_str(&format!("    Skills loaded:    {}\n", skills_count));
+
+        // Memory
+        if let Some(store) = self.agent.memory_store() {
+            if let Ok(stats) = (*store).stats() {
+                out.push_str(&format!("    Memories stored:  {}\n", stats.total));
+            }
+        }
+
+        out
+    }
+
+    /// Return a reference to the agent for dashboard display.
+    pub fn agent(&self) -> &AIAgent {
+        &self.agent
     }
 }

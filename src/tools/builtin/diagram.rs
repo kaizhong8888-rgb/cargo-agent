@@ -263,9 +263,9 @@ fn collect_functions(
     let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read {dir:?}: {e}"))?;
 
     static FN_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let fn_re = FN_RE.get_or_init(|| regex::Regex::new(r"^pub\s+(async\s+)?fn\s+(\w+)").unwrap());
+    let fn_re = FN_RE.get_or_init(|| regex::Regex::new(r"^pub\s+(async\s+)?fn\s+(\w+)").expect("invalid regex: fn pattern"));
     static CALL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let call_re = CALL_RE.get_or_init(|| regex::Regex::new(r"(\w+)::(\w+)\(").unwrap());
+    let call_re = CALL_RE.get_or_init(|| regex::Regex::new(r"(\w+)::(\w+)\(").expect("invalid regex: call pattern"));
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
@@ -293,15 +293,17 @@ fn collect_functions(
                 }
 
                 // Detect function calls in the body
-                if current_fn.is_some() && trimmed.contains('(') && !trimmed.starts_with("fn ") && !trimmed.starts_with("pub ") {
-                    for caps in call_re.captures_iter(trimmed) {
-                        let module = &caps[1];
-                        let func = &caps[2];
-                        let target_id = format!("fn_{module}_{func}");
-                        calls.push(CallEdge {
-                            from: current_fn.clone().unwrap(),
-                            to: target_id,
-                        });
+                if let Some(ref fn_id) = current_fn {
+                    if trimmed.contains('(') && !trimmed.starts_with("fn ") && !trimmed.starts_with("pub ") {
+                        for caps in call_re.captures_iter(trimmed) {
+                            let module = &caps[1];
+                            let func = &caps[2];
+                            let target_id = format!("fn_{module}_{func}");
+                            calls.push(CallEdge {
+                                from: fn_id.clone(),
+                                to: target_id,
+                            });
+                        }
                     }
                 }
             }

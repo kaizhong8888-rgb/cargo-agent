@@ -4,7 +4,7 @@
 //! namespace, tags, importance, and full-text search support.
 
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Result as SqliteResult};
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -67,12 +67,15 @@ impl SqliteMemoryStore {
         namespace: &str,
         tags: &[String],
         importance: u8,
-    ) -> SqliteResult<MemoryEntry> {
+    ) -> anyhow::Result<MemoryEntry> {
         let now = Utc::now().to_rfc3339();
         let tags_str = tags.join(",");
         let importance = importance.clamp(1, 10);
 
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self
+            .conn
+            .lock()
+            .expect("memory store mutex poisoned: another thread panicked while holding the lock");
         let tx = conn.transaction()?;
 
         // Check if key exists to preserve created_at
@@ -121,26 +124,31 @@ impl SqliteMemoryStore {
     }
 
     /// Recall a memory by key.
-    pub fn recall(&self, key: &str) -> SqliteResult<Option<MemoryEntry>> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT id, key, value, namespace, tags, created_at, updated_at, importance
+    pub fn recall(&self, key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+        let conn = self
+            .conn
+            .lock()
+            .expect("memory store mutex poisoned: another thread panicked while holding the lock");
+        let result = conn
+            .query_row(
+                "SELECT id, key, value, namespace, tags, created_at, updated_at, importance
              FROM memories WHERE key = ?1",
-            [key],
-            |row| {
-                Ok(MemoryEntry {
-                    id: row.get(0)?,
-                    key: row.get(1)?,
-                    value: row.get(2)?,
-                    namespace: row.get(3)?,
-                    tags: row.get(4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
-                    importance: row.get(7)?,
-                })
-            },
-        )
-        .optional()
+                [key],
+                |row| {
+                    Ok(MemoryEntry {
+                        id: row.get(0)?,
+                        key: row.get(1)?,
+                        value: row.get(2)?,
+                        namespace: row.get(3)?,
+                        tags: row.get(4)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
+                        importance: row.get(7)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(result)
     }
 
     /// Search memories with filters.
@@ -151,7 +159,7 @@ impl SqliteMemoryStore {
         query: Option<&str>,
         min_importance: Option<u8>,
         limit: usize,
-    ) -> SqliteResult<Vec<MemoryEntry>> {
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
         let mut sql = String::from(
             "SELECT id, key, value, namespace, tags, created_at, updated_at, importance
              FROM memories WHERE 1=1",
@@ -182,7 +190,10 @@ impl SqliteMemoryStore {
         sql.push_str(" ORDER BY importance DESC, updated_at DESC LIMIT ?");
         params.push(Box::new(limit as i64));
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .expect("memory store mutex poisoned: another thread panicked while holding the lock");
         let mut stmt = conn.prepare(&sql)?;
         let refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
@@ -208,8 +219,11 @@ impl SqliteMemoryStore {
     }
 
     /// List all namespaces with memory counts.
-    pub fn list_namespaces(&self) -> SqliteResult<Vec<(String, usize)>> {
-        let conn = self.conn.lock().unwrap();
+    pub fn list_namespaces(&self) -> anyhow::Result<Vec<(String, usize)>> {
+        let conn = self
+            .conn
+            .lock()
+            .expect("memory store mutex poisoned: another thread panicked while holding the lock");
         let mut stmt = conn.prepare(
             "SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC",
         )?;
@@ -225,15 +239,21 @@ impl SqliteMemoryStore {
     }
 
     /// Delete a memory by key.
-    pub fn delete(&self, key: &str) -> SqliteResult<bool> {
-        let conn = self.conn.lock().unwrap();
+    pub fn delete(&self, key: &str) -> anyhow::Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .expect("memory store mutex poisoned: another thread panicked while holding the lock");
         let rows = conn.execute("DELETE FROM memories WHERE key = ?1", [key])?;
         Ok(rows > 0)
     }
 
     /// Get memory statistics.
-    pub fn stats(&self) -> SqliteResult<MemoryStats> {
-        let conn = self.conn.lock().unwrap();
+    pub fn stats(&self) -> anyhow::Result<MemoryStats> {
+        let conn = self
+            .conn
+            .lock()
+            .expect("memory store mutex poisoned: another thread panicked while holding the lock");
 
         let total: usize = conn.query_row(
             "SELECT COUNT(*) FROM memories",
@@ -279,7 +299,7 @@ impl SqliteMemoryStore {
         &self,
         query: &str,
         limit: usize,
-    ) -> SqliteResult<Vec<ScoredMemory>> {
+    ) -> anyhow::Result<Vec<ScoredMemory>> {
         // Fetch candidate memories (broad match)
         let all = self.search(None, None, None, None, 100)?;
         if all.is_empty() {

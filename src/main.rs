@@ -2,7 +2,7 @@ use std::io::{self, BufRead};
 use std::time::Instant;
 
 use crossterm::style::Stylize;
-use cargo_agent::cli_commands::{SlashResult, handle as handle_slash};
+use cargo_agent::cli_commands::{parse as parse_slash, SlashResult, handle as handle_slash};
 use cargo_agent::config::CargoConfig;
 use cargo_agent::gateway::Gateway;
 use cargo_agent::ui;
@@ -66,35 +66,49 @@ async fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        // Check for local slash commands first
-        if input == "/usage" {
-            println!("\n{}\n", gateway.token_usage_info());
-            ui::thin_separator();
-            continue;
-        }
-
-        match handle_slash(input) {
-            SlashResult::Handled(output) => {
-                if output.is_empty() {
-                    // /quit or /clear — handle exit separately
-                    if input == "/quit" || input == "/exit" {
-                        println!();
-                        ui::print_info("Goodbye!");
-                        println!();
-                        break;
+        // ── Slash command handling ──────────────────────────
+        // Three-tier: static commands → dynamic commands → pass through to LLM
+        if input.starts_with('/') {
+            // Tier 1: Static commands (help, clear, quit, version, status, config, etc.)
+            match handle_slash(input) {
+                SlashResult::Handled(output) => {
+                    if output.is_empty() {
+                        // /quit or /exit — handle exit separately
+                        if input == "/quit" || input == "/exit" {
+                            println!();
+                            ui::print_info("Goodbye!");
+                            println!();
+                            break;
+                        }
+                        // /clear or /cls — already printed escape sequences
+                        if input == "/clear" || input == "/cls" {
+                            gateway.reset_token_usage();
+                        }
+                        continue;
                     }
-                    // /clear — reset token usage
-                    if input == "/clear" || input == "/cls" {
-                        gateway.reset_token_usage();
-                    }
-                    // /clear already printed its escape sequence
+                    println!("\n{output}\n");
+                    ui::thin_separator();
                     continue;
                 }
-                println!("\n{output}\n");
-                ui::thin_separator();
+                SlashResult::PassThrough => {}
+            }
+
+            // Tier 2: Dynamic commands (tools, mem, git, tasks, skills, export, stats, dashboard)
+            let (cmd, args) = parse_slash(input);
+            if cmd == "dashboard" || cmd == "dash" {
+                show_dashboard(&gateway);
                 continue;
             }
-            SlashResult::PassThrough => {}
+            if !cmd.is_empty() {
+                if let Some(output) = gateway.handle_slash(cmd, args).await {
+                    println!("\n{output}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+            }
+
+            // Tier 3: Unknown /command — pass through to LLM
+            // The LLM might understand it
         }
 
         // Pass through to the agent
@@ -122,4 +136,29 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn show_dashboard(gateway: &Gateway) {
+    let agent = gateway.agent();
+    let usage = agent.token_usage();
+    let health = cargo_agent::health::current_health();
+
+    let total_memories = agent.memory_store()
+        .and_then(|s| s.stats().ok())
+        .map(|s| s.total)
+        .unwrap_or(0);
+
+    let total_tools = agent.tool_registry.list_tools().len();
+
+    let state = cargo_agent::tui::dashboard::DashboardState {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        model: "configured".to_string(),
+        uptime_secs: health.uptime_seconds,
+        total_api_calls: usage.api_calls,
+        total_tokens: usage.total_tokens,
+        total_memories,
+        total_tools,
+        health_status: health.status.to_string(),
+    };
+    state.render();
 }
