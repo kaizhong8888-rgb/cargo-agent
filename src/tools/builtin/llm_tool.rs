@@ -136,7 +136,10 @@ impl Tool for LlmChatTool {
             .unwrap_or(120);
 
         // Get API key: from params first, then try config file
-        let api_key = params.get("api_key").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let api_key = params
+            .get("api_key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         // Match provider and dispatch
         match provider.as_str() {
@@ -146,7 +149,17 @@ impl Tool for LlmChatTool {
                     .get("model")
                     .and_then(|v| v.as_str())
                     .unwrap_or("gpt-4o");
-                call_openai(&key, model, prompt, system, temperature, max_tokens, &format, timeout_secs).await
+                call_openai(
+                    &key,
+                    model,
+                    prompt,
+                    system,
+                    temperature,
+                    max_tokens,
+                    &format,
+                    timeout_secs,
+                )
+                .await
             }
             "anthropic" | "claude" => {
                 let key = api_key.unwrap_or_else(|| load_config_key("llm_anthropic_key"));
@@ -154,7 +167,17 @@ impl Tool for LlmChatTool {
                     .get("model")
                     .and_then(|v| v.as_str())
                     .unwrap_or("claude-3-5-sonnet-20241022");
-                call_anthropic(&key, model, prompt, system, temperature, max_tokens, &format, timeout_secs).await
+                call_anthropic(
+                    &key,
+                    model,
+                    prompt,
+                    system,
+                    temperature,
+                    max_tokens,
+                    &format,
+                    timeout_secs,
+                )
+                .await
             }
             "ollama" => {
                 let base_url = params
@@ -165,7 +188,16 @@ impl Tool for LlmChatTool {
                     .get("model")
                     .and_then(|v| v.as_str())
                     .unwrap_or("llama3.2");
-                call_ollama(base_url, model, prompt, system, temperature, &format, timeout_secs).await
+                call_ollama(
+                    base_url,
+                    model,
+                    prompt,
+                    system,
+                    temperature,
+                    &format,
+                    timeout_secs,
+                )
+                .await
             }
             other => Err(format!(
                 "Unsupported provider: '{other}'. Supported: 'openai', 'anthropic', 'ollama'"
@@ -192,7 +224,7 @@ async fn call_openai(
     if api_key.is_empty() {
         return Err(
             "OpenAI API key not found. Set it via: config set llm_openai_key <your-key>\n"
-            .to_string(),
+                .to_string(),
         );
     }
 

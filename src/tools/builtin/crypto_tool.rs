@@ -1,15 +1,15 @@
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
-use serde_json::Value;
-use std::collections::HashMap;
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::aead::rand_core::RngCore;
-use sha2::{Sha256, Sha512, Digest};
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use aes_gcm::aead::{Aead, KeyInit, OsRng};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use argon2::password_hash::SaltString;
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
-use base64::{Engine as _, engine::general_purpose};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use base64::{engine::general_purpose, Engine as _};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde_json::Value;
+use sha2::{Digest, Sha256, Sha512};
+use std::collections::HashMap;
 
 // ===== AES-256 Key Derivation =====
 
@@ -23,7 +23,8 @@ fn derive_key_argon2id(password: &str) -> ([u8; 32], String) {
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        argon2::Params::new(65536, 3, 4, Some(32)).expect("invalid argon2 params: 64MB mem, 3 iterations, 4 parallelism, 32 bytes"),
+        argon2::Params::new(65536, 3, 4, Some(32))
+            .expect("invalid argon2 params: 64MB mem, 3 iterations, 4 parallelism, 32 bytes"),
     );
     let _ = argon2.hash_password_into(password.as_bytes(), &salt, &mut key);
     let salt_b64 = general_purpose::STANDARD.encode(salt);
@@ -52,7 +53,8 @@ fn rederive_key_argon2id(password: &str, salt_b64: &str) -> Result<[u8; 32], Str
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        argon2::Params::new(65536, 3, 4, Some(32)).expect("invalid argon2 params: 64MB mem, 3 iterations, 4 parallelism, 32 bytes"),
+        argon2::Params::new(65536, 3, 4, Some(32))
+            .expect("invalid argon2 params: 64MB mem, 3 iterations, 4 parallelism, 32 bytes"),
     );
     argon2
         .hash_password_into(password.as_bytes(), &salt_bytes, &mut key)
@@ -62,7 +64,10 @@ fn rederive_key_argon2id(password: &str, salt_b64: &str) -> Result<[u8; 32], Str
 
 /// Resolve the AES-256 key from parameters.
 /// Priority: key (raw base64) > password + kdf.
-fn resolve_aes_key(params: &HashMap<String, Value>, need_salt: bool) -> Result<(aes_gcm::Key<Aes256Gcm>, Option<String>), String> {
+fn resolve_aes_key(
+    params: &HashMap<String, Value>,
+    need_salt: bool,
+) -> Result<(aes_gcm::Key<Aes256Gcm>, Option<String>), String> {
     // Option 1: Direct raw key (base64, 32 bytes)
     if let Some(key_b64) = params.get("key").and_then(|v| v.as_str()) {
         let key_bytes = general_purpose::STANDARD
@@ -96,7 +101,10 @@ fn resolve_aes_key(params: &HashMap<String, Value>, need_salt: bool) -> Result<(
             let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
             Ok((*key, None))
         }
-        _ => Err(format!("Unsupported KDF: {}. Supported: argon2id, sha256", kdf)),
+        _ => Err(format!(
+            "Unsupported KDF: {}. Supported: argon2id, sha256",
+            kdf
+        )),
     }
 }
 
@@ -133,7 +141,10 @@ fn resolve_nonce_ciphertext(params: &HashMap<String, Value>) -> Result<NonceCiph
                     .map_err(|e| format!("Invalid ciphertext base64: {}", e))?;
                 Ok((nonce, ciphertext, None))
             }
-            _ => Err("Combined format: 2-part (nonce:ciphertext) or 3-part (salt:nonce:ciphertext)".into()),
+            _ => Err(
+                "Combined format: 2-part (nonce:ciphertext) or 3-part (salt:nonce:ciphertext)"
+                    .into(),
+            ),
         }
     } else {
         let nb = params
@@ -221,7 +232,10 @@ fn ssh_decode_string(buf: &[u8], offset: usize) -> Result<(&[u8], usize), String
         return Err("Unexpected end of data when reading string length".into());
     }
     let len = u32::from_be_bytes([
-        buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3],
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
     ]) as usize;
     let start = offset + 4;
     let end = start + len;
@@ -313,7 +327,9 @@ fn parse_ssh_public_key(line: &str) -> Result<[u8; 32], String> {
     // Expect: "ssh-ed25519 <base64> [comment]"
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() < 2 {
-        return Err("Invalid SSH public key format: expected 'ssh-ed25519 <base64> [comment]'".into());
+        return Err(
+            "Invalid SSH public key format: expected 'ssh-ed25519 <base64> [comment]'".into(),
+        );
     }
     if parts[0] != "ssh-ed25519" {
         return Err(format!(
@@ -358,7 +374,9 @@ fn parse_openssh_private_key(pem: &str) -> Result<[u8; 32], String> {
     let start_marker = "-----BEGIN OPENSSH PRIVATE KEY-----";
     let end_marker = "-----END OPENSSH PRIVATE KEY-----";
 
-    let start = pem.find(start_marker).ok_or("Missing BEGIN OPENSSH PRIVATE KEY marker")?;
+    let start = pem
+        .find(start_marker)
+        .ok_or("Missing BEGIN OPENSSH PRIVATE KEY marker")?;
     let after_start = start + start_marker.len();
     let end = pem[end_marker.len()..]
         .find(end_marker)
@@ -379,7 +397,8 @@ fn parse_openssh_private_key(pem: &str) -> Result<[u8; 32], String> {
     let mut offset = 0usize;
 
     // Magic
-    if offset + SSH_MAGIC.len() > blob.len() || &blob[offset..offset + SSH_MAGIC.len()] != SSH_MAGIC {
+    if offset + SSH_MAGIC.len() > blob.len() || &blob[offset..offset + SSH_MAGIC.len()] != SSH_MAGIC
+    {
         return Err("Invalid OpenSSH private key magic".into());
     }
     offset += SSH_MAGIC.len();
@@ -410,7 +429,10 @@ fn parse_openssh_private_key(pem: &str) -> Result<[u8; 32], String> {
         return Err("Unexpected end of data: number_of_keys".into());
     }
     let num_keys = u32::from_be_bytes([
-        blob[offset], blob[offset + 1], blob[offset + 2], blob[offset + 3],
+        blob[offset],
+        blob[offset + 1],
+        blob[offset + 2],
+        blob[offset + 3],
     ]) as usize;
     offset += 4;
     if num_keys < 1 {
@@ -430,10 +452,16 @@ fn parse_openssh_private_key(pem: &str) -> Result<[u8; 32], String> {
 
     // Check check1 == check2
     let check1 = u32::from_be_bytes([
-        priv_section[0], priv_section[1], priv_section[2], priv_section[3],
+        priv_section[0],
+        priv_section[1],
+        priv_section[2],
+        priv_section[3],
     ]);
     let check2 = u32::from_be_bytes([
-        priv_section[4], priv_section[5], priv_section[6], priv_section[7],
+        priv_section[4],
+        priv_section[5],
+        priv_section[6],
+        priv_section[7],
     ]);
     if check1 != check2 {
         return Err("OpenSSH private key integrity check failed (checkint mismatch)".into());
@@ -661,10 +689,13 @@ fn do_encrypt(params: &HashMap<String, Value>) -> Result<Value, String> {
     let ciphertext = if let Some(ref aad_data) = aad {
         use aes_gcm::aead::Payload;
         cipher
-            .encrypt(nonce, Payload {
-                msg: data.as_bytes(),
-                aad: aad_data,
-            })
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: data.as_bytes(),
+                    aad: aad_data,
+                },
+            )
             .map_err(|e| format!("Encryption failed: {}", e))?
     } else {
         cipher
@@ -697,7 +728,10 @@ fn do_encrypt(params: &HashMap<String, Value>) -> Result<Value, String> {
     if salt_b64_opt.is_some() {
         result["kdf"] = Value::String("argon2id".to_string());
     } else if params.get("password").and_then(|v| v.as_str()).is_some() {
-        let kdf = params.get("kdf").and_then(|v| v.as_str()).unwrap_or("sha256");
+        let kdf = params
+            .get("kdf")
+            .and_then(|v| v.as_str())
+            .unwrap_or("sha256");
         result["kdf"] = Value::String(kdf.to_string());
     } else {
         result["kdf"] = Value::String("raw_key".to_string());
@@ -745,10 +779,16 @@ fn do_decrypt(params: &HashMap<String, Value>) -> Result<Value, String> {
             *Key::<Aes256Gcm>::from_slice(&key_bytes)
         } else {
             // No salt in combined → check kdf param or default to sha256 (legacy compat)
-            let kdf = params.get("kdf").and_then(|v| v.as_str()).unwrap_or("sha256");
+            let kdf = params
+                .get("kdf")
+                .and_then(|v| v.as_str())
+                .unwrap_or("sha256");
             match kdf {
                 "argon2id" => {
-                    return Err("Argon2id KDF requires salt in combined format (salt:nonce:ciphertext)".into());
+                    return Err(
+                        "Argon2id KDF requires salt in combined format (salt:nonce:ciphertext)"
+                            .into(),
+                    );
                 }
                 "sha256" => {
                     let key_bytes = derive_key_sha256(password);
@@ -765,15 +805,28 @@ fn do_decrypt(params: &HashMap<String, Value>) -> Result<Value, String> {
     let plaintext = if let Some(ref aad_data) = aad {
         use aes_gcm::aead::Payload;
         cipher
-            .decrypt(nonce, Payload {
-                msg: &ciphertext_bytes,
-                aad: aad_data,
-            })
-            .map_err(|e| format!("Decryption failed (wrong password/key or corrupted data): {}", e))?
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: &ciphertext_bytes,
+                    aad: aad_data,
+                },
+            )
+            .map_err(|e| {
+                format!(
+                    "Decryption failed (wrong password/key or corrupted data): {}",
+                    e
+                )
+            })?
     } else {
         cipher
             .decrypt(nonce, ciphertext_bytes.as_ref())
-            .map_err(|e| format!("Decryption failed (wrong password/key or corrupted data): {}", e))?
+            .map_err(|e| {
+                format!(
+                    "Decryption failed (wrong password/key or corrupted data): {}",
+                    e
+                )
+            })?
     };
 
     let plaintext_str = String::from_utf8(plaintext)
@@ -819,13 +872,21 @@ fn do_hash(params: &HashMap<String, Value>) -> Result<Value, String> {
             let mut hasher = Sha256::new();
             hasher.update(data.as_bytes());
             let result = hasher.finalize();
-            (result.to_vec(), 256, "SHA-256 (NIST standard, 256-bit)".to_string())
+            (
+                result.to_vec(),
+                256,
+                "SHA-256 (NIST standard, 256-bit)".to_string(),
+            )
         }
         "sha512" => {
             let mut hasher = Sha512::new();
             hasher.update(data.as_bytes());
             let result = hasher.finalize();
-            (result.to_vec(), 512, "SHA-512 (NIST standard, 512-bit)".to_string())
+            (
+                result.to_vec(),
+                512,
+                "SHA-512 (NIST standard, 512-bit)".to_string(),
+            )
         }
         "blake3" => {
             if let Some(key_str) = key_param {
@@ -842,10 +903,18 @@ fn do_hash(params: &HashMap<String, Value>) -> Result<Value, String> {
                 };
                 let mut hasher = blake3::Hasher::new_keyed(&key_bytes);
                 let result = hasher.update(data.as_bytes()).finalize();
-                (result.as_bytes().to_vec(), 256, "BLAKE3 keyed (MAC mode, 256-bit)".to_string())
+                (
+                    result.as_bytes().to_vec(),
+                    256,
+                    "BLAKE3 keyed (MAC mode, 256-bit)".to_string(),
+                )
             } else {
                 let hash = blake3::hash(data.as_bytes());
-                (hash.as_bytes().to_vec(), 256, "BLAKE3 (fast general-purpose, 256-bit)".to_string())
+                (
+                    hash.as_bytes().to_vec(),
+                    256,
+                    "BLAKE3 (fast general-purpose, 256-bit)".to_string(),
+                )
             }
         }
         _ => {
@@ -1091,9 +1160,10 @@ fn do_sign(params: &HashMap<String, Value>) -> Result<Value, String> {
     let key_bytes = general_purpose::STANDARD
         .decode(key_b64)
         .map_err(|e| format!("Invalid key base64: {}", e))?;
-    let key_array: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| {
-        "Ed25519 secret key must be exactly 32 bytes".to_string()
-    })?;
+    let key_array: [u8; 32] = key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Ed25519 secret key must be exactly 32 bytes".to_string())?;
     let signing_key = SigningKey::from_bytes(&key_array);
     let sig = signing_key.sign(data.as_bytes());
 
@@ -1125,18 +1195,20 @@ fn do_verify(params: &HashMap<String, Value>) -> Result<Value, String> {
     let key_bytes = general_purpose::STANDARD
         .decode(key_b64)
         .map_err(|e| format!("Invalid key base64: {}", e))?;
-    let key_array: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| {
-        "Ed25519 public key must be exactly 32 bytes".to_string()
-    })?;
-    let verifying_key =
-        VerifyingKey::from_bytes(&key_array).map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
+    let key_array: [u8; 32] = key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Ed25519 public key must be exactly 32 bytes".to_string())?;
+    let verifying_key = VerifyingKey::from_bytes(&key_array)
+        .map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
 
     let sig_bytes = general_purpose::STANDARD
         .decode(signature_b64)
         .map_err(|e| format!("Invalid signature base64: {}", e))?;
-    let sig_array: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
-        "Ed25519 signature must be exactly 64 bytes".to_string()
-    })?;
+    let sig_array: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Ed25519 signature must be exactly 64 bytes".to_string())?;
     let sig = Signature::from_bytes(&sig_array);
 
     let valid = verifying_key.verify(message.as_bytes(), &sig).is_ok();
@@ -1191,15 +1263,16 @@ fn do_ssh_verify(params: &HashMap<String, Value>) -> Result<Value, String> {
         .ok_or("Missing required parameter: public_key (SSH one-liner format)")?;
 
     let pubkey = parse_ssh_public_key(public_key)?;
-    let verifying_key =
-        VerifyingKey::from_bytes(&pubkey).map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
+    let verifying_key = VerifyingKey::from_bytes(&pubkey)
+        .map_err(|e| format!("Invalid Ed25519 public key: {}", e))?;
 
     let sig_bytes = general_purpose::STANDARD
         .decode(signature_b64)
         .map_err(|e| format!("Invalid signature base64: {}", e))?;
-    let sig_array: [u8; 64] = sig_bytes.as_slice().try_into().map_err(|_| {
-        "Ed25519 signature must be exactly 64 bytes".to_string()
-    })?;
+    let sig_array: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Ed25519 signature must be exactly 64 bytes".to_string())?;
     let sig = Signature::from_bytes(&sig_array);
 
     let valid = verifying_key.verify(message.as_bytes(), &sig).is_ok();
@@ -1331,10 +1404,12 @@ fn do_verify_password(params: &HashMap<String, Value>) -> Result<Value, String> 
         .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: hash")?;
 
-    let parsed_hash = PasswordHash::new(hash)
-        .map_err(|e| format!("Invalid password hash format: {}", e))?;
+    let parsed_hash =
+        PasswordHash::new(hash).map_err(|e| format!("Invalid password hash format: {}", e))?;
     let argon2 = Argon2::default();
-    let valid = argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok();
+    let valid = argon2
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok();
 
     Ok(serde_json::json!({
         "status": "ok",

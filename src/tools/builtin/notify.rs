@@ -74,12 +74,7 @@ impl Tool for NotifyTool {
         let payload = build_payload(channel, message);
 
         let client = reqwest::Client::new();
-        match client
-            .post(webhook_url)
-            .json(&payload)
-            .send()
-            .await
-        {
+        match client.post(webhook_url).json(&payload).send().await {
             Ok(resp) => {
                 if resp.status().is_success() {
                     Ok(Value::String(format!(

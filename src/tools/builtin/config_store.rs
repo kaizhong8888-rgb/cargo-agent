@@ -58,7 +58,8 @@ impl ConfigStore {
     }
 
     pub fn list(&self) -> Vec<(String, Value)> {
-        self.data.lock()
+        self.data
+            .lock()
             .map(|d| d.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default()
     }
@@ -99,7 +100,9 @@ impl ConfigTool {
 
 #[async_trait::async_trait]
 impl Tool for ConfigTool {
-    fn name(&self) -> &str { "config" }
+    fn name(&self) -> &str {
+        "config"
+    }
 
     fn description(&self) -> &str {
         "Persist and retrieve user preferences across sessions. Actions: set (save a preference), get (retrieve a value), list (show all preferences), delete (remove a preference). Stores data in ~/.cargo-agent/preferences.json."
@@ -202,7 +205,9 @@ impl Tool for ConfigTool {
                     "key": key,
                 }))
             }
-            other => Err(format!("Unknown action: {other}. Supported: set, get, list, delete")),
+            other => Err(format!(
+                "Unknown action: {other}. Supported: set, get, list, delete"
+            )),
         }
     }
 }

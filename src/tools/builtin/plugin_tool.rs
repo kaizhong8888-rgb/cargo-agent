@@ -37,7 +37,8 @@ impl Tool for PluginTool {
             ToolParameter {
                 name: "action".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Action: browse, search, install, uninstall, info, installed".to_string(),
+                description: "Action: browse, search, install, uninstall, info, installed"
+                    .to_string(),
                 required: true,
             },
             ToolParameter {

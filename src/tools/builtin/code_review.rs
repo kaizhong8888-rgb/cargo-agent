@@ -27,8 +27,8 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Namespace prefix for saved code_review config profiles in the config store.
 const CONFIG_NAMESPACE: &str = "code_review_config:";
@@ -38,63 +38,117 @@ const CONFIG_NAMESPACE: &str = "code_review_config:";
 // ============================================================================
 
 // Unsafe code patterns
-static RE_UNSAFE_BLOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r"unsafe\s*\{").expect("invalid regex: unsafe block"));
-static RE_UNSAFE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+(?:extern\s+)?fn\s+").expect("invalid regex: unsafe fn"));
-static RE_UNSAFE_TRAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+trait\s+").expect("invalid regex: unsafe trait"));
-static RE_PTR_DEREF: Lazy<Regex> = Lazy::new(|| Regex::new(r"\*\s*(?:const|mut)\s+").expect("invalid regex: ptr deref"));
-static RE_TRANSMUTE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:std::)?mem::transmute\b").expect("invalid regex: transmute"));
+static RE_UNSAFE_BLOCK: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"unsafe\s*\{").expect("invalid regex: unsafe block"));
+static RE_UNSAFE_FN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*unsafe\s+(?:extern\s+)?fn\s+").expect("invalid regex: unsafe fn")
+});
+static RE_UNSAFE_TRAIT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*unsafe\s+trait\s+").expect("invalid regex: unsafe trait"));
+static RE_PTR_DEREF: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\*\s*(?:const|mut)\s+").expect("invalid regex: ptr deref"));
+static RE_TRANSMUTE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:std::)?mem::transmute\b").expect("invalid regex: transmute"));
 
 // Error handling patterns
-static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.unwrap\s*\(\s*\)").expect("invalid regex: unwrap"));
-static RE_EXPECT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.expect\s*\(").expect("invalid regex: expect"));
-static RE_PANIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*panic!\s*\(").expect("invalid regex: panic"));
-static RE_IGNORE_RESULT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*let\s+_\s*=\s*.+;$").expect("invalid regex: ignore result"));
-static RE_WRITELN_RESULT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(?:write!|writeln!)\s*\([^)]*\)\s*;").expect("invalid regex: writeln result"));
+static RE_UNWRAP: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b(\w+)\.unwrap\s*\(\s*\)").expect("invalid regex: unwrap"));
+static RE_EXPECT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b(\w+)\.expect\s*\(").expect("invalid regex: expect"));
+static RE_PANIC: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*panic!\s*\(").expect("invalid regex: panic"));
+static RE_IGNORE_RESULT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*let\s+_\s*=\s*.+;$").expect("invalid regex: ignore result"));
+static RE_WRITELN_RESULT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(?:write!|writeln!)\s*\([^)]*\)\s*;").expect("invalid regex: writeln result")
+});
 
 // Performance patterns
-static RE_CLONE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(\w+)\.clone\s*\(\s*\)").expect("invalid regex: clone"));
-static RE_BOX_NEW: Lazy<Regex> = Lazy::new(|| Regex::new(r"Box::new\s*\(").expect("invalid regex: box new"));
-static RE_VEC_CAPACITY: Lazy<Regex> = Lazy::new(|| Regex::new(r"Vec::with_capacity\s*\(\s*(\d+)\s*\)").expect("invalid regex: vec capacity"));
-static RE_COLLECT_VEC: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.collect::<Vec<_>>\s*\(\)").expect("invalid regex: collect vec"));
+static RE_CLONE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b(\w+)\.clone\s*\(\s*\)").expect("invalid regex: clone"));
+static RE_BOX_NEW: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"Box::new\s*\(").expect("invalid regex: box new"));
+static RE_VEC_CAPACITY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"Vec::with_capacity\s*\(\s*(\d+)\s*\)").expect("invalid regex: vec capacity")
+});
+static RE_COLLECT_VEC: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\.collect::<Vec<_>>\s*\(\)").expect("invalid regex: collect vec"));
 
 // Style patterns
-static RE_FN_START: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)").expect("invalid regex: fn start"));
-static RE_NON_SNAKE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Z][a-zA-Z0-9_]*)").expect("invalid regex: non-snake fn"));
-static RE_TODO_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND)").expect("invalid regex: todo comment"));
+static RE_FN_START: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("invalid regex: fn start")
+});
+static RE_NON_SNAKE_FN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Z][a-zA-Z0-9_]*)")
+        .expect("invalid regex: non-snake fn")
+});
+static RE_TODO_COMMENT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND)")
+        .expect("invalid regex: todo comment")
+});
 
 // Safety patterns
-static RE_MAYBE_UNINIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"MaybeUninit").expect("invalid regex: maybe uninit"));
-static RE_PTR_OFFSET: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.offset\s*\(").expect("invalid regex: ptr offset"));
+static RE_MAYBE_UNINIT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"MaybeUninit").expect("invalid regex: maybe uninit"));
+static RE_PTR_OFFSET: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\.offset\s*\(").expect("invalid regex: ptr offset"));
 
 // Correctness patterns
-static RE_TODO_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*todo!\s*\(").expect("invalid regex: todo macro"));
-static RE_UNIMPLEMENTED: Lazy<Regex> = Lazy::new(|| Regex::new(r"unimplemented!\s*\(").expect("invalid regex: unimplemented"));
-static RE_UNREACHABLE: Lazy<Regex> = Lazy::new(|| Regex::new(r"unreachable!\s*\(").expect("invalid regex: unreachable"));
-static RE_MATCH: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*match\s+").expect("invalid regex: match"));
-static RE_DEREF_IMPL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*impl\s+(?:<[^>]*>\s+)?Deref\s+for\s+").expect("invalid regex: deref impl"));
+static RE_TODO_MACRO: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*todo!\s*\(").expect("invalid regex: todo macro"));
+static RE_UNIMPLEMENTED: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"unimplemented!\s*\(").expect("invalid regex: unimplemented"));
+static RE_UNREACHABLE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"unreachable!\s*\(").expect("invalid regex: unreachable"));
+static RE_MATCH: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*match\s+").expect("invalid regex: match"));
+static RE_DEREF_IMPL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*impl\s+(?:<[^>]*>\s+)?Deref\s+for\s+").expect("invalid regex: deref impl")
+});
 
 // Concurrency patterns
-static RE_REFCELL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:RefCell|Cell)\s*<").expect("invalid regex: refcell"));
-static RE_STD_MUTEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"std::sync::Mutex").expect("invalid regex: std mutex"));
-static RE_UNSAFE_SEND_SYNC: Lazy<Regex> = Lazy::new(|| Regex::new(r"unsafe\s+impl\s+(Send|Sync)").expect("invalid regex: unsafe send/sync"));
-static RE_STATIC_MUT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*static\s+mut\s+").expect("invalid regex: static mut"));
+static RE_REFCELL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:RefCell|Cell)\s*<").expect("invalid regex: refcell"));
+static RE_STD_MUTEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"std::sync::Mutex").expect("invalid regex: std mutex"));
+static RE_UNSAFE_SEND_SYNC: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"unsafe\s+impl\s+(Send|Sync)").expect("invalid regex: unsafe send/sync")
+});
+static RE_STATIC_MUT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*static\s+mut\s+").expect("invalid regex: static mut"));
 static RE_ARC: Lazy<Regex> = Lazy::new(|| Regex::new(r"Arc<").expect("invalid regex: arc"));
 
 // Documentation patterns
-static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]").expect("invalid regex: pub fn"));
+static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]")
+        .expect("invalid regex: pub fn")
+});
 
 // Naming patterns - using inline regex in check_naming for specific patterns
 // RE_LOWERCASE_STRUCT and RE_LOWERCASE_ENUM defined below
 
 // Async patterns
-static RE_ASYNC_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?async\s+fn\s+").expect("invalid regex: async fn"));
-static RE_AWAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.await\b").expect("invalid regex: await"));
-static RE_STD_MUTEX_LOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r"std::sync::Mutex[\s\S]*?\.lock\s*\(").expect("invalid regex: std mutex lock"));
-static RE_BLOCKING_IO: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(std::)?(fs|net|process|thread)::").expect("invalid regex: blocking io"));
+static RE_ASYNC_FN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?async\s+fn\s+").expect("invalid regex: async fn"));
+static RE_AWAIT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\.await\b").expect("invalid regex: await"));
+static RE_STD_MUTEX_LOCK: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"std::sync::Mutex[\s\S]*?\.lock\s*\(").expect("invalid regex: std mutex lock")
+});
+static RE_BLOCKING_IO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(std::)?(fs|net|process|thread)::").expect("invalid regex: blocking io")
+});
 
 // Non-snake_case type names (should be CamelCase)
-static RE_LOWERCASE_STRUCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?struct\s+([a-z][a-zA-Z0-9_]*)").expect("invalid regex: lowercase struct"));
-static RE_LOWERCASE_ENUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?enum\s+([a-z][a-zA-Z0-9_]*)").expect("invalid regex: lowercase enum"));
+static RE_LOWERCASE_STRUCT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub\s+)?struct\s+([a-z][a-zA-Z0-9_]*)")
+        .expect("invalid regex: lowercase struct")
+});
+static RE_LOWERCASE_ENUM: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub\s+)?enum\s+([a-z][a-zA-Z0-9_]*)")
+        .expect("invalid regex: lowercase enum")
+});
 
 // ============================================================================
 // Security patterns
@@ -102,24 +156,31 @@ static RE_LOWERCASE_ENUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub
 
 /// SQL injection: format!(...) with SQL keyword in string + interpolated variable
 static RE_SQL_INJECTION: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r##"(?x)
+    Regex::new(
+        r##"(?x)
         (?:format!|concat!|write!|writeln!)\s*\(
         [^)]*["']
         (?:SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|EXEC)\b
-    "##).expect("invalid regex: SQL injection")
+    "##,
+    )
+    .expect("invalid regex: SQL injection")
 });
 
 /// Hardcoded secrets: api_key/secret/password/token assigned a long string value
 static RE_HARDCODED_SECRET: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r##"(?i)(?x)
+    Regex::new(
+        r##"(?i)(?x)
         (?:api[_-]?key|apikey|secret|password|token|auth|credential|private_key)
         \s*[=:]\s*["'][A-Za-z0-9_\-]{16,}["']
-    "##).expect("invalid regex: hardcoded secret")
+    "##,
+    )
+    .expect("invalid regex: hardcoded secret")
 });
 
 /// Private key / certificate content embedded in string
 static RE_PRIVATE_KEY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r##"["']-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----"##).expect("invalid regex: private key")
+    Regex::new(r##"["']-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----"##)
+        .expect("invalid regex: private key")
 });
 
 /// OpenAI API key pattern
@@ -128,8 +189,14 @@ static RE_OPENAI_KEY: Lazy<Regex> = Lazy::new(|| {
 });
 
 // Non-SCREAMING_CASE constants/statics
-static RE_NON_SCREAMING_CONST: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?const\s+([a-z][a-zA-Z0-9_]*)").expect("invalid regex: non-screaming const"));
-static RE_NON_SCREAMING_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-z][a-zA-Z0-9_]*)").expect("invalid regex: non-screaming static"));
+static RE_NON_SCREAMING_CONST: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub\s+)?const\s+([a-z][a-zA-Z0-9_]*)")
+        .expect("invalid regex: non-screaming const")
+});
+static RE_NON_SCREAMING_STATIC: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-z][a-zA-Z0-9_]*)")
+        .expect("invalid regex: non-screaming static")
+});
 
 // ============================================================================
 // Ignore system: // code-review: ignore[check1,check2,all]
@@ -137,7 +204,8 @@ static RE_NON_SCREAMING_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*
 
 /// Matches inline ignore directives: `// code-review: ignore[unsafe,style]` anywhere on a line
 static RE_IGNORE_DIRECTIVE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"//\s*code-review:\s*ignore\s*\[([^\]]*)\]").expect("invalid regex: ignore directive")
+    Regex::new(r"//\s*code-review:\s*ignore\s*\[([^\]]*)\]")
+        .expect("invalid regex: ignore directive")
 });
 
 // ============================================================================
@@ -268,7 +336,10 @@ impl Tool for CodeReviewTool {
         // ── Config persistence ──────────────────────────────────────────────
         let save_config = params.get("save_config").and_then(|v| v.as_str());
         let load_config = params.get("load_config").and_then(|v| v.as_str());
-        let list_configs = params.get("list_configs").and_then(|v| v.as_bool()).unwrap_or(false);
+        let list_configs = params
+            .get("list_configs")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let delete_config = params.get("delete_config").and_then(|v| v.as_str());
 
         // Handle list_configs - no analysis needed
@@ -401,9 +472,13 @@ impl Tool for CodeReviewTool {
             .unwrap_or(false);
         let effective_format = if effective_format == "auto" || effective_format == "text" {
             if let Some(ref out) = output_path {
-                if out.ends_with(".json") { "json".to_string() }
-                else if out.ends_with(".md") { "text".to_string() }
-                else { effective_format }
+                if out.ends_with(".json") {
+                    "json".to_string()
+                } else if out.ends_with(".md") {
+                    "text".to_string()
+                } else {
+                    effective_format
+                }
             } else {
                 effective_format
             }
@@ -411,7 +486,11 @@ impl Tool for CodeReviewTool {
             effective_format
         };
 
-        let thresholds = Thresholds { max_fn_length, max_nesting, max_line_length };
+        let thresholds = Thresholds {
+            max_fn_length,
+            max_nesting,
+            max_line_length,
+        };
         let file_path = Path::new(path);
 
         if !file_path.exists() {
@@ -533,7 +612,9 @@ impl Tool for CodeReviewTool {
                             line: 0,
                             column: 0,
                             message: format!("Parallel task failed: {e}"),
-                            recommendation: Some("Check file permissions and encoding.".to_string()),
+                            recommendation: Some(
+                                "Check file permissions and encoding.".to_string(),
+                            ),
                         });
                         total_errors += 1;
                     }
@@ -550,7 +631,8 @@ impl Tool for CodeReviewTool {
                 if show_progress {
                     eprintln!("[SEQ] [{}/{}] Analyzing: {}...", idx + 1, num_files, file);
                 }
-                if let Some(result) = analyze_file(file, &active_checks, &thresholds, min_severity) {
+                if let Some(result) = analyze_file(file, &active_checks, &thresholds, min_severity)
+                {
                     let issue_count = result.issues.len();
                     total_errors += result.errors;
                     total_warnings += result.warnings;
@@ -558,8 +640,13 @@ impl Tool for CodeReviewTool {
                     file_summaries.push(result.summary);
                     all_issues.extend(result.issues);
                     if show_progress {
-                        eprintln!("[SEQ] [{}/{}] Completed: {} ({} issues)", idx + 1, num_files, file,
-                            issue_count);
+                        eprintln!(
+                            "[SEQ] [{}/{}] Completed: {} ({} issues)",
+                            idx + 1,
+                            num_files,
+                            file,
+                            issue_count
+                        );
                     }
                 }
             }
@@ -586,16 +673,32 @@ impl Tool for CodeReviewTool {
         });
 
         let mut result = match effective_format.as_str() {
-            "json" => generate_json_report(&all_issues, &file_summaries, &files, total_errors, total_warnings, total_info, &active_checks),
-            "github-actions" | "github_actions" => {
-                generate_github_actions_report(&all_issues, total_errors, total_warnings, total_info)
-            }
+            "json" => generate_json_report(
+                &all_issues,
+                &file_summaries,
+                &files,
+                total_errors,
+                total_warnings,
+                total_info,
+                &active_checks,
+            ),
+            "github-actions" | "github_actions" => generate_github_actions_report(
+                &all_issues,
+                total_errors,
+                total_warnings,
+                total_info,
+            ),
             "gitlab-ci" | "gitlab_ci" => {
                 generate_gitlab_ci_report(&all_issues, total_errors, total_warnings, total_info)
             }
-            _ => {
-                generate_text_report(&all_issues, &file_summaries, &files, total_errors, total_warnings, total_info)
-            }
+            _ => generate_text_report(
+                &all_issues,
+                &file_summaries,
+                &files,
+                total_errors,
+                total_warnings,
+                total_info,
+            ),
         }?;
 
         // Write to output file if requested
@@ -619,9 +722,13 @@ impl Tool for CodeReviewTool {
                 }
                 Err(e) => {
                     if let Some(obj) = result.as_object_mut() {
-                        obj.insert("output_error".to_string(), Value::String(
-                            format!("Failed to write report to '{}': {}", out_path, e)
-                        ));
+                        obj.insert(
+                            "output_error".to_string(),
+                            Value::String(format!(
+                                "Failed to write report to '{}': {}",
+                                out_path, e
+                            )),
+                        );
                     }
                 }
             }
@@ -792,7 +899,12 @@ struct ReviewIssue {
 // File Collection
 // ============================================================================
 
-fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, depth: usize) -> Result<(), String> {
+fn collect_rust_files(
+    dir: &Path,
+    files: &mut Vec<String>,
+    recursive: bool,
+    depth: usize,
+) -> Result<(), String> {
     if depth > 20 {
         return Ok(());
     }
@@ -803,16 +915,18 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, dept
     for entry in read_dir.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_dir() {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if name.starts_with('.') || name == "target" || name == "node_modules" {
                 continue;
             }
             if recursive {
                 collect_rust_files(&path, files, true, depth + 1)?;
             }
-        } else if path.is_file()
-            && path.extension().map(|e| e == "rs").unwrap_or(false)
-        {
+        } else if path.is_file() && path.extension().map(|e| e == "rs").unwrap_or(false) {
             files.push(path.to_string_lossy().to_string());
         }
     }
@@ -840,29 +954,36 @@ fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
             message: "Unsafe block detected. Review for memory safety invariants.".to_string(),
             recommendation: Some(
                 "Minimize unsafe code. Document safety invariants with // SAFETY: comments. \
-                 Consider safe abstractions like std::cell::UnsafeCell or pin::Pin.".to_string(),
+                 Consider safe abstractions like std::cell::UnsafeCell or pin::Pin."
+                    .to_string(),
             ),
         });
     }
 
     for caps in RE_UNSAFE_FN.captures_iter(content) {
-        let Some(m) = caps.get(0) else { continue; };
+        let Some(m) = caps.get(0) else {
+            continue;
+        };
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "unsafe".to_string(),
             file: file.to_string(),
             line: line_at(content, m.start()),
             column: 1,
-            message: "Unsafe function declaration. All callers must uphold safety preconditions.".to_string(),
+            message: "Unsafe function declaration. All callers must uphold safety preconditions."
+                .to_string(),
             recommendation: Some(
                 "Document safety preconditions in doc comments (# Safety section). \
-                 Keep unsafe functions small and focused.".to_string(),
+                 Keep unsafe functions small and focused."
+                    .to_string(),
             ),
         });
     }
 
     for caps in RE_UNSAFE_TRAIT.captures_iter(content) {
-        let Some(m) = caps.get(0) else { continue; };
+        let Some(m) = caps.get(0) else {
+            continue;
+        };
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "unsafe".to_string(),
@@ -886,7 +1007,8 @@ fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
             message: "Raw pointer dereference. Only valid inside unsafe blocks.".to_string(),
             recommendation: Some(
                 "Ensure pointer is aligned, non-null, and points to valid memory. \
-                 Use .as_ref() / .as_mut() instead.".to_string(),
+                 Use .as_ref() / .as_mut() instead."
+                    .to_string(),
             ),
         });
     }
@@ -901,7 +1023,8 @@ fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
             message: "mem::transmute used. Type layout assumptions are fragile.".to_string(),
             recommendation: Some(
                 "Use safe alternatives: bytemuck, From/Into, or TryFrom. \
-                 If transmute is necessary, add a SAFETY comment.".to_string(),
+                 If transmute is necessary, add a SAFETY comment."
+                    .to_string(),
             ),
         });
     }
@@ -909,7 +1032,9 @@ fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
 
 fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     for m in RE_UNWRAP.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         let context = &content[m.start()..std::cmp::min(m.end() + 40, content.len())];
         issues.push(ReviewIssue {
             severity: Severity::Warning,
@@ -917,15 +1042,21 @@ fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut
             file: file.to_string(),
             line: line_at(content, m.start()),
             column: 1,
-            message: format!(".unwrap() call. Will panic if `{}` is None/Err.", extract_var_name(context)),
+            message: format!(
+                ".unwrap() call. Will panic if `{}` is None/Err.",
+                extract_var_name(context)
+            ),
             recommendation: Some(
-                "Use `?` operator, .ok_or() with context, .unwrap_or_default(), or match.".to_string(),
+                "Use `?` operator, .ok_or() with context, .unwrap_or_default(), or match."
+                    .to_string(),
             ),
         });
     }
 
     for m in RE_EXPECT.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "error_handling".to_string(),
@@ -935,13 +1066,16 @@ fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut
             message: ".expect() call. Will panic on error.".to_string(),
             recommendation: Some(
                 "Use `?` operator or anyhow::Context for error propagation. \
-                 Reserve .expect() for unrecoverable states only.".to_string(),
+                 Reserve .expect() for unrecoverable states only."
+                    .to_string(),
             ),
         });
     }
 
     for m in RE_PANIC.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "error_handling".to_string(),
@@ -957,9 +1091,15 @@ fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut
 
     for m in RE_IGNORE_RESULT.find_iter(content) {
         let line = &content[m.start()..m.end()];
-        if line.contains("write") || line.contains("read") || line.contains("send")
-            || line.contains("save") || line.contains("remove") || line.contains("delete")
-            || line.contains("create") || line.contains("insert") || line.contains("update")
+        if line.contains("write")
+            || line.contains("read")
+            || line.contains("send")
+            || line.contains("save")
+            || line.contains("remove")
+            || line.contains("delete")
+            || line.contains("create")
+            || line.contains("insert")
+            || line.contains("update")
         {
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
@@ -970,14 +1110,17 @@ fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut
                 message: "Result ignored via `let _ = ...`. Errors silently discarded.".to_string(),
                 recommendation: Some(
                     "Handle errors: if let Err(e) = ... { log::error!(...); } \
-                     or .inspect_err(|e| ...).".to_string(),
+                     or .inspect_err(|e| ...)."
+                        .to_string(),
                 ),
             });
         }
     }
 
     for m in RE_WRITELN_RESULT.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "error_handling".to_string(),
@@ -994,7 +1137,9 @@ fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut
 
 fn check_performance(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     for m in RE_CLONE.find_iter(content) {
-        if m.as_str().contains("Arc::clone") { continue; } // Arc::clone is cheap
+        if m.as_str().contains("Arc::clone") {
+            continue;
+        } // Arc::clone is cheap
         issues.push(ReviewIssue {
             severity: Severity::Info,
             check: "performance".to_string(),
@@ -1032,9 +1177,12 @@ fn check_performance(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
                     file: file.to_string(),
                     line: line_at(content, m.start()),
                     column: 1,
-                    message: format!("Large Vec allocation ({cap} elements). May cause memory pressure."),
+                    message: format!(
+                        "Large Vec allocation ({cap} elements). May cause memory pressure."
+                    ),
                     recommendation: Some(
-                        "Consider streaming approach or Box<[T]> for fixed-size buffers.".to_string(),
+                        "Consider streaming approach or Box<[T]> for fixed-size buffers."
+                            .to_string(),
                     ),
                 });
             }
@@ -1056,7 +1204,13 @@ fn check_performance(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
     }
 }
 
-fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>, thresholds: &Thresholds) {
+fn check_style(
+    content: &str,
+    lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+    thresholds: &Thresholds,
+) {
     // Long functions
     let fn_positions: Vec<(usize, String)> = RE_FN_START
         .captures_iter(content)
@@ -1083,9 +1237,13 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
                 file: file.to_string(),
                 line: *start_line,
                 column: 1,
-                message: format!("Function `{name}` is {length} lines (max: {}). Refactor.", thresholds.max_fn_length),
+                message: format!(
+                    "Function `{name}` is {length} lines (max: {}). Refactor.",
+                    thresholds.max_fn_length
+                ),
                 recommendation: Some(
-                    "Split into smaller functions. Apply single-responsibility principle.".to_string(),
+                    "Split into smaller functions. Apply single-responsibility principle."
+                        .to_string(),
                 ),
             });
         } else if length > thresholds.max_fn_length / 2 {
@@ -1137,9 +1295,13 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
             file: file.to_string(),
             line: first_deep_line.unwrap_or(1),
             column: 1,
-            message: format!("Deep nesting (max depth: {max_nesting_val}, limit: {}). Refactor.", thresholds.max_nesting),
+            message: format!(
+                "Deep nesting (max depth: {max_nesting_val}, limit: {}). Refactor.",
+                thresholds.max_nesting
+            ),
             recommendation: Some(
-                "Extract nested logic, use early returns, guard clauses, or iterator combinators.".to_string(),
+                "Extract nested logic, use early returns, guard clauses, or iterator combinators."
+                    .to_string(),
             ),
         });
     }
@@ -1147,7 +1309,9 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
     // Non-snake_case functions
     for caps in RE_NON_SNAKE_FN.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "style".to_string(),
@@ -1156,7 +1320,8 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
                 column: 1,
                 message: format!("Function `{}` should be snake_case.", name.as_str()),
                 recommendation: Some(
-                    "Rename to snake_case. Use CamelCase for types, snake_case for functions.".to_string(),
+                    "Rename to snake_case. Use CamelCase for types, snake_case for functions."
+                        .to_string(),
                 ),
             });
         }
@@ -1165,7 +1330,9 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
     // TODO/FIXME comments
     for caps in RE_TODO_COMMENT.captures_iter(content) {
         let tag = caps.get(1).map(|t| t.as_str()).unwrap_or("TODO");
-        let Some(m0) = caps.get(0) else { continue; };
+        let Some(m0) = caps.get(0) else {
+            continue;
+        };
         let line_num = line_at(content, m0.start()) - 1;
         let s: &str = lines.get(line_num).map(|s| s.trim()).unwrap_or("");
         issues.push(ReviewIssue {
@@ -1175,7 +1342,9 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
             line: line_num + 1,
             column: 1,
             message: format!("{tag} comment: \"{s}\""),
-            recommendation: Some("Resolve before committing. Create tasks for each TODO.".to_string()),
+            recommendation: Some(
+                "Resolve before committing. Create tasks for each TODO.".to_string(),
+            ),
         });
     }
 
@@ -1183,14 +1352,20 @@ fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Revie
     for (idx, line) in lines.iter().enumerate() {
         if line.len() > thresholds.max_line_length {
             let trimmed = line.trim();
-            if trimmed.starts_with("//") { continue; }
+            if trimmed.starts_with("//") {
+                continue;
+            }
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "style".to_string(),
                 file: file.to_string(),
                 line: idx + 1,
                 column: thresholds.max_line_length + 1,
-                message: format!("Line is {} chars (max: {}).", line.len(), thresholds.max_line_length),
+                message: format!(
+                    "Line is {} chars (max: {}).",
+                    line.len(),
+                    thresholds.max_line_length
+                ),
                 recommendation: Some(
                     "Break long lines at logical points. Use rustfmt.".to_string(),
                 ),
@@ -1223,7 +1398,8 @@ fn check_safety(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
             column: 1,
             message: "MaybeUninit: incorrect use causes UB.".to_string(),
             recommendation: Some(
-                "Initialize all bytes before calling .assume_init(). Prefer safe init patterns.".to_string(),
+                "Initialize all bytes before calling .assume_init(). Prefer safe init patterns."
+                    .to_string(),
             ),
         });
     }
@@ -1254,7 +1430,8 @@ fn check_correctness(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
             column: 1,
             message: format!("todo!(): \"{}\"", context.trim()),
             recommendation: Some(
-                "Implement the missing functionality. Use anyhow::bail!() for runtime errors.".to_string(),
+                "Implement the missing functionality. Use anyhow::bail!() for runtime errors."
+                    .to_string(),
             ),
         });
     }
@@ -1280,21 +1457,26 @@ fn check_correctness(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
             column: 1,
             message: "unreachable!(): confirm this path is truly impossible.".to_string(),
             recommendation: Some(
-                "Only for logically impossible states. Consider if the type system can prove it.".to_string(),
+                "Only for logically impossible states. Consider if the type system can prove it."
+                    .to_string(),
             ),
         });
     }
 
     for m in RE_MATCH.find_iter(content) {
         let remaining = &content[m.end()..std::cmp::min(m.end() + 2000, content.len())];
-        if !remaining.contains("_ =>") && !remaining.contains("other =>") && remaining.contains("::") {
+        if !remaining.contains("_ =>")
+            && !remaining.contains("other =>")
+            && remaining.contains("::")
+        {
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "correctness".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m.start()),
                 column: 1,
-                message: "Match without wildcard `_ =>` arm. Will fail on new enum variants.".to_string(),
+                message: "Match without wildcard `_ =>` arm. Will fail on new enum variants."
+                    .to_string(),
                 recommendation: Some(
                     "Add `_ => { ... }` arm. Or use #[non_exhaustive] on the enum.".to_string(),
                 ),
@@ -1319,8 +1501,12 @@ fn check_correctness(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
 
 fn check_concurrency(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     for m in RE_REFCELL.find_iter(content) {
-        let surrounding = &content[m.start().saturating_sub(30)..std::cmp::min(m.end() + 30, content.len())];
-        if surrounding.contains("static") || surrounding.contains("lazy_static") || surrounding.contains("OnceCell") {
+        let surrounding =
+            &content[m.start().saturating_sub(30)..std::cmp::min(m.end() + 30, content.len())];
+        if surrounding.contains("static")
+            || surrounding.contains("lazy_static")
+            || surrounding.contains("OnceCell")
+        {
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "concurrency".to_string(),
@@ -1350,7 +1536,11 @@ fn check_concurrency(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
     }
 
     for m in RE_UNSAFE_SEND_SYNC.find_iter(content) {
-        let trait_name = if m.as_str().contains("Send") { "Send" } else { "Sync" };
+        let trait_name = if m.as_str().contains("Send") {
+            "Send"
+        } else {
+            "Sync"
+        };
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "concurrency".to_string(),
@@ -1373,7 +1563,8 @@ fn check_concurrency(content: &str, _lines: &[&str], file: &str, issues: &mut Ve
             column: 1,
             message: "static mut: UB without sync. Use Mutex/RwLock/OnceLock.".to_string(),
             recommendation: Some(
-                "Use `static` with Mutex<T> for mutable global state, or OnceLock for lazy init.".to_string(),
+                "Use `static` with Mutex<T> for mutable global state, or OnceLock for lazy init."
+                    .to_string(),
             ),
         });
     }
@@ -1401,19 +1592,33 @@ fn check_documentation(content: &str, _lines: &[&str], file: &str, issues: &mut 
     let pub_item_patterns: Vec<(&str, &str)> = vec![
         (r"(?m)^\s*pub\s+fn\s+([a-zA-Z_][a-zA-Z0-9_]*)", "function"),
         (r"(?m)^\s*pub\s+struct\s+([a-zA-Z_][a-zA-Z0-9_]*)", "struct"),
-        (r"(?m)^\s*pub\s+(?:enum|union)\s+([a-zA-Z_][a-zA-Z0-9_]*)", "enum"),
+        (
+            r"(?m)^\s*pub\s+(?:enum|union)\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "enum",
+        ),
         (r"(?m)^\s*pub\s+trait\s+([a-zA-Z_][a-zA-Z0-9_]*)", "trait"),
-        (r"(?m)^\s*pub\s+type\s+([a-zA-Z_][a-zA-Z0-9_]*)", "type alias"),
-        (r"(?m)^\s*pub\s+const\s+([a-zA-Z_][a-zA-Z0-9_]*)", "constant"),
+        (
+            r"(?m)^\s*pub\s+type\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "type alias",
+        ),
+        (
+            r"(?m)^\s*pub\s+const\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "constant",
+        ),
     ];
 
     for (pattern, item_type) in &pub_item_patterns {
         if let Ok(re) = Regex::new(pattern) {
             for caps in re.captures_iter(content) {
-                let m0 = match caps.get(0) { Some(m) => m, None => continue };
+                let m0 = match caps.get(0) {
+                    Some(m) => m,
+                    None => continue,
+                };
                 let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
 
-                if *item_type == "function" && (name.starts_with("test_") || name == "new") { continue; }
+                if *item_type == "function" && (name.starts_with("test_") || name == "new") {
+                    continue;
+                }
 
                 // Check if doc comment exists before this item
                 let before = &content[..m0.start()];
@@ -1431,7 +1636,8 @@ fn check_documentation(content: &str, _lines: &[&str], file: &str, issues: &mut 
                         column: 1,
                         message: format!("Public {item_type} `{name}` missing doc comments."),
                         recommendation: Some(
-                            "Add /// comments: purpose, params, returns, panics, errors.".to_string(),
+                            "Add /// comments: purpose, params, returns, panics, errors."
+                                .to_string(),
                         ),
                     });
                 }
@@ -1441,10 +1647,16 @@ fn check_documentation(content: &str, _lines: &[&str], file: &str, issues: &mut 
 
     // Functions with params but no parameter docs
     for caps in RE_PUB_FN.captures_iter(content) {
-        let m0 = match caps.get(0) { Some(m) => m, None => continue };
+        let m0 = match caps.get(0) {
+            Some(m) => m,
+            None => continue,
+        };
         let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
 
-        let sig_end = content[m0.start()..].find('{').map(|i| m0.start() + i).unwrap_or(content.len());
+        let sig_end = content[m0.start()..]
+            .find('{')
+            .map(|i| m0.start() + i)
+            .unwrap_or(content.len());
         let sig = &content[m0.start()..sig_end];
 
         if sig.contains('(') && !sig.contains("()") {
@@ -1452,7 +1664,8 @@ fn check_documentation(content: &str, _lines: &[&str], file: &str, issues: &mut 
             let has_param_docs = before.lines().rev().take(15).any(|l| {
                 let t = l.trim();
                 (t.starts_with("///") && (t.contains("- ") || t.contains('`')))
-                    || t.contains("# Parameters") || t.contains("# Arguments")
+                    || t.contains("# Parameters")
+                    || t.contains("# Arguments")
             });
             if !has_param_docs {
                 issues.push(ReviewIssue {
@@ -1479,14 +1692,20 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
     // Struct names should be CamelCase (start with uppercase)
     for caps in RE_LOWERCASE_STRUCT.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "naming".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m0.start()),
                 column: 1,
-                message: format!("Struct `{}` should use CamelCase (e.g. `{}`).", name.as_str(), to_camel_case(name.as_str())),
+                message: format!(
+                    "Struct `{}` should use CamelCase (e.g. `{}`).",
+                    name.as_str(),
+                    to_camel_case(name.as_str())
+                ),
                 recommendation: Some(
                     "Rename to CamelCase: type names use PascalCase convention.".to_string(),
                 ),
@@ -1497,14 +1716,20 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
     // Enum names should be CamelCase
     for caps in RE_LOWERCASE_ENUM.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "naming".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m0.start()),
                 column: 1,
-                message: format!("Enum `{}` should use CamelCase (e.g. `{}`).", name.as_str(), to_camel_case(name.as_str())),
+                message: format!(
+                    "Enum `{}` should use CamelCase (e.g. `{}`).",
+                    name.as_str(),
+                    to_camel_case(name.as_str())
+                ),
                 recommendation: Some(
                     "Rename to CamelCase: type names use PascalCase convention.".to_string(),
                 ),
@@ -1517,9 +1742,15 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
         if let Some(name) = caps.get(1) {
             // Skip if already screaming or has pub(crate) visibility weirdness
             let n = name.as_str();
-            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') { continue; }
-            if n.len() <= 2 { continue; } // short names are ok
-            let Some(m0) = caps.get(0) else { continue; };
+            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') {
+                continue;
+            }
+            if n.len() <= 2 {
+                continue;
+            } // short names are ok
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "naming".to_string(),
@@ -1538,9 +1769,15 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
     for caps in RE_NON_SCREAMING_STATIC.captures_iter(content) {
         if let Some(name) = caps.get(1) {
             let n = name.as_str();
-            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') { continue; }
-            if n.len() <= 2 { continue; }
-            let Some(m0) = caps.get(0) else { continue; };
+            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') {
+                continue;
+            }
+            if n.len() <= 2 {
+                continue;
+            }
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "naming".to_string(),
@@ -1614,10 +1851,12 @@ fn check_async(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Revi
                     file: file.to_string(),
                     line: line_num,
                     column: 1,
-                    message: "Potential blocking I/O in async context. Use async alternatives.".to_string(),
+                    message: "Potential blocking I/O in async context. Use async alternatives."
+                        .to_string(),
                     recommendation: Some(
                         "Use tokio::fs, tokio::net, or tokio::process instead of std. \
-                         Or use spawn_blocking().".to_string(),
+                         Or use spawn_blocking()."
+                            .to_string(),
                     ),
                 });
             }
@@ -1631,7 +1870,10 @@ fn has_recent_async_fn(before: &str) -> bool {
     let recent: Vec<&str> = before.lines().rev().take(100).collect();
     for line in &recent {
         let t = line.trim();
-        if t.starts_with("async fn") || t.starts_with("pub async fn") || t.starts_with("pub(crate) async fn") {
+        if t.starts_with("async fn")
+            || t.starts_with("pub async fn")
+            || t.starts_with("pub(crate) async fn")
+        {
             return true;
         }
         if t == "}" {
@@ -1648,7 +1890,9 @@ fn has_recent_async_fn(before: &str) -> bool {
 fn check_security(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     // SQL injection: format!/concat! with SQL keyword + interpolated variable
     for m in RE_SQL_INJECTION.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "security".to_string(),
@@ -1664,7 +1908,9 @@ fn check_security(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<R
 
     // Hardcoded secrets: api_key, secret, password, token assignments
     for m in RE_HARDCODED_SECRET.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "security".to_string(),
@@ -1695,7 +1941,9 @@ fn check_security(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<R
 
     // OpenAI API keys
     for m in RE_OPENAI_KEY.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "security".to_string(),
@@ -1716,7 +1964,8 @@ fn check_security(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<R
 
 /// Regex to match function parameters section
 static RE_FN_PARAMS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+\w+\s*\(([^)]*)\)").expect("invalid regex: fn params")
+    Regex::new(r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+\w+\s*\(([^)]*)\)")
+        .expect("invalid regex: fn params")
 });
 
 fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
@@ -1730,7 +1979,8 @@ fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<
             column: 1,
             message: format!("File is {} lines (>1000). Consider splitting.", lines.len()),
             recommendation: Some(
-                "Split into smaller modules. Aim for <500 lines per file for maintainability.".to_string(),
+                "Split into smaller modules. Aim for <500 lines per file for maintainability."
+                    .to_string(),
             ),
         });
     }
@@ -1739,20 +1989,31 @@ fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<
     for caps in RE_FN_PARAMS.captures_iter(content) {
         let params_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         // Count comma-separated parameters (heuristic: skip empty and self)
-        let param_count = params_str.split(',')
+        let param_count = params_str
+            .split(',')
             .map(|s| s.trim())
-            .filter(|s| !s.is_empty() && *s != "self" && *s != "&self" && *s != "&mut self" && !s.starts_with("self:"))
+            .filter(|s| {
+                !s.is_empty()
+                    && *s != "self"
+                    && *s != "&self"
+                    && *s != "&mut self"
+                    && !s.starts_with("self:")
+            })
             .count();
 
         if param_count > 5 {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "complexity".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m0.start()),
                 column: 1,
-                message: format!("Function has {param_count} parameters (max: 5). Consider refactoring."),
+                message: format!(
+                    "Function has {param_count} parameters (max: 5). Consider refactoring."
+                ),
                 recommendation: Some(
                     "Use a struct to group related parameters, or split the function.".to_string(),
                 ),
@@ -1780,17 +2041,24 @@ fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<
             content.len()
         };
 
-        if start_byte >= end_byte { continue; }
+        if start_byte >= end_byte {
+            continue;
+        }
         let fn_body = &content[start_byte..end_byte];
 
         // Count decision points
         let mut complexity = 1; // Base complexity
-        // Count if (but not "if let" which counts separately)
+                                // Count if (but not "if let" which counts separately)
         for m in fn_body.match_indices("if ") {
             let before = &fn_body[..m.0];
             let prev_ch = before.chars().last().unwrap_or(' ');
             // Only count if it's not inside a comment or string
-            if prev_ch == ' ' || prev_ch == '\t' || prev_ch == '\n' || prev_ch == '{' || prev_ch == ';' {
+            if prev_ch == ' '
+                || prev_ch == '\t'
+                || prev_ch == '\n'
+                || prev_ch == '{'
+                || prev_ch == ';'
+            {
                 complexity += 1;
             }
         }
@@ -1827,7 +2095,9 @@ fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<
                 file: file.to_string(),
                 line: *start_line,
                 column: 1,
-                message: format!("Function `{name}` has moderate cyclomatic complexity (~{complexity})."),
+                message: format!(
+                    "Function `{name}` has moderate cyclomatic complexity (~{complexity})."
+                ),
                 recommendation: Some(
                     "Consider extracting helper functions to improve readability.".to_string(),
                 ),
@@ -1838,7 +2108,9 @@ fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<
 
 /// Find the byte offset of a given 1-based line number in content.
 fn find_line_start(content: &str, line_num: usize) -> usize {
-    if line_num <= 1 { return 0; }
+    if line_num <= 1 {
+        return 0;
+    }
     let mut pos = 0;
     for _ in 1..line_num {
         if let Some(nl) = content[pos..].find('\n') {
@@ -1854,12 +2126,16 @@ fn find_line_start(content: &str, line_num: usize) -> usize {
 // Check: Testing Quality
 // ============================================================================
 
-static RE_TEST_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*#\[test\]\s*$").expect("invalid regex: test fn"));
-static RE_ASSERT_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"\bassert(|_eq|_ne|_approx_eq)!").expect("invalid regex: assert macro"));
+static RE_TEST_FN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*#\[test\]\s*$").expect("invalid regex: test fn"));
+static RE_ASSERT_MACRO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\bassert(|_eq|_ne|_approx_eq)!").expect("invalid regex: assert macro")
+});
 
 fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     // 1. Find all #[test] functions and check for assertions
-    let test_positions: Vec<usize> = RE_TEST_FN.find_iter(content)
+    let test_positions: Vec<usize> = RE_TEST_FN
+        .find_iter(content)
         .map(|m| line_at(content, m.start()))
         .collect();
 
@@ -1867,10 +2143,12 @@ fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Rev
         // Find the fn body start after #[test]
         let fn_body_start = find_line_start(content, *test_line + 1);
         // Find the next #[test] AFTER this one (skip past this #[test])
-        let search_start = content[fn_body_start..].find('\n')
+        let search_start = content[fn_body_start..]
+            .find('\n')
             .map(|pos| fn_body_start + pos + 1)
             .unwrap_or(fn_body_start);
-        let next_test = content[search_start..].find("#[test]")
+        let next_test = content[search_start..]
+            .find("#[test]")
             .map(|pos| search_start + pos)
             .unwrap_or(content.len());
         let test_body = &content[fn_body_start..next_test];
@@ -1887,7 +2165,8 @@ fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Rev
                 column: 1,
                 message: "Test function has no assertions. May not provide value.".to_string(),
                 recommendation: Some(
-                    "Add assertions (assert_eq!, assert_ne!, assert!) to verify expected behavior.".to_string(),
+                    "Add assertions (assert_eq!, assert_ne!, assert!) to verify expected behavior."
+                        .to_string(),
                 ),
             });
         }
@@ -1928,7 +2207,8 @@ fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Rev
                 column: 1,
                 message: format!("Test function `{name}` is {length} lines. Consider splitting."),
                 recommendation: Some(
-                    "Split into multiple focused test cases, or use test parameterization.".to_string(),
+                    "Split into multiple focused test cases, or use test parameterization."
+                        .to_string(),
                 ),
             });
         }
@@ -1939,14 +2219,22 @@ fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<Rev
 // Check: Debug Residuals
 // ============================================================================
 
-static RE_DBG_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^\s*(dbg!|eprintln!|println!)\s*\(").expect("invalid regex: dbg macro"));
+static RE_DBG_MACRO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(dbg!|eprintln!|println!)\s*\(").expect("invalid regex: dbg macro")
+});
 
 fn check_debug(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
     for m in RE_DBG_MACRO.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
-        let macro_name = if m.as_str().contains("dbg!") { "dbg!" }
-            else if m.as_str().contains("eprintln!") { "eprintln!" }
-            else { "println!" };
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
+        let macro_name = if m.as_str().contains("dbg!") {
+            "dbg!"
+        } else if m.as_str().contains("eprintln!") {
+            "eprintln!"
+        } else {
+            "println!"
+        };
 
         // Only flag println! in non-main, non-binary contexts (heuristic: look for lib.rs or src/lib)
         if macro_name == "println!" {
@@ -1959,9 +2247,14 @@ fn check_debug(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Revi
             let recent_lines: Vec<&str> = before.lines().rev().take(20).collect();
             let in_display = recent_lines.iter().any(|l| {
                 let t = l.trim();
-                t.contains("impl") && (t.contains("Display") || t.contains("Debug") || t.contains("fmt::Formatter"))
+                t.contains("impl")
+                    && (t.contains("Display")
+                        || t.contains("Debug")
+                        || t.contains("fmt::Formatter"))
             });
-            if in_display { continue; }
+            if in_display {
+                continue;
+            }
         }
 
         issues.push(ReviewIssue {
@@ -1983,7 +2276,9 @@ fn check_debug(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Revi
 fn parse_ignore_directives(content: &str) -> Vec<(usize, String)> {
     let mut ignores: Vec<(usize, String)> = Vec::new();
     for caps in RE_IGNORE_DIRECTIVE.captures_iter(content) {
-        let Some(cap) = caps.get(0) else { continue; };
+        let Some(cap) = caps.get(0) else {
+            continue;
+        };
         let line_num = line_at(content, cap.start());
         let checks_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         for check in checks_str.split(',') {
@@ -2000,7 +2295,9 @@ fn parse_ignore_directives(content: &str) -> Vec<(usize, String)> {
 
 /// Check if an issue at a given line should be ignored.
 fn is_ignored(ignores: &[(usize, String)], line: usize, check: &str) -> bool {
-    ignores.iter().any(|(l, c)| *l == line && (c == "all" || c == check))
+    ignores
+        .iter()
+        .any(|(l, c)| *l == line && (c == "all" || c == check))
 }
 
 /// Check if a position in the file is within test code.
@@ -2023,7 +2320,7 @@ fn is_in_test_code(content: &str, pos: usize) -> bool {
 
         // Going backward: { means exiting a block, } means entering a block
         let was_negative = test_block_depth < 0;
-        test_block_depth += opens;  // { going backward: removing block nesting
+        test_block_depth += opens; // { going backward: removing block nesting
         test_block_depth -= closes; // } going backward: adding block nesting
 
         // If we just exited a block (going backward = entered one going forward),
@@ -2047,7 +2344,9 @@ fn is_in_test_code(content: &str, pos: usize) -> bool {
 /// Extract the variable name from context around an .unwrap() call.
 fn extract_var_name(context: &str) -> String {
     if let Some(c) = RE_UNWRAP.captures(context) {
-        c.get(1).map(|m| m.as_str().to_string()).unwrap_or_else(|| "value".to_string())
+        c.get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| "value".to_string())
     } else {
         "value".to_string()
     }
@@ -2068,14 +2367,18 @@ fn generate_text_report(
     let total_issues = issues.len();
     let mut report = String::new();
 
-    report.push_str("╔══════════════════════════════════════════════════════════════════╗\n\
+    report.push_str(
+        "╔══════════════════════════════════════════════════════════════════╗\n\
          ║                       CODE REVIEW REPORT                       ║\n\
-         ╚══════════════════════════════════════════════════════════════════╝\n\n");
+         ╚══════════════════════════════════════════════════════════════════╝\n\n",
+    );
     report.push_str(&format!("Files reviewed: {}\n", files.len()));
     report.push_str(&format!("Total issues found: {total_issues}\n"));
     report.push_str(&format!(
         "  {e} Errors | {w} Warnings | {i} Info\n\n",
-        e = total_errors, w = total_warnings, i = total_info,
+        e = total_errors,
+        w = total_warnings,
+        i = total_info,
     ));
 
     // File summaries
@@ -2088,8 +2391,12 @@ fn generate_text_report(
         let lines = fs["code_lines"].as_u64().unwrap_or(0);
         report.push_str(&format!(
             "  {:<40} {:>4} issues ({}, {}, {}) - {} lines\n",
-            file, errs + warns + infos,
-            plural(errs, "error"), plural(warns, "warning"), plural(infos, "info"), lines,
+            file,
+            errs + warns + infos,
+            plural(errs, "error"),
+            plural(warns, "warning"),
+            plural(infos, "info"),
+            lines,
         ));
     }
     report.push('\n');
@@ -2097,18 +2404,37 @@ fn generate_text_report(
     if !issues.is_empty() {
         report.push_str("─── Issues ────────────────────────────────────────────────────\n\n");
 
-        let errors: Vec<&ReviewIssue> = issues.iter().filter(|i| matches!(i.severity, Severity::Error)).collect();
-        let warnings: Vec<&ReviewIssue> = issues.iter().filter(|i| matches!(i.severity, Severity::Warning)).collect();
-        let infos: Vec<&ReviewIssue> = issues.iter().filter(|i| matches!(i.severity, Severity::Info)).collect();
+        let errors: Vec<&ReviewIssue> = issues
+            .iter()
+            .filter(|i| matches!(i.severity, Severity::Error))
+            .collect();
+        let warnings: Vec<&ReviewIssue> = issues
+            .iter()
+            .filter(|i| matches!(i.severity, Severity::Warning))
+            .collect();
+        let infos: Vec<&ReviewIssue> = issues
+            .iter()
+            .filter(|i| matches!(i.severity, Severity::Info))
+            .collect();
 
-        for (label, icon, group) in [("ERRORS", "🔴", &errors), ("WARNINGS", "🟡", &warnings), ("INFO", "🔵", &infos)] {
-            if group.is_empty() { continue; }
+        for (label, icon, group) in [
+            ("ERRORS", "🔴", &errors),
+            ("WARNINGS", "🟡", &warnings),
+            ("INFO", "🔵", &infos),
+        ] {
+            if group.is_empty() {
+                continue;
+            }
             report.push_str(&format!("{icon} {label} ({})\n", group.len()));
             report.push_str("   ──────────────────────────────────────────────────────\n");
             for issue in group.iter() {
                 report.push_str(&format!(
                     "   [{:<6}] {}:{}\n   {:>10} {}\n",
-                    issue.check, shorten_path(&issue.file), issue.line, "", issue.message,
+                    issue.check,
+                    shorten_path(&issue.file),
+                    issue.line,
+                    "",
+                    issue.message,
                 ));
                 if let Some(rec) = &issue.recommendation {
                     report.push_str(&format!("   {:>10} 💡 {}\n\n", "", rec));
@@ -2120,7 +2446,10 @@ fn generate_text_report(
 
         // Check summary table
         report.push_str("\n─── Check Summary ───────────────────────────────────────────\n");
-        report.push_str(&format!("  {:<20} {:>5} {:>5} {:>5}\n", "Check", "Errors", "Warn.", "Info"));
+        report.push_str(&format!(
+            "  {:<20} {:>5} {:>5} {:>5}\n",
+            "Check", "Errors", "Warn.", "Info"
+        ));
         report.push_str(&format!("  {}\n", "-".repeat(37)));
         let mut check_counts: HashMap<String, (u32, u32, u32)> = HashMap::new();
         for issue in issues {
@@ -2132,7 +2461,7 @@ fn generate_text_report(
             }
         }
         let mut sorted: Vec<(&String, &(u32, u32, u32))> = check_counts.iter().collect();
-        sorted.sort_by(|a, b| (b.1.0, b.1.1, b.1.2).cmp(&(a.1.0, a.1.1, a.1.2)));
+        sorted.sort_by(|a, b| (b.1 .0, b.1 .1, b.1 .2).cmp(&(a.1 .0, a.1 .1, a.1 .2)));
         for (check, (e, w, i)) in &sorted {
             report.push_str(&format!("  {:<20} {:>5} {:>5} {:>5}\n", check, e, w, i));
         }
@@ -2158,17 +2487,20 @@ fn generate_json_report(
     total_info: u32,
     _checks: &ActiveChecks,
 ) -> Result<Value, String> {
-    let json_issues: Vec<Value> = issues.iter().map(|i| {
-        serde_json::json!({
-            "severity": i.severity.as_str(),
-            "check": i.check,
-            "file": i.file,
-            "line": i.line,
-            "column": i.column,
-            "message": i.message,
-            "recommendation": i.recommendation,
+    let json_issues: Vec<Value> = issues
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "severity": i.severity.as_str(),
+                "check": i.check,
+                "file": i.file,
+                "line": i.line,
+                "column": i.column,
+                "message": i.message,
+                "recommendation": i.recommendation,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::json!({
         "status": "ok", "format": "json",
@@ -2229,7 +2561,8 @@ fn generate_github_actions_report(
         };
 
         // Escape message for GitHub Actions: %, \\n, \\r
-        let message = issue.message
+        let message = issue
+            .message
             .replace('%', "%25")
             .replace('\n', "%0A")
             .replace('\r', "%0D");
@@ -2514,7 +2847,11 @@ fn shorten_path(path: &str) -> &str {
 }
 
 fn plural(count: u64, word: &str) -> String {
-    if count == 1 { format!("{count} {word}") } else { format!("{count} {word}s") }
+    if count == 1 {
+        format!("{count} {word}")
+    } else {
+        format!("{count} {word}s")
+    }
 }
 
 // ============================================================================
@@ -2525,8 +2862,14 @@ fn plural(count: u64, word: &str) -> String {
 /// These are the user-facing parameters (excluding path which is always required).
 fn configurable_param_names() -> &'static [&'static str] {
     &[
-        "recursive", "checks", "format", "min_severity",
-        "max_fn_length", "max_nesting", "max_line_length", "parallel",
+        "recursive",
+        "checks",
+        "format",
+        "min_severity",
+        "max_fn_length",
+        "max_nesting",
+        "max_line_length",
+        "parallel",
     ]
 }
 
@@ -2698,7 +3041,10 @@ fn main() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_unsafe_code(code, &lines, "test.rs", &mut issues);
-        assert!(!issues.is_empty(), "Should detect unsafe block and ptr deref");
+        assert!(
+            !issues.is_empty(),
+            "Should detect unsafe block and ptr deref"
+        );
         assert!(issues.iter().any(|i| i.check == "unsafe"));
     }
 
@@ -2732,8 +3078,14 @@ enum myEnum {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_naming(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("myStruct")), "Should flag lowercase struct");
-        assert!(issues.iter().any(|i| i.message.contains("myEnum")), "Should flag lowercase enum");
+        assert!(
+            issues.iter().any(|i| i.message.contains("myStruct")),
+            "Should flag lowercase struct"
+        );
+        assert!(
+            issues.iter().any(|i| i.message.contains("myEnum")),
+            "Should flag lowercase enum"
+        );
     }
 
     #[test]
@@ -2751,7 +3103,11 @@ enum MyEnum {
         let mut issues = Vec::new();
         check_naming(code, &lines, "test.rs", &mut issues);
         let naming_issues: Vec<_> = issues.iter().filter(|i| i.check == "naming").collect();
-        assert!(naming_issues.is_empty(), "Should not flag correct CamelCase: {:?}", naming_issues);
+        assert!(
+            naming_issues.is_empty(),
+            "Should not flag correct CamelCase: {:?}",
+            naming_issues
+        );
     }
 
     #[test]
@@ -2763,8 +3119,14 @@ const MAX_SIZE: usize = 100;
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_naming(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("max_size")), "Should flag lowercase const");
-        assert!(!issues.iter().any(|i| i.message.contains("MAX_SIZE")), "Should not flag SCREAMING const");
+        assert!(
+            issues.iter().any(|i| i.message.contains("max_size")),
+            "Should flag lowercase const"
+        );
+        assert!(
+            !issues.iter().any(|i| i.message.contains("MAX_SIZE")),
+            "Should not flag SCREAMING const"
+        );
     }
 
     #[test]
@@ -2777,9 +3139,15 @@ const MAX_SIZE: usize = 100;
 
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
-        let thresholds = Thresholds { max_fn_length: 50, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 50,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
         check_style(&code, &lines, "test.rs", &mut issues, &thresholds);
-        assert!(issues.iter().any(|i| i.check == "style" && i.message.contains("long_function")));
+        assert!(issues
+            .iter()
+            .any(|i| i.check == "style" && i.message.contains("long_function")));
     }
 
     #[test]
@@ -2847,8 +3215,16 @@ pub fn documented() -> i32 { 5 }
         check_documentation(code, &lines, "test.rs", &mut issues);
         let has_undocumented = issues.iter().any(|i| i.message.contains("`undocumented`"));
         let has_documented = issues.iter().any(|i| i.message.contains("`documented`"));
-        assert!(has_undocumented, "Should flag undocumented fn, issues: {:?}", issues);
-        assert!(!has_documented, "Should not flag documented fn, issues: {:?}", issues);
+        assert!(
+            has_undocumented,
+            "Should flag undocumented fn, issues: {:?}",
+            issues
+        );
+        assert!(
+            !has_documented,
+            "Should not flag documented fn, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -2862,18 +3238,21 @@ async fn async_fn() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_async(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.check == "async"), "Should detect blocking mutex in async");
+        assert!(
+            issues.iter().any(|i| i.check == "async"),
+            "Should detect blocking mutex in async"
+        );
     }
 
     #[test]
     fn test_line_at() {
         let content = "line1\nline2\nline3\n";
-        assert_eq!(line_at(content, 0), 1);   // start of line 1
-        assert_eq!(line_at(content, 5), 1);   // inside line 1 (newline at 5)
-        assert_eq!(line_at(content, 6), 2);   // after first newline, start of line 2
-        assert_eq!(line_at(content, 12), 3);  // after newline at 11, start of line 3
-        assert_eq!(line_at(content, 16), 3);  // inside line 3 (newline at 17)
-        assert_eq!(line_at(content, 17), 3);  // at the final newline itself (part of line 3)
+        assert_eq!(line_at(content, 0), 1); // start of line 1
+        assert_eq!(line_at(content, 5), 1); // inside line 1 (newline at 5)
+        assert_eq!(line_at(content, 6), 2); // after first newline, start of line 2
+        assert_eq!(line_at(content, 12), 3); // after newline at 11, start of line 3
+        assert_eq!(line_at(content, 16), 3); // inside line 3 (newline at 17)
+        assert_eq!(line_at(content, 17), 3); // at the final newline itself (part of line 3)
     }
 
     #[test]
@@ -2896,8 +3275,11 @@ fn bad_query(user: &str) {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("SQL injection")),
-            "Should detect SQL injection, issues: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("SQL injection")),
+            "Should detect SQL injection, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -2910,8 +3292,13 @@ fn configure() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("hardcoded secret")),
-            "Should detect hardcoded secret, issues: {:?}", issues);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.message.contains("hardcoded secret")),
+            "Should detect hardcoded secret, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -2924,8 +3311,11 @@ fn main() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("Private key")),
-            "Should detect private key, issues: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("Private key")),
+            "Should detect private key, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -2938,8 +3328,11 @@ fn call_llm() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("OpenAI API key")),
-            "Should detect OpenAI key, issues: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("OpenAI API key")),
+            "Should detect OpenAI key, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -2967,7 +3360,9 @@ fn call_llm() {
         assert_eq!(ignores.len(), 3);
         assert!(ignores.iter().any(|(l, c)| *l == 1 && c == "unsafe"));
         assert!(ignores.iter().any(|(l, c)| *l == 1 && c == "style"));
-        assert!(ignores.iter().any(|(l, c)| *l == 1 && c == "error_handling"));
+        assert!(ignores
+            .iter()
+            .any(|(l, c)| *l == 1 && c == "error_handling"));
     }
 
     #[test]
@@ -3009,7 +3404,11 @@ fn call_llm() {
 
         // Apply ignore filter
         issues.retain(|i| !is_ignored(&ignores, i.line, &i.check));
-        assert!(issues.is_empty(), "Unsafe issue should be suppressed by ignore directive, got: {:?}", issues);
+        assert!(
+            issues.is_empty(),
+            "Unsafe issue should be suppressed by ignore directive, got: {:?}",
+            issues
+        );
     }
 
     // ========================================================================
@@ -3025,8 +3424,11 @@ fn call_llm() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(&code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains(">1000")),
-            "Should flag large file, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains(">1000")),
+            "Should flag large file, got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -3037,8 +3439,11 @@ fn bad_function(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i32) {}
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("parameters")),
-            "Should flag excessive params, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("parameters")),
+            "Should flag excessive params, got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -3049,8 +3454,15 @@ fn good_function(a: i32, b: i32) {}
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(code, &lines, "test.rs", &mut issues);
-        let param_issues: Vec<_> = issues.iter().filter(|i| i.message.contains("parameters")).collect();
-        assert!(param_issues.is_empty(), "Should not flag 2 params, got: {:?}", param_issues);
+        let param_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("parameters"))
+            .collect();
+        assert!(
+            param_issues.is_empty(),
+            "Should not flag 2 params, got: {:?}",
+            param_issues
+        );
     }
 
     #[test]
@@ -3085,8 +3497,11 @@ fn complex_function(x: i32) -> i32 {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("complexity")),
-            "Should flag high cyclomatic complexity, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("complexity")),
+            "Should flag high cyclomatic complexity, got: {:?}",
+            issues
+        );
     }
 
     // ========================================================================
@@ -3105,8 +3520,11 @@ fn test_no_assert() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_testing(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("no assertions")),
-            "Should flag test without assertions, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("no assertions")),
+            "Should flag test without assertions, got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -3121,8 +3539,15 @@ fn test_with_assert() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_testing(code, &lines, "test.rs", &mut issues);
-        let no_assert_issues: Vec<_> = issues.iter().filter(|i| i.message.contains("no assertions")).collect();
-        assert!(no_assert_issues.is_empty(), "Should not flag test with assertions, got: {:?}", no_assert_issues);
+        let no_assert_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("no assertions"))
+            .collect();
+        assert!(
+            no_assert_issues.is_empty(),
+            "Should not flag test with assertions, got: {:?}",
+            no_assert_issues
+        );
     }
 
     #[test]
@@ -3136,8 +3561,11 @@ fn test_with_assert() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_testing(&code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("long")),
-            "Should flag long test, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("long")),
+            "Should flag long test, got: {:?}",
+            issues
+        );
     }
 
     // ========================================================================
@@ -3156,8 +3584,11 @@ fn calculate() -> i32 {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_debug(code, &lines, "src/lib.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("dbg!")),
-            "Should flag dbg!(), got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("dbg!")),
+            "Should flag dbg!(), got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -3170,8 +3601,11 @@ fn process() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_debug(code, &lines, "src/lib.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("eprintln!")),
-            "Should flag eprintln!(), got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("eprintln!")),
+            "Should flag eprintln!(), got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -3208,8 +3642,12 @@ fn process() {
         assert_eq!(result, "text");
 
         // Restore
-        if let Some(v) = old_gh { std::env::set_var("GITHUB_ACTIONS", v); }
-        if let Some(v) = old_gl { std::env::set_var("GITLAB_CI", v); }
+        if let Some(v) = old_gh {
+            std::env::set_var("GITHUB_ACTIONS", v);
+        }
+        if let Some(v) = old_gl {
+            std::env::set_var("GITLAB_CI", v);
+        }
     }
 
     #[test]
@@ -3245,12 +3683,25 @@ fn process() {
         let result = generate_github_actions_report(&issues, 1, 1, 0).unwrap();
         let report = result["report"].as_str().unwrap();
 
-        assert!(report.contains("::error file=src/main.rs,line=10,col=5,title=unsafe/error::Unsafe block detected."),
-            "Should contain GitHub error annotation, got: {}", report);
-        assert!(report.contains("::warning file=src/lib.rs,line=25,col=1,title=style/warning::Long line."),
-            "Should contain GitHub warning annotation, got: {}", report);
-        assert!(report.contains("::notice title=Code Review Summary"),
-            "Should contain summary notice, got: {}", report);
+        assert!(
+            report.contains(
+                "::error file=src/main.rs,line=10,col=5,title=unsafe/error::Unsafe block detected."
+            ),
+            "Should contain GitHub error annotation, got: {}",
+            report
+        );
+        assert!(
+            report.contains(
+                "::warning file=src/lib.rs,line=25,col=1,title=style/warning::Long line."
+            ),
+            "Should contain GitHub warning annotation, got: {}",
+            report
+        );
+        assert!(
+            report.contains("::notice title=Code Review Summary"),
+            "Should contain summary notice, got: {}",
+            report
+        );
     }
 
     #[test]
@@ -3269,17 +3720,15 @@ fn process() {
 
     #[test]
     fn test_generate_gitlab_ci_report_basic() {
-        let issues = vec![
-            ReviewIssue {
-                severity: Severity::Error,
-                check: "unsafe".to_string(),
-                file: "src/main.rs".to_string(),
-                line: 10,
-                column: 1,
-                message: "Unsafe block.".to_string(),
-                recommendation: Some("Fix it.".to_string()),
-            },
-        ];
+        let issues = vec![ReviewIssue {
+            severity: Severity::Error,
+            check: "unsafe".to_string(),
+            file: "src/main.rs".to_string(),
+            line: 10,
+            column: 1,
+            message: "Unsafe block.".to_string(),
+            recommendation: Some("Fix it.".to_string()),
+        }];
 
         let result = generate_gitlab_ci_report(&issues, 1, 0, 0).unwrap();
         let report = result["report"].as_array().unwrap();
@@ -3304,9 +3753,33 @@ fn process() {
     #[test]
     fn test_gitlab_ci_severity_mapping() {
         let issues = vec![
-            ReviewIssue { severity: Severity::Error, check: "err".to_string(), file: "a.rs".to_string(), line: 1, column: 1, message: "E".to_string(), recommendation: None },
-            ReviewIssue { severity: Severity::Warning, check: "warn".to_string(), file: "a.rs".to_string(), line: 2, column: 1, message: "W".to_string(), recommendation: None },
-            ReviewIssue { severity: Severity::Info, check: "info".to_string(), file: "a.rs".to_string(), line: 3, column: 1, message: "I".to_string(), recommendation: None },
+            ReviewIssue {
+                severity: Severity::Error,
+                check: "err".to_string(),
+                file: "a.rs".to_string(),
+                line: 1,
+                column: 1,
+                message: "E".to_string(),
+                recommendation: None,
+            },
+            ReviewIssue {
+                severity: Severity::Warning,
+                check: "warn".to_string(),
+                file: "a.rs".to_string(),
+                line: 2,
+                column: 1,
+                message: "W".to_string(),
+                recommendation: None,
+            },
+            ReviewIssue {
+                severity: Severity::Info,
+                check: "info".to_string(),
+                file: "a.rs".to_string(),
+                line: 3,
+                column: 1,
+                message: "I".to_string(),
+                recommendation: None,
+            },
         ];
 
         let result = generate_gitlab_ci_report(&issues, 1, 1, 1).unwrap();
@@ -3323,25 +3796,45 @@ fn process() {
     #[test]
     fn test_analyze_file_basic() {
         let checks = ActiveChecks::all();
-        let thresholds = Thresholds { max_fn_length: 100, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 100,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
 
         // Write a temporary Rust file to analyze
         let tmp = std::env::temp_dir().join("code_review_test_analyze_basic.rs");
-        std::fs::write(&tmp, r#"
+        std::fs::write(
+            &tmp,
+            r#"
 fn main() {
     let x = unsafe { 5 };
     unsafe fn bad() {}
     println!("hello");
     let _ = std::fs::read_to_string("/nonexistent");
 }
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let result = analyze_file(tmp.to_str().unwrap(), &checks, &thresholds, "info");
         assert!(result.is_some(), "analyze_file should return Some");
         let r = result.unwrap();
-        assert!(r.errors > 0 || r.warnings > 0, "Should find issues, got errors={}, warnings={}, info={}", r.errors, r.warnings, r.info);
-        assert!(r.issues.iter().any(|i| i.check == "unsafe"), "Should find unsafe issues");
-        assert!(r.issues.iter().any(|i| i.check == "debug"), "Should find println!/debug issues");
+        assert!(
+            r.errors > 0 || r.warnings > 0,
+            "Should find issues, got errors={}, warnings={}, info={}",
+            r.errors,
+            r.warnings,
+            r.info
+        );
+        assert!(
+            r.issues.iter().any(|i| i.check == "unsafe"),
+            "Should find unsafe issues"
+        );
+        assert!(
+            r.issues.iter().any(|i| i.check == "debug"),
+            "Should find println!/debug issues"
+        );
 
         // Clean up
         let _ = std::fs::remove_file(&tmp);
@@ -3350,23 +3843,41 @@ fn main() {
     #[test]
     fn test_analyze_file_io_error() {
         let checks = ActiveChecks::all();
-        let thresholds = Thresholds { max_fn_length: 100, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 100,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
 
         // Non-existent file
-        let result = analyze_file("/tmp/nonexistent_file_12345.rs", &checks, &thresholds, "info");
+        let result = analyze_file(
+            "/tmp/nonexistent_file_12345.rs",
+            &checks,
+            &thresholds,
+            "info",
+        );
         assert!(result.is_some(), "Should return Some even for I/O error");
         let r = result.unwrap();
-        assert!(r.issues.iter().any(|i| i.check == "io"), "Should produce an I/O error issue");
+        assert!(
+            r.issues.iter().any(|i| i.check == "io"),
+            "Should produce an I/O error issue"
+        );
         assert_eq!(r.errors, 1);
     }
 
     #[test]
     fn test_analyze_file_severity_filtering() {
         let checks = ActiveChecks::all();
-        let thresholds = Thresholds { max_fn_length: 100, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 100,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
 
         let tmp = std::env::temp_dir().join("code_review_test_severity.rs");
-        std::fs::write(&tmp, r#"
+        std::fs::write(
+            &tmp,
+            r#"
 pub fn ok_fn() {}
 
 /// docs
@@ -3375,18 +3886,30 @@ pub fn documented() {}
 // This triggers Error-level issues:
 unsafe trait BadTrait {}
 panic!("oh no");
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         // With "error" severity filter, only errors should pass
         let result = analyze_file(tmp.to_str().unwrap(), &checks, &thresholds, "error");
         assert!(result.is_some());
         let r = result.unwrap();
         // unsafe trait should be an Error severity issue
-        assert!(r.issues.iter().any(|i| i.severity == Severity::Error), "Should retain errors, got: {:?}", r.issues);
+        assert!(
+            r.issues.iter().any(|i| i.severity == Severity::Error),
+            "Should retain errors, got: {:?}",
+            r.issues
+        );
         // panic! should be an Error severity issue
-        assert!(r.issues.iter().any(|i| i.message.contains("panic!")), "Should flag panic! as error");
+        assert!(
+            r.issues.iter().any(|i| i.message.contains("panic!")),
+            "Should flag panic! as error"
+        );
         // Info/warning items should be filtered out
-        assert!(r.issues.iter().all(|i| i.severity == Severity::Error), "Only errors should remain");
+        assert!(
+            r.issues.iter().all(|i| i.severity == Severity::Error),
+            "Only errors should remain"
+        );
 
         let _ = std::fs::remove_file(&tmp);
     }
@@ -3399,7 +3922,10 @@ panic!("oh no");
     fn test_output_parameter_exists() {
         let tool = CodeReviewTool;
         let params = tool.parameters();
-        assert!(params.iter().any(|p| p.name == "output"), "Should have output parameter");
+        assert!(
+            params.iter().any(|p| p.name == "output"),
+            "Should have output parameter"
+        );
     }
 
     #[test]
@@ -3409,17 +3935,27 @@ panic!("oh no");
         let src_file = tmp_dir.join("code_review_test_output_src.rs");
         let out_file = tmp_dir.join("code_review_test_output_report.txt");
 
-        std::fs::write(&src_file, r#"
+        std::fs::write(
+            &src_file,
+            r#"
 fn main() {
     let x = unsafe { 42 };
     println!("x = {}", x);
 }
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         // Build params for execute
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
-        params.insert("output".to_string(), Value::String(out_file.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(src_file.to_str().unwrap().to_string()),
+        );
+        params.insert(
+            "output".to_string(),
+            Value::String(out_file.to_str().unwrap().to_string()),
+        );
         params.insert("format".to_string(), Value::String("text".to_string()));
 
         let tool = CodeReviewTool;
@@ -3427,14 +3963,29 @@ fn main() {
         let result = rt.block_on(tool.execute(&params)).unwrap();
 
         // Check that output_file is in the result
-        assert!(result.get("output_file").is_some(), "Result should contain output_file, got: {:?}", result);
-        assert!(result.get("output_saved").and_then(|v| v.as_bool()).unwrap_or(false),
-            "output_saved should be true");
+        assert!(
+            result.get("output_file").is_some(),
+            "Result should contain output_file, got: {:?}",
+            result
+        );
+        assert!(
+            result
+                .get("output_saved")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "output_saved should be true"
+        );
 
         // Check that the output file was actually written
         let saved_content = std::fs::read_to_string(&out_file).unwrap();
-        assert!(saved_content.contains("unsafe"), "Report should contain 'unsafe' issues");
-        assert!(saved_content.contains("CODE REVIEW REPORT"), "Report should have title");
+        assert!(
+            saved_content.contains("unsafe"),
+            "Report should contain 'unsafe' issues"
+        );
+        assert!(
+            saved_content.contains("CODE REVIEW REPORT"),
+            "Report should have title"
+        );
 
         // Clean up
         let _ = std::fs::remove_file(&src_file);
@@ -3450,21 +4001,38 @@ fn main() {
         std::fs::write(&src_file, "fn main() { unsafe { let _ = 42; } }\n").unwrap();
 
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
-        params.insert("output".to_string(), Value::String(out_file.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(src_file.to_str().unwrap().to_string()),
+        );
+        params.insert(
+            "output".to_string(),
+            Value::String(out_file.to_str().unwrap().to_string()),
+        );
 
         let tool = CodeReviewTool;
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(&params)).unwrap();
 
-        assert!(result.get("output_file").is_some(), "Result should contain output_file");
-        assert!(result.get("output_saved").and_then(|v| v.as_bool()).unwrap_or(false),
-            "output_saved should be true");
+        assert!(
+            result.get("output_file").is_some(),
+            "Result should contain output_file"
+        );
+        assert!(
+            result
+                .get("output_saved")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "output_saved should be true"
+        );
 
         // Verify JSON was written (output file extension .json should trigger JSON format)
         let saved = std::fs::read_to_string(&out_file).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&saved).unwrap();
-        assert!(parsed.get("issues").is_some(), "JSON report should have 'issues' field");
+        assert!(
+            parsed.get("issues").is_some(),
+            "JSON report should have 'issues' field"
+        );
 
         let _ = std::fs::remove_file(&src_file);
         let _ = std::fs::remove_file(&out_file);
@@ -3479,17 +4047,29 @@ fn main() {
         std::fs::write(&src_file, "fn main() {}\n").unwrap();
 
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
-        params.insert("output".to_string(), Value::String("/nonexistent_dir_xyz/report.txt".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(src_file.to_str().unwrap().to_string()),
+        );
+        params.insert(
+            "output".to_string(),
+            Value::String("/nonexistent_dir_xyz/report.txt".to_string()),
+        );
 
         let tool = CodeReviewTool;
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(&params)).unwrap();
 
         // Should have an output_error field but still succeed with report
-        assert!(result.get("output_error").is_some(), "Should have output_error for invalid path");
+        assert!(
+            result.get("output_error").is_some(),
+            "Should have output_error for invalid path"
+        );
         let err_msg = result["output_error"].as_str().unwrap();
-        assert!(err_msg.contains("Failed to write"), "Error should mention failure");
+        assert!(
+            err_msg.contains("Failed to write"),
+            "Error should mention failure"
+        );
 
         // Clean up
         let _ = std::fs::remove_file(&src_file);
@@ -3503,7 +4083,10 @@ fn main() {
     fn test_progress_parameter_exists() {
         let tool = CodeReviewTool;
         let params = tool.parameters();
-        assert!(params.iter().any(|p| p.name == "progress"), "Should have progress parameter");
+        assert!(
+            params.iter().any(|p| p.name == "progress"),
+            "Should have progress parameter"
+        );
     }
 
     #[test]
@@ -3513,7 +4096,10 @@ fn main() {
         std::fs::write(&src_file, "fn main() { let x = unsafe { 42 }; }\n").unwrap();
 
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(src_file.to_str().unwrap().to_string()),
+        );
         params.insert("progress".to_string(), Value::Bool(true));
         params.insert("parallel".to_string(), Value::Bool(false)); // sequential for deterministic test
 
@@ -3522,7 +4108,10 @@ fn main() {
         let result = rt.block_on(tool.execute(&params)).unwrap();
 
         // Check progress field in result
-        assert!(result.get("progress").is_some(), "Result should contain progress field");
+        assert!(
+            result.get("progress").is_some(),
+            "Result should contain progress field"
+        );
         let progress = &result["progress"];
         assert_eq!(progress["mode"], "sequential", "Mode should be sequential");
         assert_eq!(progress["total_files"], 1, "Should have 1 file");
@@ -3537,7 +4126,10 @@ fn main() {
         std::fs::write(&src_file, "fn main() {}\n").unwrap();
 
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(src_file.to_str().unwrap().to_string()),
+        );
         params.insert("progress".to_string(), Value::Bool(false));
 
         let tool = CodeReviewTool;
@@ -3545,7 +4137,10 @@ fn main() {
         let result = rt.block_on(tool.execute(&params)).unwrap();
 
         // Should NOT have progress field
-        assert!(result.get("progress").is_none(), "Should not contain progress field when disabled");
+        assert!(
+            result.get("progress").is_none(),
+            "Should not contain progress field when disabled"
+        );
 
         let _ = std::fs::remove_file(&src_file);
     }
@@ -3559,7 +4154,10 @@ fn main() {
         std::fs::write(&src_file2, "fn main() { let y = Some(5).unwrap(); }\n").unwrap();
 
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(tmp_dir.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(tmp_dir.to_str().unwrap().to_string()),
+        );
         params.insert("progress".to_string(), Value::Bool(true));
         params.insert("parallel".to_string(), Value::Bool(true));
 
@@ -3568,10 +4166,16 @@ fn main() {
         let result = rt.block_on(tool.execute(&params)).unwrap();
 
         // Check progress field for parallel mode
-        assert!(result.get("progress").is_some(), "Result should contain progress field in parallel mode");
+        assert!(
+            result.get("progress").is_some(),
+            "Result should contain progress field in parallel mode"
+        );
         let progress = &result["progress"];
         assert_eq!(progress["mode"], "parallel", "Mode should be parallel");
-        assert!(progress["total_files"].as_u64().unwrap_or(0) >= 2, "Should have at least 2 files");
+        assert!(
+            progress["total_files"].as_u64().unwrap_or(0) >= 2,
+            "Should have at least 2 files"
+        );
 
         let _ = std::fs::remove_file(&src_file1);
         let _ = std::fs::remove_file(&src_file2);
@@ -3585,16 +4189,25 @@ fn main() {
     fn test_git_diff_parameter_exists() {
         let tool = CodeReviewTool;
         let params = tool.parameters();
-        assert!(params.iter().any(|p| p.name == "git_diff"), "Should have git_diff parameter");
+        assert!(
+            params.iter().any(|p| p.name == "git_diff"),
+            "Should have git_diff parameter"
+        );
     }
 
     #[test]
     fn test_get_git_diff_files_returns_vec() {
         let result = get_git_diff_files();
         // Should return a Result (may error if not in git repo, or succeed with vec)
-        assert!(result.is_ok() || result.is_err(), "get_git_diff_files should return a Result");
+        assert!(
+            result.is_ok() || result.is_err(),
+            "get_git_diff_files should return a Result"
+        );
         if let Ok(files) = result {
-            assert!(files.iter().all(|f| f.ends_with(".rs")), "All files should be .rs files");
+            assert!(
+                files.iter().all(|f| f.ends_with(".rs")),
+                "All files should be .rs files"
+            );
         }
     }
 
@@ -3605,7 +4218,10 @@ fn main() {
         std::fs::write(&src_file, "fn main() {}\\n").unwrap();
 
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String(src_file.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(src_file.to_str().unwrap().to_string()),
+        );
         params.insert("git_diff".to_string(), Value::Bool(true));
 
         let tool = CodeReviewTool;
@@ -3619,7 +4235,10 @@ fn main() {
     #[test]
     fn test_git_diff_marker_in_result() {
         let mut params = std::collections::HashMap::new();
-        params.insert("path".to_string(), Value::String("src/tools/builtin/code_review.rs".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("src/tools/builtin/code_review.rs".to_string()),
+        );
         params.insert("git_diff".to_string(), Value::Bool(true));
         params.insert("progress".to_string(), Value::Bool(false));
 
@@ -3627,7 +4246,11 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(tool.execute(&params)).unwrap();
         // git_diff field should be present, status should be ok
-        if result.get("git_diff").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if result
+            .get("git_diff")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             assert!(result["git_diff"].as_bool().unwrap_or(false));
         }
         assert_eq!(result["status"], "ok", "Should succeed");

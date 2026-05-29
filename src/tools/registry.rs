@@ -167,9 +167,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Tool for TestTool {
-        fn name(&self) -> &str { "test" }
-        fn description(&self) -> &str { "A test tool" }
-        fn parameters(&self) -> Vec<ToolParameter> { vec![] }
+        fn name(&self) -> &str {
+            "test"
+        }
+        fn description(&self) -> &str {
+            "A test tool"
+        }
+        fn parameters(&self) -> Vec<ToolParameter> {
+            vec![]
+        }
         async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
             Ok(serde_json::json!({ "ok": true }))
         }
@@ -217,9 +223,15 @@ mod tests {
 
         #[async_trait::async_trait]
         impl Tool for ToolA {
-            fn name(&self) -> &str { "dup" }
-            fn description(&self) -> &str { "version A" }
-            fn parameters(&self) -> Vec<ToolParameter> { vec![] }
+            fn name(&self) -> &str {
+                "dup"
+            }
+            fn description(&self) -> &str {
+                "version A"
+            }
+            fn parameters(&self) -> Vec<ToolParameter> {
+                vec![]
+            }
             async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
                 Ok(serde_json::json!({ "version": "A" }))
             }
@@ -227,9 +239,15 @@ mod tests {
 
         #[async_trait::async_trait]
         impl Tool for ToolB {
-            fn name(&self) -> &str { "dup" }
-            fn description(&self) -> &str { "version B" }
-            fn parameters(&self) -> Vec<ToolParameter> { vec![] }
+            fn name(&self) -> &str {
+                "dup"
+            }
+            fn description(&self) -> &str {
+                "version B"
+            }
+            fn parameters(&self) -> Vec<ToolParameter> {
+                vec![]
+            }
             async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
                 Ok(serde_json::json!({ "version": "B" }))
             }

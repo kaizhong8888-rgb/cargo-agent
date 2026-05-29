@@ -22,7 +22,11 @@ use regex::Regex;
 pub fn expand_env_vars(s: &str) -> String {
     let re = Regex::new(r"\$\{(\w+)\}|\$(\w+)").expect("invalid regex: env var pattern");
     re.replace_all(s, |caps: &regex::Captures| {
-        let key = caps.get(1).or_else(|| caps.get(2)).map(|m| m.as_str()).unwrap_or("");
+        let key = caps
+            .get(1)
+            .or_else(|| caps.get(2))
+            .map(|m| m.as_str())
+            .unwrap_or("");
         std::env::var(key).unwrap_or_else(|_| format!("${{{}}}", key))
     })
     .to_string()

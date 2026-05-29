@@ -65,8 +65,9 @@ impl Tool for DataProcessorTool {
             ToolParameter {
                 name: "format".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Data format: 'csv' or 'json' (default: auto-detect from extension or content)"
-                    .to_string(),
+                description:
+                    "Data format: 'csv' or 'json' (default: auto-detect from extension or content)"
+                        .to_string(),
                 required: false,
             },
             ToolParameter {
@@ -78,15 +79,17 @@ impl Tool for DataProcessorTool {
             ToolParameter {
                 name: "columns".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Comma-separated column names for select/rename operations".to_string(),
+                description: "Comma-separated column names for select/rename operations"
+                    .to_string(),
                 required: false,
             },
             ToolParameter {
                 name: "condition".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Filter condition (e.g. 'age > 25', 'name == Alice', 'city contains York'). \
+                description:
+                    "Filter condition (e.g. 'age > 25', 'name == Alice', 'city contains York'). \
                               Operators: ==, !=, >, >=, <, <=, contains, startswith, endswith"
-                    .to_string(),
+                        .to_string(),
                 required: false,
             },
             ToolParameter {
@@ -135,7 +138,8 @@ impl Tool for DataProcessorTool {
             ToolParameter {
                 name: "how".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Join type: inner, left, outer (default: inner, for merge)".to_string(),
+                description: "Join type: inner, left, outer (default: inner, for merge)"
+                    .to_string(),
                 required: false,
             },
             ToolParameter {
@@ -154,18 +158,18 @@ impl Tool for DataProcessorTool {
                 name: "expression".to_string(),
                 parameter_type: "string".to_string(),
                 description: "Expression for computed column (e.g. 'price * qty' for add_column). \
-                              Supports: +, -, *, /, () on numeric columns".to_string(),
+                              Supports: +, -, *, /, () on numeric columns"
+                    .to_string(),
                 required: false,
             },
         ]
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let action = params
-            .get("action")
-            .and_then(|v| v.as_str())
-            .ok_or("action is required (parse, filter, select, sort, aggregate, stats, merge, \
-                    convert, head, tail, unique, rename, add_column, info, describe)")?;
+        let action = params.get("action").and_then(|v| v.as_str()).ok_or(
+            "action is required (parse, filter, select, sort, aggregate, stats, merge, \
+                    convert, head, tail, unique, rename, add_column, info, describe)",
+        )?;
 
         match action {
             "parse" => cmd_parse(params),
@@ -183,9 +187,11 @@ impl Tool for DataProcessorTool {
             "add_column" => cmd_add_column(params),
             "info" => cmd_info(params),
             "describe" => cmd_describe(params),
-            _ => Err(format!("Unknown action: {action}. Available: parse, filter, select, sort, \
+            _ => Err(format!(
+                "Unknown action: {action}. Available: parse, filter, select, sort, \
                               aggregate, stats, merge, convert, head, tail, unique, rename, \
-                              add_column, info, describe")),
+                              add_column, info, describe"
+            )),
         }
     }
 }
@@ -195,14 +201,13 @@ impl Tool for DataProcessorTool {
 // ---------------------------------------------------------------------------
 
 /// Load data from params — either from a `file` or inline `data` parameter.
-fn load_data(params: &HashMap<String, Value>) -> Result<(Vec<HashMap<String, Value>>, String), String> {
+fn load_data(
+    params: &HashMap<String, Value>,
+) -> Result<(Vec<HashMap<String, Value>>, String), String> {
     if let Some(file_path) = params.get("file").and_then(|v| v.as_str()) {
         let content = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read file '{}': {e}", file_path))?;
-        let fmt = params
-            .get("format")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let fmt = params.get("format").and_then(|v| v.as_str()).unwrap_or("");
         let format = if fmt.is_empty() {
             detect_format_from_path(file_path, &content)
         } else {
@@ -210,10 +215,7 @@ fn load_data(params: &HashMap<String, Value>) -> Result<(Vec<HashMap<String, Val
         };
         parse_content(&content, &format)
     } else if let Some(data_str) = params.get("data").and_then(|v| v.as_str()) {
-        let fmt = params
-            .get("format")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let fmt = params.get("format").and_then(|v| v.as_str()).unwrap_or("");
         let format = if fmt.is_empty() {
             detect_format("inline", data_str)
         } else {
@@ -250,7 +252,10 @@ fn detect_format(_name: &str, content: &str) -> String {
 }
 
 /// Parse content string into rows of key-value maps.
-fn parse_content(content: &str, format: &str) -> Result<(Vec<HashMap<String, Value>>, String), String> {
+fn parse_content(
+    content: &str,
+    format: &str,
+) -> Result<(Vec<HashMap<String, Value>>, String), String> {
     match format {
         "csv" => parse_csv(content),
         "json" => parse_json(content),
@@ -276,7 +281,7 @@ fn parse_csv(content: &str) -> Result<(Vec<HashMap<String, Value>>, String), Str
         return Err("CSV has no headers".to_string());
     }
 
-    let mut rows = Vec::new();
+    let mut rows = Vec::with_capacity(content.lines().count().saturating_sub(1));
     for (i, result) in reader.records().enumerate() {
         let record = result.map_err(|e| format!("CSV row {}: {e}", i + 2))?;
         let mut row = HashMap::new();
@@ -301,9 +306,7 @@ fn parse_json(content: &str) -> Result<(Vec<HashMap<String, Value>>, String), St
             let rows: Vec<HashMap<String, Value>> = arr
                 .into_iter()
                 .map(|item| match item {
-                    Value::Object(map) => Ok(map
-                        .into_iter()
-                        .collect::<HashMap<String, Value>>()),
+                    Value::Object(map) => Ok(map.into_iter().collect::<HashMap<String, Value>>()),
                     other => Ok({
                         let mut m = HashMap::new();
                         m.insert("value".to_string(), other);
@@ -319,7 +322,7 @@ fn parse_json(content: &str) -> Result<(Vec<HashMap<String, Value>>, String), St
         }
         Value::Object(map) => {
             // Single object -> wrap as single-row array
-            let mut rows = Vec::new();
+            let mut rows = Vec::with_capacity(1);
             let row: HashMap<String, Value> = map.into_iter().collect();
             rows.push(row);
             Ok((rows, "json".to_string()))
@@ -361,10 +364,8 @@ fn rows_to_json(rows: &[HashMap<String, Value>]) -> Value {
     Value::Array(
         rows.iter()
             .map(|row| {
-                let map: serde_json::Map<String, Value> = row
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
+                let map: serde_json::Map<String, Value> =
+                    row.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 Value::Object(map)
             })
             .collect(),
@@ -395,7 +396,9 @@ fn get_string(row: &HashMap<String, Value>, column: &str) -> String {
 
 /// Collect all column names across all rows (preserving order).
 fn collect_columns(rows: &[HashMap<String, Value>]) -> Vec<String> {
-    let mut seen = Vec::new();
+    let mut seen = Vec::with_capacity(
+        rows.first().map(|r| r.len()).unwrap_or(0),
+    );
     for row in rows {
         for key in row.keys() {
             if !seen.contains(key) {
@@ -466,7 +469,7 @@ fn cmd_select(params: &HashMap<String, Value>) -> Result<Value, String> {
         .ok_or("columns is required (comma-separated)")?;
 
     let selected_cols: Vec<&str> = cols_str.split(',').map(|s| s.trim()).collect();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(rows.len());
 
     for row in &rows {
         let mut new_row = HashMap::new();
@@ -504,10 +507,7 @@ fn cmd_sort(params: &HashMap<String, Value>) -> Result<Value, String> {
     let descending = order == "desc";
 
     // Try numeric sort first, fall back to string sort
-    let all_numeric = rows
-        .iter()
-        .filter_map(|r| get_numeric(r, column))
-        .count()
+    let all_numeric = rows.iter().filter_map(|r| get_numeric(r, column)).count()
         == rows.iter().filter(|r| r.contains_key(column)).count();
 
     if all_numeric && !rows.is_empty() {
@@ -555,27 +555,23 @@ fn cmd_aggregate(params: &HashMap<String, Value>) -> Result<Value, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("count");
 
-    let agg_col = params
-        .get("aggregate_column")
-        .and_then(|v| v.as_str());
+    let agg_col = params.get("aggregate_column").and_then(|v| v.as_str());
 
-    let mut groups: HashMap<String, Vec<&HashMap<String, Value>>> = HashMap::new();
+    let mut groups: HashMap<String, Vec<&HashMap<String, Value>>> =
+        HashMap::with_capacity(rows.len().min(64));
     for row in &rows {
         let key = get_string(row, group_by);
         groups.entry(key).or_default().push(row);
     }
 
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(groups.len());
     for (key, group) in &groups {
         let mut result = serde_json::Map::new();
         result.insert(group_by.to_string(), json!(key));
         result.insert("count".to_string(), json!(group.len()));
 
         if let Some(ac) = agg_col {
-            let vals: Vec<f64> = group
-                .iter()
-                .filter_map(|r| get_numeric(r, ac))
-                .collect();
+            let vals: Vec<f64> = group.iter().filter_map(|r| get_numeric(r, ac)).collect();
             let agg_value: Value = match agg_func {
                 "sum" => json!(vals.iter().sum::<f64>()),
                 "avg" | "mean" => {
@@ -759,7 +755,9 @@ fn cmd_merge(params: &HashMap<String, Value>) -> Result<Value, String> {
         let fmt = detect_format("data2", d2);
         parse_content(d2, &fmt).map(|(r, _)| r)?
     } else {
-        return Err("merge requires 'file2' or 'data2' parameter for the second dataset".to_string());
+        return Err(
+            "merge requires 'file2' or 'data2' parameter for the second dataset".to_string(),
+        );
     };
 
     let on = params
@@ -773,7 +771,8 @@ fn cmd_merge(params: &HashMap<String, Value>) -> Result<Value, String> {
         .unwrap_or("inner");
 
     // Build lookup from second dataset
-    let mut lookup: HashMap<String, Vec<&HashMap<String, Value>>> = HashMap::new();
+    let mut lookup: HashMap<String, Vec<&HashMap<String, Value>>> =
+        HashMap::with_capacity(rows2.len().min(256));
     for row in &rows2 {
         let key = get_string(row, on);
         lookup.entry(key).or_default().push(row);
@@ -782,7 +781,7 @@ fn cmd_merge(params: &HashMap<String, Value>) -> Result<Value, String> {
     let _left_keys: std::collections::HashSet<String> =
         rows2.iter().map(|r| get_string(r, on)).collect();
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(rows1.len());
     let mut matched_right = std::collections::HashSet::new();
 
     for row1 in &rows1 {
@@ -880,15 +879,17 @@ fn cmd_convert(params: &HashMap<String, Value>) -> Result<Value, String> {
 /// Head or tail of dataset.
 fn cmd_head_tail(params: &HashMap<String, Value>, is_head: bool) -> Result<Value, String> {
     let (rows, _) = load_data(params)?;
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
     let selected: Vec<HashMap<String, Value>> = if is_head {
         rows.iter().take(limit).cloned().collect()
     } else {
-        rows.iter().rev().take(limit).rev().cloned().collect()
+        let take = limit.min(rows.len());
+        let mut selected = Vec::with_capacity(take);
+        for row in rows.iter().rev().take(take).rev() {
+            selected.push(row.clone());
+        }
+        selected
     };
 
     Ok(json!({
@@ -921,7 +922,7 @@ fn cmd_unique(params: &HashMap<String, Value>) -> Result<Value, String> {
     values.dedup_by(|a, b| format!("{a}") == format!("{b}"));
 
     // Count occurrences
-    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut counts: HashMap<String, usize> = HashMap::with_capacity(rows.len().min(256));
     for row in &rows {
         let val = get_string(row, column);
         *counts.entry(val).or_insert(0) += 1;
@@ -1005,7 +1006,7 @@ fn cmd_add_column(params: &HashMap<String, Value>) -> Result<Value, String> {
         .and_then(|v| v.as_str())
         .ok_or("expression is required (e.g. 'price * qty')")?;
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(rows.len());
     for row in &rows {
         let mut new_row = row.clone();
         let computed = eval_expression(row, expression);
@@ -1056,7 +1057,7 @@ enum Token {
 }
 
 fn tokenize(input: &str) -> Vec<Token> {
-    let mut tokens = Vec::new();
+    let mut tokens = Vec::with_capacity(input.len() / 2 + 1);
     let mut chars = input.chars().peekable();
 
     while let Some(&ch) = chars.peek() {
@@ -1193,22 +1194,29 @@ fn cmd_info(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (rows, format) = load_data(params)?;
     let cols = collect_columns(&rows);
 
-    let mut col_info: Vec<Value> = Vec::new();
+    let mut col_info: Vec<Value> = Vec::with_capacity(cols.len());
     for col in &cols {
         let non_null = rows.iter().filter(|r| r.contains_key(col)).count();
-        let numeric_count = rows.iter().filter(|r| get_numeric(r, col).is_some()).count();
-        let string_count = rows.iter().filter(|r| {
-            r.get(col)
-                .map(|v| matches!(v, Value::String(_)))
-                .unwrap_or(false)
-        })
-        .count();
-        let bool_count = rows.iter().filter(|r| {
-            r.get(col)
-                .map(|v| matches!(v, Value::Bool(_)))
-                .unwrap_or(false)
-        })
-        .count();
+        let numeric_count = rows
+            .iter()
+            .filter(|r| get_numeric(r, col).is_some())
+            .count();
+        let string_count = rows
+            .iter()
+            .filter(|r| {
+                r.get(col)
+                    .map(|v| matches!(v, Value::String(_)))
+                    .unwrap_or(false)
+            })
+            .count();
+        let bool_count = rows
+            .iter()
+            .filter(|r| {
+                r.get(col)
+                    .map(|v| matches!(v, Value::Bool(_)))
+                    .unwrap_or(false)
+            })
+            .count();
         let null_count = rows.len() - non_null;
 
         let inferred_type = if numeric_count == non_null && non_null > 0 {
@@ -1244,14 +1252,18 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (rows, format) = load_data(params)?;
     let cols = collect_columns(&rows);
 
-    let mut descriptions = Vec::new();
+    let mut descriptions = Vec::with_capacity(cols.len());
     for col in &cols {
         let numeric_vals: Vec<f64> = rows.iter().filter_map(|r| get_numeric(r, col)).collect();
         let string_vals: Vec<String> = rows
             .iter()
             .filter_map(|r| {
                 let s = get_string(r, col);
-                if s.is_empty() { None } else { Some(s) }
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
             })
             .collect();
 
@@ -1259,7 +1271,10 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
             let sum: f64 = numeric_vals.iter().sum();
             let mean = sum / numeric_vals.len() as f64;
             let min = numeric_vals.iter().cloned().fold(f64::MAX, f64::min);
-            let max = numeric_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let max = numeric_vals
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
 
             descriptions.push(json!({
                 "column": col,
@@ -1278,10 +1293,7 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
             uniq.dedup();
 
             let most_common_val = uniq.first().copied().unwrap_or("");
-            let most_common_count = string_vals
-                .iter()
-                .filter(|s| *s == most_common_val)
-                .count();
+            let most_common_count = string_vals.iter().filter(|s| *s == most_common_val).count();
 
             descriptions.push(json!({
                 "column": col,
@@ -1328,10 +1340,7 @@ fn save_data(rows: &[HashMap<String, Value>], path: &str, format: &str) -> Resul
                 .map_err(|e| format!("Failed to write CSV header: {e}"))?;
 
             for row in rows {
-                let values: Vec<String> = cols
-                    .iter()
-                    .map(|c| get_string(row, c))
-                    .collect();
+                let values: Vec<String> = cols.iter().map(|c| get_string(row, c)).collect();
                 wtr.write_record(&values)
                     .map_err(|e| format!("Failed to write CSV row: {e}"))?;
             }
@@ -1343,8 +1352,7 @@ fn save_data(rows: &[HashMap<String, Value>], path: &str, format: &str) -> Resul
             let json = rows_to_json(rows);
             let content = serde_json::to_string_pretty(&json)
                 .map_err(|e| format!("Failed to serialize JSON: {e}"))?;
-            std::fs::write(path, content)
-                .map_err(|e| format!("Failed to write JSON file: {e}"))?;
+            std::fs::write(path, content).map_err(|e| format!("Failed to write JSON file: {e}"))?;
         }
         other => return Err(format!("Unsupported output format: {other}")),
     }
@@ -1353,13 +1361,15 @@ fn save_data(rows: &[HashMap<String, Value>], path: &str, format: &str) -> Resul
 
 /// Build a preview string showing first N rows.
 fn build_preview(rows: &[HashMap<String, Value>], n: usize) -> Value {
-    let preview_rows: Vec<Value> = rows.iter().take(n).map(|row| {
-        let map: serde_json::Map<String, Value> = row
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        Value::Object(map)
-    }).collect();
+    let preview_rows: Vec<Value> = rows
+        .iter()
+        .take(n)
+        .map(|row| {
+            let map: serde_json::Map<String, Value> =
+                row.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            Value::Object(map)
+        })
+        .collect();
 
     json!({
         "rows_shown": preview_rows.len().min(rows.len()),
@@ -1376,7 +1386,17 @@ fn filter_rows(
     let condition = condition.trim();
 
     // Parse condition: "column operator value"
-    let operators = [">=", "<=", "!=", "==", ">", "<", " contains ", " startswith ", " endswith "];
+    let operators = [
+        ">=",
+        "<=",
+        "!=",
+        "==",
+        ">",
+        "<",
+        " contains ",
+        " startswith ",
+        " endswith ",
+    ];
 
     let mut matched_op: Option<(&str, &str, &str)> = None;
 
@@ -1394,7 +1414,8 @@ fn filter_rows(
         .ok_or_else(|| format!("Could not parse condition: '{condition}'. Use format: 'column op value' \
                                 where op is one of: ==, !=, >, >=, <, <=, contains, startswith, endswith"))?;
 
-    let is_numeric_compare = value.parse::<f64>().is_ok() || rows.iter().any(|r| get_numeric(r, column).is_some());
+    let is_numeric_compare =
+        value.parse::<f64>().is_ok() || rows.iter().any(|r| get_numeric(r, column).is_some());
     let cmp_value = value.parse::<f64>().ok();
 
     let filtered: Vec<HashMap<String, Value>> = rows
@@ -1430,9 +1451,15 @@ fn filter_rows(
                     get_string(row, column).as_str() <= value
                 }
             }
-            "contains" => get_string(row, column).to_lowercase().contains(&value.to_lowercase()),
-            "startswith" => get_string(row, column).to_lowercase().starts_with(&value.to_lowercase()),
-            "endswith" => get_string(row, column).to_lowercase().ends_with(&value.to_lowercase()),
+            "contains" => get_string(row, column)
+                .to_lowercase()
+                .contains(&value.to_lowercase()),
+            "startswith" => get_string(row, column)
+                .to_lowercase()
+                .starts_with(&value.to_lowercase()),
+            "endswith" => get_string(row, column)
+                .to_lowercase()
+                .ends_with(&value.to_lowercase()),
             _ => false,
         })
         .cloned()
@@ -1562,7 +1589,10 @@ mod tests {
             map!["value" => json!(50)],
         ];
 
-        let values: Vec<f64> = rows.iter().filter_map(|r| get_numeric(r, "value")).collect();
+        let values: Vec<f64> = rows
+            .iter()
+            .filter_map(|r| get_numeric(r, "value"))
+            .collect();
         assert_eq!(values.len(), 5);
 
         let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
@@ -1612,9 +1642,7 @@ mod tests {
 
     #[test]
     fn test_rename_columns() {
-        let rows = vec![
-            map!["old_name" => json!("Alice"), "old_age" => json!(30)],
-        ];
+        let rows = vec![map!["old_name" => json!("Alice"), "old_age" => json!(30)]];
 
         let mut rename_map = HashMap::new();
         rename_map.insert("old_name".to_string(), "name".to_string());

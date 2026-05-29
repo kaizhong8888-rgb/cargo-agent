@@ -16,7 +16,9 @@ pub struct GitStatusTool;
 
 #[async_trait::async_trait]
 impl Tool for GitStatusTool {
-    fn name(&self) -> &str { "git_status" }
+    fn name(&self) -> &str {
+        "git_status"
+    }
 
     fn description(&self) -> &str {
         "Show the working tree status of a Git repository. Lists modified, staged, and untracked files."
@@ -37,17 +39,16 @@ impl Tool for GitStatusTool {
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
-        run_git_cmd_with_output(repo_path, &["status", "--short", "--branch"])
-            .map(|output| {
-                let (branch, changes) = parse_status_output(&output);
-                serde_json::json!({
-                    "status": "ok",
-                    "repo": repo_path,
-                    "branch": branch,
-                    "changes": changes,
-                    "raw": output,
-                })
+        run_git_cmd_with_output(repo_path, &["status", "--short", "--branch"]).map(|output| {
+            let (branch, changes) = parse_status_output(&output);
+            serde_json::json!({
+                "status": "ok",
+                "repo": repo_path,
+                "branch": branch,
+                "changes": changes,
+                "raw": output,
             })
+        })
     }
 }
 
@@ -76,7 +77,9 @@ pub struct GitDiffTool;
 
 #[async_trait::async_trait]
 impl Tool for GitDiffTool {
-    fn name(&self) -> &str { "git_diff" }
+    fn name(&self) -> &str {
+        "git_diff"
+    }
 
     fn description(&self) -> &str {
         "Show changes between commits, commit and working tree, or a branch and working tree."
@@ -117,7 +120,10 @@ impl Tool for GitDiffTool {
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
-        let stat = params.get("stat").and_then(|v| v.as_bool()).unwrap_or(false);
+        let stat = params
+            .get("stat")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let target = params.get("target").and_then(|v| v.as_str());
         let file_path = params.get("file_path").and_then(|v| v.as_str());
 
@@ -138,15 +144,14 @@ impl Tool for GitDiffTool {
         }
 
         let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        run_git_cmd_with_output(repo_path, &str_args)
-            .map(|output| {
-                serde_json::json!({
-                    "status": "ok",
-                    "repo": repo_path,
-                    "target": target.unwrap_or("working tree"),
-                    "diff": output,
-                })
+        run_git_cmd_with_output(repo_path, &str_args).map(|output| {
+            serde_json::json!({
+                "status": "ok",
+                "repo": repo_path,
+                "target": target.unwrap_or("working tree"),
+                "diff": output,
             })
+        })
     }
 }
 
@@ -158,7 +163,9 @@ pub struct GitLogTool;
 
 #[async_trait::async_trait]
 impl Tool for GitLogTool {
-    fn name(&self) -> &str { "git_log" }
+    fn name(&self) -> &str {
+        "git_log"
+    }
 
     fn description(&self) -> &str {
         "Show commit history. Supports filtering by author, date range, and file path."
@@ -229,33 +236,32 @@ impl Tool for GitLogTool {
             args.iter().map(|s| s.as_str()).collect()
         };
 
-        run_git_cmd_with_output(repo_path, &str_args)
-            .map(|output| {
-                let commits: Vec<Value> = output
-                    .lines()
-                    .filter(|l| !l.trim().is_empty())
-                    .map(|line| {
-                        let parts: Vec<&str> = line.splitn(4, " | ").collect();
-                        if parts.len() == 4 {
-                            serde_json::json!({
-                                "hash": parts[0].trim(),
-                                "date": parts[1].trim(),
-                                "subject": parts[2].trim(),
-                                "author": parts[3].trim(),
-                            })
-                        } else {
-                            serde_json::json!({ "raw": line })
-                        }
-                    })
-                    .collect();
-
-                serde_json::json!({
-                    "status": "ok",
-                    "repo": repo_path,
-                    "commits": commits,
-                    "count": commits.len(),
+        run_git_cmd_with_output(repo_path, &str_args).map(|output| {
+            let commits: Vec<Value> = output
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|line| {
+                    let parts: Vec<&str> = line.splitn(4, " | ").collect();
+                    if parts.len() == 4 {
+                        serde_json::json!({
+                            "hash": parts[0].trim(),
+                            "date": parts[1].trim(),
+                            "subject": parts[2].trim(),
+                            "author": parts[3].trim(),
+                        })
+                    } else {
+                        serde_json::json!({ "raw": line })
+                    }
                 })
+                .collect();
+
+            serde_json::json!({
+                "status": "ok",
+                "repo": repo_path,
+                "commits": commits,
+                "count": commits.len(),
             })
+        })
     }
 }
 
@@ -267,7 +273,9 @@ pub struct GitCloneTool;
 
 #[async_trait::async_trait]
 impl Tool for GitCloneTool {
-    fn name(&self) -> &str { "git_clone" }
+    fn name(&self) -> &str {
+        "git_clone"
+    }
 
     fn description(&self) -> &str {
         "Clone a Git repository to a local directory."
@@ -289,13 +297,15 @@ impl Tool for GitCloneTool {
             },
             ToolParameter {
                 name: "branch".to_string(),
-                description: "Specific branch to clone (default: repository default branch)".to_string(),
+                description: "Specific branch to clone (default: repository default branch)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "depth".to_string(),
-                description: "Create a shallow clone with history truncated to N commits".to_string(),
+                description: "Create a shallow clone with history truncated to N commits"
+                    .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -327,19 +337,20 @@ impl Tool for GitCloneTool {
         }
 
         let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        run_git_cmd_no_cwd(".", &str_args)
-            .map(|output| {
-                let dir_name = target_dir.unwrap_or_else(|| {
-                    url.split('/').next_back().unwrap_or("repo")
-                        .trim_end_matches(".git")
-                });
-                serde_json::json!({
-                    "status": "ok",
-                    "url": url,
-                    "directory": dir_name,
-                    "output": output,
-                })
+        run_git_cmd_no_cwd(".", &str_args).map(|output| {
+            let dir_name = target_dir.unwrap_or_else(|| {
+                url.split('/')
+                    .next_back()
+                    .unwrap_or("repo")
+                    .trim_end_matches(".git")
+            });
+            serde_json::json!({
+                "status": "ok",
+                "url": url,
+                "directory": dir_name,
+                "output": output,
             })
+        })
     }
 }
 
@@ -351,7 +362,9 @@ pub struct GitCommitTool;
 
 #[async_trait::async_trait]
 impl Tool for GitCommitTool {
-    fn name(&self) -> &str { "git_commit" }
+    fn name(&self) -> &str {
+        "git_commit"
+    }
 
     fn description(&self) -> &str {
         "Stage files and create a Git commit. Optionally pushes to remote after committing."
@@ -367,13 +380,17 @@ impl Tool for GitCommitTool {
             },
             ToolParameter {
                 name: "message".to_string(),
-                description: "Commit message (conventional commit format recommended: 'type: description')".to_string(),
+                description:
+                    "Commit message (conventional commit format recommended: 'type: description')"
+                        .to_string(),
                 required: true,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "files".to_string(),
-                description: "Specific files to stage (JSON array). If omitted, stages all changes.".to_string(),
+                description:
+                    "Specific files to stage (JSON array). If omitted, stages all changes."
+                        .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -397,7 +414,10 @@ impl Tool for GitCommitTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: message")?;
 
-        let do_push = params.get("push").and_then(|v| v.as_bool()).unwrap_or(false);
+        let do_push = params
+            .get("push")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // Stage files
         let stage_result = if let Some(files_str) = params.get("files").and_then(|v| v.as_str()) {
@@ -457,7 +477,9 @@ pub struct GitPushTool;
 
 #[async_trait::async_trait]
 impl Tool for GitPushTool {
-    fn name(&self) -> &str { "git_push" }
+    fn name(&self) -> &str {
+        "git_push"
+    }
 
     fn description(&self) -> &str {
         "Push local commits to a remote repository. Supports specifying remote and branch."
@@ -492,7 +514,10 @@ impl Tool for GitPushTool {
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
-        let remote = params.get("remote").and_then(|v| v.as_str()).unwrap_or("origin");
+        let remote = params
+            .get("remote")
+            .and_then(|v| v.as_str())
+            .unwrap_or("origin");
         let branch = params.get("branch").and_then(|v| v.as_str());
 
         let args: Vec<&str> = if let Some(b) = branch {
@@ -501,16 +526,15 @@ impl Tool for GitPushTool {
             vec!["push", "-u", remote]
         };
 
-        run_git_cmd_with_output(repo_path, &args)
-            .map(|output| {
-                serde_json::json!({
-                    "status": "ok",
-                    "repo": repo_path,
-                    "remote": remote,
-                    "branch": branch.unwrap_or("current"),
-                    "output": output,
-                })
+        run_git_cmd_with_output(repo_path, &args).map(|output| {
+            serde_json::json!({
+                "status": "ok",
+                "repo": repo_path,
+                "remote": remote,
+                "branch": branch.unwrap_or("current"),
+                "output": output,
             })
+        })
     }
 }
 

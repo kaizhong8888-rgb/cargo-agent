@@ -16,7 +16,9 @@ pub struct DiagramTool;
 
 #[async_trait::async_trait]
 impl Tool for DiagramTool {
-    fn name(&self) -> &str { "diagram" }
+    fn name(&self) -> &str {
+        "diagram"
+    }
 
     fn description(&self) -> &str {
         "Generate architecture diagrams in Mermaid format. Types: module_deps (module dependency graph), call_graph (function call relationships), data_flow (data flow diagram). Analyzes a Rust project directory and outputs renderable Mermaid markdown."
@@ -26,13 +28,15 @@ impl Tool for DiagramTool {
         vec![
             ToolParameter {
                 name: "type".to_string(),
-                description: "Diagram type: module_deps, call_graph, data_flow, sequence".to_string(),
+                description: "Diagram type: module_deps, call_graph, data_flow, sequence"
+                    .to_string(),
                 required: true,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "project_path".to_string(),
-                description: "Path to the Rust project root (default: current directory)".to_string(),
+                description: "Path to the Rust project root (default: current directory)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -73,10 +77,7 @@ impl Tool for DiagramTool {
             .and_then(|v| v.as_str())
             .unwrap_or("Architecture");
 
-        let max_depth = params
-            .get("depth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(3) as usize;
+        let max_depth = params.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
 
         let description = params.get("description").and_then(|v| v.as_str());
 
@@ -116,7 +117,10 @@ fn generate_module_deps_diagram(
 
     // Add module nodes
     for module in &modules {
-        diagram.push_str(&format!("    {}[\"{}\"]\n", module.node_id, module.display_name));
+        diagram.push_str(&format!(
+            "    {}[\"{}\"]\n",
+            module.node_id, module.display_name
+        ));
     }
 
     diagram.push('\n');
@@ -148,7 +152,10 @@ fn generate_call_graph_diagram(
     let mut diagram = format!("```mermaid\ngraph TD\n    subgraph {title}\n");
 
     for func in &functions {
-        diagram.push_str(&format!("        {}[\"{}\"]\n", func.node_id, func.display_name));
+        diagram.push_str(&format!(
+            "        {}[\"{}\"]\n",
+            func.node_id, func.display_name
+        ));
     }
 
     diagram.push('\n');
@@ -219,7 +226,11 @@ fn collect_modules(
         if path.is_file() {
             let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             if file_name == "mod" || path.extension().and_then(|e| e.to_str()) == Some("rs") {
-                let parent = path.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()).unwrap_or("root");
+                let parent = path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("root");
                 let node_id = format!("mod_{parent}_{file_name}");
                 let display = if file_name == "mod" {
                     parent.to_string()
@@ -263,19 +274,25 @@ fn collect_functions(
     let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read {dir:?}: {e}"))?;
 
     static FN_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let fn_re = FN_RE.get_or_init(|| regex::Regex::new(r"^pub\s+(async\s+)?fn\s+(\w+)").expect("invalid regex: fn pattern"));
+    let fn_re = FN_RE.get_or_init(|| {
+        regex::Regex::new(r"^pub\s+(async\s+)?fn\s+(\w+)").expect("invalid regex: fn pattern")
+    });
     static CALL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let call_re = CALL_RE.get_or_init(|| regex::Regex::new(r"(\w+)::(\w+)\(").expect("invalid regex: call pattern"));
+    let call_re = CALL_RE
+        .get_or_init(|| regex::Regex::new(r"(\w+)::(\w+)\(").expect("invalid regex: call pattern"));
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
         let path = entry.path();
 
         if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("rs") {
-            let content = fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read {path:?}: {e}"))?;
+            let content =
+                fs::read_to_string(&path).map_err(|e| format!("Failed to read {path:?}: {e}"))?;
 
-            let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+            let file_name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
             let mut current_fn = None;
 
             for line in content.lines() {
@@ -294,7 +311,10 @@ fn collect_functions(
 
                 // Detect function calls in the body
                 if let Some(ref fn_id) = current_fn {
-                    if trimmed.contains('(') && !trimmed.starts_with("fn ") && !trimmed.starts_with("pub ") {
+                    if trimmed.contains('(')
+                        && !trimmed.starts_with("fn ")
+                        && !trimmed.starts_with("pub ")
+                    {
                         for caps in call_re.captures_iter(trimmed) {
                             let module = &caps[1];
                             let func = &caps[2];

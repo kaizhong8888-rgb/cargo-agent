@@ -80,7 +80,9 @@ impl PluginMarketplace {
         let q = query.to_lowercase();
         self.plugins
             .iter()
-            .filter(|p| p.name.to_lowercase().contains(&q) || p.description.to_lowercase().contains(&q))
+            .filter(|p| {
+                p.name.to_lowercase().contains(&q) || p.description.to_lowercase().contains(&q)
+            })
             .collect()
     }
 
@@ -142,7 +144,11 @@ impl PluginMarketplace {
             .flatten()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map(|ext| ext == "rs").unwrap_or(false))
-            .filter_map(|e| e.file_name().to_str().map(|s| s.trim_end_matches(".rs").to_string()))
+            .filter_map(|e| {
+                e.file_name()
+                    .to_str()
+                    .map(|s| s.trim_end_matches(".rs").to_string())
+            })
             .collect()
     }
 }
@@ -153,11 +159,13 @@ fn builtin_registry() -> Vec<PluginEntry> {
         PluginEntry {
             id: "weather_tool".into(),
             name: "Weather".into(),
-            description: "Fetch current weather and forecasts from wttr.in or OpenWeatherMap API".into(),
+            description: "Fetch current weather and forecasts from wttr.in or OpenWeatherMap API"
+                .into(),
             author: "community".into(),
             version: "0.1.0".into(),
             categories: vec!["data".into(), "utility".into()],
-            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/weather_tool.rs".into(),
+            source_url:
+                "https://raw.githubusercontent.com/cargo-agent/plugins/main/weather_tool.rs".into(),
             dependencies: HashMap::new(),
             min_agent_version: "0.1.0".into(),
             stars: 42,
@@ -169,7 +177,8 @@ fn builtin_registry() -> Vec<PluginEntry> {
             author: "community".into(),
             version: "0.1.0".into(),
             categories: vec!["devops".into(), "integration".into()],
-            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/jira_tool.rs".into(),
+            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/jira_tool.rs"
+                .into(),
             dependencies: vec![("serde_json".into(), "1.0".into())]
                 .into_iter()
                 .collect(),
@@ -183,7 +192,8 @@ fn builtin_registry() -> Vec<PluginEntry> {
             author: "community".into(),
             version: "0.1.0".into(),
             categories: vec!["devops".into(), "integration".into()],
-            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/github_tool.rs".into(),
+            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/github_tool.rs"
+                .into(),
             dependencies: HashMap::new(),
             min_agent_version: "0.1.0".into(),
             stars: 67,
@@ -195,7 +205,8 @@ fn builtin_registry() -> Vec<PluginEntry> {
             author: "community".into(),
             version: "0.1.0".into(),
             categories: vec!["communication".into(), "integration".into()],
-            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/slack_tool.rs".into(),
+            source_url: "https://raw.githubusercontent.com/cargo-agent/plugins/main/slack_tool.rs"
+                .into(),
             dependencies: HashMap::new(),
             min_agent_version: "0.1.0".into(),
             stars: 28,
@@ -208,7 +219,10 @@ fn fetch_source(url: &str) -> anyhow::Result<String> {
     let client = reqwest::blocking::Client::new();
     let resp = client.get(url).send()?;
     if !resp.status().is_success() {
-        return Err(anyhow::anyhow!("Failed to fetch plugin source: HTTP {}", resp.status()));
+        return Err(anyhow::anyhow!(
+            "Failed to fetch plugin source: HTTP {}",
+            resp.status()
+        ));
     }
     Ok(resp.text()?)
 }

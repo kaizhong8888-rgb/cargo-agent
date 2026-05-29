@@ -15,7 +15,9 @@ pub struct DocSearchTool;
 
 #[async_trait::async_trait]
 impl Tool for DocSearchTool {
-    fn name(&self) -> &str { "doc_search" }
+    fn name(&self) -> &str {
+        "doc_search"
+    }
 
     fn description(&self) -> &str {
         "Search and retrieve documentation from docs.rs and crates.io. Actions: info (crate metadata), docs (crate documentation page URL), readme (README content), latest_version (check latest version), examples (fetch example source code)."
@@ -82,7 +84,8 @@ async fn action_info(crate_name: &str) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
-    let response = client.get(&url)
+    let response = client
+        .get(&url)
         .header("Accept", "application/json")
         .send()
         .await
@@ -102,10 +105,14 @@ async fn action_info(crate_name: &str) -> Result<Value, String> {
         return Err(format!("crates.io error ({status}): {body}"));
     }
 
-    let json: Value = response.json().await
+    let json: Value = response
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
-    let crate_info = json.get("crate").ok_or("Missing 'crate' field in response")?;
+    let crate_info = json
+        .get("crate")
+        .ok_or("Missing 'crate' field in response")?;
 
     Ok(serde_json::json!({
         "status": "ok",
@@ -120,7 +127,11 @@ async fn action_info(crate_name: &str) -> Result<Value, String> {
     }))
 }
 
-fn action_docs(crate_name: &str, version: Option<&str>, params: &HashMap<String, Value>) -> Result<Value, String> {
+fn action_docs(
+    crate_name: &str,
+    version: Option<&str>,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let version_segment = version.unwrap_or("latest");
     let module_path = params.get("module_path").and_then(|v| v.as_str());
 
@@ -144,7 +155,9 @@ fn action_docs(crate_name: &str, version: Option<&str>, params: &HashMap<String,
 
 async fn action_readme(crate_name: &str, version: Option<&str>) -> Result<Value, String> {
     let version_segment = version.unwrap_or("latest");
-    let _url = format!("https://raw.githubusercontent.com/rust-lang/crates.io-index/master/{crate_name}/README.md");
+    let _url = format!(
+        "https://raw.githubusercontent.com/rust-lang/crates.io-index/master/{crate_name}/README.md"
+    );
 
     // Try docs.rs source endpoint
     let docs_url = format!("https://docs.rs/crate/{crate_name}/{version_segment}/source/README.md");
@@ -158,7 +171,10 @@ async fn action_readme(crate_name: &str, version: Option<&str>) -> Result<Value,
 
     match response {
         Ok(resp) if resp.status().is_success() => {
-            let body = resp.text().await.map_err(|e| format!("Failed to read body: {e}"))?;
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| format!("Failed to read body: {e}"))?;
             Ok(serde_json::json!({
                 "status": "ok",
                 "crate": crate_name,
@@ -166,14 +182,12 @@ async fn action_readme(crate_name: &str, version: Option<&str>) -> Result<Value,
                 "truncated": body.len() > 10000,
             }))
         }
-        _ => {
-            Ok(serde_json::json!({
-                "status": "info",
-                "crate": crate_name,
-                "message": "README not directly available. Check the crate's repository URL for source.",
-                "docs_url": format!("https://docs.rs/{crate_name}"),
-            }))
-        }
+        _ => Ok(serde_json::json!({
+            "status": "info",
+            "crate": crate_name,
+            "message": "README not directly available. Check the crate's repository URL for source.",
+            "docs_url": format!("https://docs.rs/{crate_name}"),
+        })),
     }
 }
 
@@ -185,7 +199,8 @@ async fn action_latest_version(crate_name: &str) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
-    let response = client.get(&url)
+    let response = client
+        .get(&url)
         .header("Accept", "application/json")
         .send()
         .await
@@ -195,15 +210,19 @@ async fn action_latest_version(crate_name: &str) -> Result<Value, String> {
         return Err(format!("crates.io error: {}", response.status()));
     }
 
-    let json: Value = response.json().await
+    let json: Value = response
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
-    let versions = json.get("crate")
+    let versions = json
+        .get("crate")
         .and_then(|c| c.get("versions"))
         .and_then(|v| v.as_array())
         .ok_or("No versions found")?;
 
-    let latest = versions.first()
+    let latest = versions
+        .first()
         .and_then(|v| v.get("num"))
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
@@ -225,7 +244,8 @@ async fn action_examples(crate_name: &str, _version: Option<&str>) -> Result<Val
 
     // Fetch crate info to find repository
     let url = format!("https://crates.io/api/v1/crates/{crate_name}");
-    let response = client.get(&url)
+    let response = client
+        .get(&url)
         .header("Accept", "application/json")
         .send()
         .await
@@ -235,10 +255,13 @@ async fn action_examples(crate_name: &str, _version: Option<&str>) -> Result<Val
         return Err(format!("crates.io error: {}", response.status()));
     }
 
-    let json: Value = response.json().await
+    let json: Value = response
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse JSON: {e}"))?;
 
-    let repo = json.get("crate")
+    let repo = json
+        .get("crate")
         .and_then(|c| c.get("repository"))
         .and_then(|v| v.as_str())
         .unwrap_or("");

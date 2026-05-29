@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 /// 交易方向
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TradeSide {
-    Long,   // 做多
-    Short,  // 做空
+    Long,  // 做多
+    Short, // 做空
 }
 
 /// 仓位管理模式
@@ -15,7 +15,7 @@ pub enum PositionSizing {
     /// 固定比例仓位 (0.0~1.0 之间，例如 0.25 = 25%资金)
     FixedFractional(f64),
     /// 凯利公式仓位管理
-    Kelly(f64),  // Kelly 系数 (0~1 缩放, 0.25 表示 1/4 Kelly)
+    Kelly(f64), // Kelly 系数 (0~1 缩放, 0.25 表示 1/4 Kelly)
     /// 固定数量 (正数表示做多数量，负数表示做空数量)
     FixedQuantity(f64),
 }
@@ -53,7 +53,7 @@ pub struct BacktestEngine {
     pub initial_capital: f64,
     pub current_capital: f64,
     pub peak_capital: f64,
-    pub position: f64,           // 正数=多头数量, 负数=空头数量
+    pub position: f64, // 正数=多头数量, 负数=空头数量
     pub position_value: f64,
     pub avg_entry_price: f64,
     pub commission_rate: f64,
@@ -69,7 +69,7 @@ pub struct BacktestEngine {
     pub stop_loss: StopLoss,
     pub trailing_stop_activated: bool,
     pub trailing_stop_price: f64,
-    pub max_equity_drawdown_pct: f64,  // 最大回撤止损百分比
+    pub max_equity_drawdown_pct: f64, // 最大回撤止损百分比
     pub trades: Vec<Trade>,
     /// 做空保证金比例（如0.5表示50%保证金）
     pub short_margin_requirement: f64,
@@ -145,9 +145,7 @@ impl BacktestEngine {
                 let after_commission = capital_to_use * (1.0 - self.commission_rate);
                 match side {
                     TradeSide::Long => after_commission / price,
-                    TradeSide::Short => {
-                        (after_commission / self.short_margin_requirement) / price
-                    }
+                    TradeSide::Short => (after_commission / self.short_margin_requirement) / price,
                 }
             }
             PositionSizing::FixedQuantity(qty) => qty.abs(),
@@ -200,7 +198,11 @@ impl BacktestEngine {
     }
 
     /// 运行回测
-    pub fn run(&mut self, candles: &[Candle], strategy: &dyn Strategy) -> anyhow::Result<Vec<Trade>> {
+    pub fn run(
+        &mut self,
+        candles: &[Candle],
+        strategy: &dyn Strategy,
+    ) -> anyhow::Result<Vec<Trade>> {
         let signals = strategy.generate(candles);
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
         let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
@@ -257,7 +259,8 @@ impl BacktestEngine {
                         if self.position > 0.0 {
                             // 多头 trailing stop
                             let new_stop = high - multiplier * current_atr;
-                            if !self.trailing_stop_activated || new_stop > self.trailing_stop_price {
+                            if !self.trailing_stop_activated || new_stop > self.trailing_stop_price
+                            {
                                 self.trailing_stop_price = new_stop;
                                 self.trailing_stop_activated = true;
                             }
@@ -267,7 +270,8 @@ impl BacktestEngine {
                         } else if self.position < 0.0 {
                             // 空头 trailing stop
                             let new_stop = low + multiplier * current_atr;
-                            if !self.trailing_stop_activated || new_stop < self.trailing_stop_price {
+                            if !self.trailing_stop_activated || new_stop < self.trailing_stop_price
+                            {
                                 self.trailing_stop_price = new_stop;
                                 self.trailing_stop_activated = true;
                             }
@@ -435,7 +439,11 @@ impl BacktestEngine {
         self.trades.push(Trade {
             entry_time: entry_time_str,
             exit_time: candles[i].timestamp.to_rfc3339(),
-            side: if is_long { TradeSide::Long } else { TradeSide::Short },
+            side: if is_long {
+                TradeSide::Long
+            } else {
+                TradeSide::Short
+            },
             entry_price,
             exit_price: exec_price,
             quantity: qty,
@@ -525,8 +533,8 @@ mod tests {
     fn test_backtest_with_atr_trailing_stop() {
         let candles = DataSource::generate_mock(200, 100.0);
         let strategy = SmaCrossover::new(5, 20);
-        let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001)
-            .with_stop_loss(StopLoss::AtrTrailing(3.0));
+        let mut engine =
+            BacktestEngine::new(10_000.0, 0.001, 0.001).with_stop_loss(StopLoss::AtrTrailing(3.0));
         let trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
@@ -535,8 +543,7 @@ mod tests {
     fn test_backtest_with_max_drawdown_stop() {
         let candles = DataSource::generate_mock(200, 100.0);
         let strategy = SmaCrossover::new(5, 20);
-        let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001)
-            .with_max_drawdown_stop(15.0);
+        let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001).with_max_drawdown_stop(15.0);
         let trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }

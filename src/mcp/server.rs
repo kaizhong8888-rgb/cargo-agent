@@ -62,7 +62,11 @@ pub async fn run_stdio_server(tool_registry: &crate::tools::ToolRegistry) -> any
                 let arguments = &request["params"]["arguments"];
                 call_tool(id.clone(), tool_registry, tool_name, arguments).await
             }
-            _ => Ok(error_response(id.clone(), -32601, format!("Method not found: {method}"))),
+            _ => Ok(error_response(
+                id.clone(),
+                -32601,
+                format!("Method not found: {method}"),
+            )),
         };
 
         if let Ok(resp) = response {

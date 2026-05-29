@@ -118,7 +118,10 @@ impl Tool for QuantitativeTradingTool {
             "strategies" => handle_strategies(),
             "fetch_data" => handle_fetch_data(params),
             "mock_data" => handle_mock_data(params),
-            _ => Err(format!("未知操作: {}. 支持: backtest, indicators, strategies, fetch_data, mock_data", action)),
+            _ => Err(format!(
+                "未知操作: {}. 支持: backtest, indicators, strategies, fetch_data, mock_data",
+                action
+            )),
         }
     }
 }
@@ -144,10 +147,7 @@ fn parse_usize(params: &HashMap<String, Value>, key: &str, default: usize) -> us
 }
 
 fn parse_str<'a>(params: &'a HashMap<String, Value>, key: &str, default: &'a str) -> &'a str {
-    params
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_str()).unwrap_or(default)
 }
 
 // ============================================================
@@ -167,9 +167,7 @@ fn load_candles(params: &HashMap<String, Value>) -> Result<Vec<Candle>, String> 
             // Use blocking reqwest to fetch from Binance API
             fetch_binance_klines_blocking(params)
         }
-        csv_path => {
-            DataSource::from_csv(csv_path).map_err(|e| format!("加载CSV失败: {}", e))
-        }
+        csv_path => DataSource::from_csv(csv_path).map_err(|e| format!("加载CSV失败: {}", e)),
     }
 }
 
@@ -189,8 +187,7 @@ fn fetch_binance_klines_blocking(params: &HashMap<String, Value>) -> Result<Vec<
         symbol, interval, limit
     );
 
-    let resp = reqwest::blocking::get(&url)
-        .map_err(|e| format!("请求Binance API失败: {}", e))?;
+    let resp = reqwest::blocking::get(&url).map_err(|e| format!("请求Binance API失败: {}", e))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -210,20 +207,37 @@ fn fetch_binance_klines_blocking(params: &HashMap<String, Value>) -> Result<Vec<
         }
 
         let timestamp_ms = kline[0].as_f64().unwrap_or(0.0) as i64;
-        let timestamp = DateTime::from_timestamp_millis(timestamp_ms)
-            .unwrap_or_default();
+        let timestamp = DateTime::from_timestamp_millis(timestamp_ms).unwrap_or_default();
 
-        let open = kline[1].as_str().and_then(|s: &str| s.parse::<f64>().ok()).unwrap_or(0.0);
-        let high = kline[2].as_str().and_then(|s: &str| s.parse::<f64>().ok()).unwrap_or(0.0);
-        let low = kline[3].as_str().and_then(|s: &str| s.parse::<f64>().ok()).unwrap_or(0.0);
-        let close = kline[4].as_str().and_then(|s: &str| s.parse::<f64>().ok()).unwrap_or(0.0);
-        let volume = kline[5].as_str().and_then(|s: &str| s.parse::<f64>().ok()).unwrap_or(0.0);
+        let open = kline[1]
+            .as_str()
+            .and_then(|s: &str| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let high = kline[2]
+            .as_str()
+            .and_then(|s: &str| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let low = kline[3]
+            .as_str()
+            .and_then(|s: &str| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let close = kline[4]
+            .as_str()
+            .and_then(|s: &str| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let volume = kline[5]
+            .as_str()
+            .and_then(|s: &str| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
 
         candles.push(Candle::new(timestamp, open, high, low, close, volume));
     }
 
     if candles.is_empty() {
-        return Err(format!("未获取到任何K线数据 (symbol={}, interval={})", symbol, interval));
+        return Err(format!(
+            "未获取到任何K线数据 (symbol={}, interval={})",
+            symbol, interval
+        ));
     }
 
     Ok(candles)
@@ -239,16 +253,40 @@ fn get_strategy_by_name(name: &str) -> Option<Box<dyn Strategy>> {
         "SMA_RSI" => Some(Box::new(SmaCrossoverWithRsi::new(5, 20, 14, 30.0, 70.0))),
         "RSI_MeanRev" => Some(Box::new(RsiMeanReversion::new(14, 30.0, 70.0))),
         "MACD_Crossover" => Some(Box::new(MacdStrategy::new(12, 26, 9, MacdMode::Crossover))),
-        "MACD_Histogram" => Some(Box::new(MacdStrategy::new(12, 26, 9, MacdMode::CrossoverWithHistogram))),
-        "MACD_Divergence" => Some(Box::new(MacdStrategy::new(12, 26, 9, MacdMode::CrossoverWithDivergence))),
+        "MACD_Histogram" => Some(Box::new(MacdStrategy::new(
+            12,
+            26,
+            9,
+            MacdMode::CrossoverWithHistogram,
+        ))),
+        "MACD_Divergence" => Some(Box::new(MacdStrategy::new(
+            12,
+            26,
+            9,
+            MacdMode::CrossoverWithDivergence,
+        ))),
         "Turtle_Trading" => Some(Box::new(TurtleTradingStrategy::new(20, 10, 20, 2.0))),
         "Triple_EMA" => Some(Box::new(TripleEmaStrategy::new(5, 13, 34))),
-        "Bollinger_MeanRev" => Some(Box::new(BollingerBandsStrategy::new(20, 2.0, 0.95, 0.95, false))),
-        "Bollinger_Squeeze" => Some(Box::new(BollingerBandsStrategy::new(20, 2.0, 0.95, 0.95, true))),
+        "Bollinger_MeanRev" => Some(Box::new(BollingerBandsStrategy::new(
+            20, 2.0, 0.95, 0.95, false,
+        ))),
+        "Bollinger_Squeeze" => Some(Box::new(BollingerBandsStrategy::new(
+            20, 2.0, 0.95, 0.95, true,
+        ))),
         "VWAP_RSI" => Some(Box::new(VwapRsiStrategy::new(14, 30.0, 70.0, 1.0))),
         "SuperTrend" => Some(Box::new(SuperTrendStrategy::new(10, 3.0))),
-        "Keltner_Breakout" => Some(Box::new(KeltnerChannelsStrategy::new(20, 14, 2.0, KeltnerMode::Breakout))),
-        "Keltner_Reversion" => Some(Box::new(KeltnerChannelsStrategy::new(20, 14, 2.0, KeltnerMode::Reversion))),
+        "Keltner_Breakout" => Some(Box::new(KeltnerChannelsStrategy::new(
+            20,
+            14,
+            2.0,
+            KeltnerMode::Breakout,
+        ))),
+        "Keltner_Reversion" => Some(Box::new(KeltnerChannelsStrategy::new(
+            20,
+            14,
+            2.0,
+            KeltnerMode::Reversion,
+        ))),
         "Parabolic_SAR" => Some(Box::new(ParabolicSarStrategy::new(0.02, 0.2))),
         "Ensemble" => Some(strategy::create_ensemble_strategy()),
         _ => None,
@@ -314,7 +352,11 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
     let strategy_names = params
         .get("strategy_names")
         .and_then(|v| v.as_str())
-        .map(|s| s.split(',').map(|n| n.trim().to_string()).collect::<Vec<_>>());
+        .map(|s| {
+            s.split(',')
+                .map(|n| n.trim().to_string())
+                .collect::<Vec<_>>()
+        });
 
     let mut strats: Vec<Box<dyn Strategy>> = Vec::new();
     if let Some(names) = strategy_names {
@@ -322,7 +364,12 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
             if !name.is_empty() {
                 match get_strategy_by_name(&name) {
                     Some(s) => strats.push(s),
-                    None => return Err(format!("未知策略: '{}'。使用 'strategies' 操作查看可用策略列表", name)),
+                    None => {
+                        return Err(format!(
+                            "未知策略: '{}'。使用 'strategies' 操作查看可用策略列表",
+                            name
+                        ))
+                    }
                 }
             }
         }
@@ -358,8 +405,14 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
 
     // 按收益率排序
     results.sort_by(|a, b| {
-        let ra = a.1.get("total_return_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let rb = b.1.get("total_return_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let ra =
+            a.1.get("total_return_pct")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+        let rb =
+            b.1.get("total_return_pct")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
         rb.partial_cmp(&ra).unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -372,11 +425,13 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
         }));
     }
 
-    let winner = ranking.first().map(|r| serde_json::json!({
-        "name": r["name"],
-        "total_return_pct": r["data"]["total_return_pct"],
-        "sharpe_ratio": r["data"]["sharpe_ratio"],
-    }));
+    let winner = ranking.first().map(|r| {
+        serde_json::json!({
+            "name": r["name"],
+            "total_return_pct": r["data"]["total_return_pct"],
+            "sharpe_ratio": r["data"]["sharpe_ratio"],
+        })
+    });
 
     let output = serde_json::json!({
         "status": "success",
@@ -423,7 +478,11 @@ fn handle_indicators_sync(params: &HashMap<String, Value>) -> Result<Value, Stri
     let bb = crate::trading::indicators::bollinger_bands(&closes, 20, 2.0);
     let atr_val = crate::trading::indicators::atr(&highs, &lows, &closes, 14);
 
-    let last_idx = if !closes.is_empty() { closes.len() - 1 } else { 0 };
+    let last_idx = if !closes.is_empty() {
+        closes.len() - 1
+    } else {
+        0
+    };
     let get_last = |v: &[f64]| {
         if last_idx < v.len() && !v[last_idx].is_nan() {
             Some(v[last_idx])
@@ -528,7 +587,12 @@ fn handle_fetch_data(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     // 导出CSV
     if export_csv {
-        let filename = format!("{}_{}_{}.csv", symbol, interval, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+        let filename = format!(
+            "{}_{}_{}.csv",
+            symbol,
+            interval,
+            chrono::Utc::now().format("%Y%m%d_%H%M%S")
+        );
         if let Ok(mut wtr) = csv::Writer::from_path(&filename) {
             let _ = wtr.write_record(["timestamp", "open", "high", "low", "close", "volume"]);
             for c in &candles {
@@ -551,7 +615,11 @@ fn handle_fetch_data(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn get_last_value(values: &[f64], lookback: usize) -> Option<f64> {
-    let idx = if !values.is_empty() { values.len() - 1 } else { return None; };
+    let idx = if !values.is_empty() {
+        values.len() - 1
+    } else {
+        return None;
+    };
     if idx < values.len() && !values[idx].is_nan() {
         Some(values[idx])
     } else if lookback > 0 && lookback < values.len() && !values[lookback - 1].is_nan() {
@@ -638,7 +706,10 @@ mod tests {
         let mut params = HashMap::new();
         params.insert("action".into(), Value::String("backtest".into()));
         params.insert("mock_count".into(), Value::Number(200.into()));
-        params.insert("strategy_names".into(), Value::String("SMA_Crossover,MACD_Crossover".into()));
+        params.insert(
+            "strategy_names".into(),
+            Value::String("SMA_Crossover,MACD_Crossover".into()),
+        );
         let result = handle_backtest_sync(&params).unwrap();
         assert_eq!(result["strategies_tested"].as_u64().unwrap(), 2);
     }
@@ -655,7 +726,10 @@ mod tests {
     fn test_invalid_strategy_error() {
         let mut params = HashMap::new();
         params.insert("action".into(), Value::String("backtest".into()));
-        params.insert("strategy_names".into(), Value::String("Invalid_Strat".into()));
+        params.insert(
+            "strategy_names".into(),
+            Value::String("Invalid_Strat".into()),
+        );
         let result = handle_backtest_sync(&params);
         assert!(result.is_err());
     }

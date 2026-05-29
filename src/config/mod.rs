@@ -98,7 +98,9 @@ impl CargoConfig {
     }
 
     pub fn resolve_base_url(&self) -> String {
-        self.model.base_url.clone()
+        self.model
+            .base_url
+            .clone()
             .unwrap_or_else(|| "https://api.openai.com".to_string())
     }
 
@@ -114,13 +116,17 @@ impl CargoConfig {
         // but warn if config has an empty explicit key
         if let Some(key) = &self.api_key {
             if key.is_empty() {
-                issues.push("api_key is set but empty in config — remove it or provide a valid key".into());
+                issues.push(
+                    "api_key is set but empty in config — remove it or provide a valid key".into(),
+                );
             }
         }
 
         let base_url = self.resolve_base_url();
         if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
-            issues.push(format!("base_url '{base_url}' does not start with http:// or https://"));
+            issues.push(format!(
+                "base_url '{base_url}' does not start with http:// or https://"
+            ));
         }
 
         issues

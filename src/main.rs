@@ -1,11 +1,11 @@
 use std::io::{self, BufRead};
 use std::time::Instant;
 
-use crossterm::style::Stylize;
-use cargo_agent::cli_commands::{parse as parse_slash, SlashResult, handle as handle_slash};
+use cargo_agent::cli_commands::{handle as handle_slash, parse as parse_slash, SlashResult};
 use cargo_agent::config::CargoConfig;
 use cargo_agent::gateway::Gateway;
 use cargo_agent::ui;
+use crossterm::style::Stylize;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -143,22 +143,39 @@ fn show_dashboard(gateway: &Gateway) {
     let usage = agent.token_usage();
     let health = cargo_agent::health::current_health();
 
-    let total_memories = agent.memory_store()
+    let memory_store = agent.memory_store();
+    let total_memories = memory_store
         .and_then(|s| s.stats().ok())
         .map(|s| s.total)
         .unwrap_or(0);
 
+    let memory_by_namespace = memory_store
+        .and_then(|s| s.stats().ok())
+        .map(|s| s.by_namespace.into_iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+
     let total_tools = agent.tool_registry.list_tools().len();
+    let skills = agent.skill_registry.list();
+    let skills_loaded = skills.len();
+    let skills_active = agent.skill_registry.active_skills().len();
 
     let state = cargo_agent::tui::dashboard::DashboardState {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        model: "configured".to_string(),
+        model_name: gateway.model_name().to_string(),
         uptime_secs: health.uptime_seconds,
         total_api_calls: usage.api_calls,
         total_tokens: usage.total_tokens,
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
         total_memories,
         total_tools,
         health_status: health.status.to_string(),
+        conversation_messages: agent.messages().len(),
+        context_max: 200,
+        skills_loaded,
+        skills_active,
+        memory_by_namespace,
+        memory_bytes: health.memory_bytes,
     };
-    state.render();
+    state.render_loop();
 }

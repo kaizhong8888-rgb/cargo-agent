@@ -15,7 +15,9 @@ pub struct DepManagerTool;
 
 #[async_trait::async_trait]
 impl Tool for DepManagerTool {
-    fn name(&self) -> &str { "dep_manager" }
+    fn name(&self) -> &str {
+        "dep_manager"
+    }
 
     fn description(&self) -> &str {
         "Manage Rust project dependencies. Actions: add (cargo add), remove (cargo rm), update (cargo update), tree (show dependency graph), audit (security audit), outdated (check for outdated crates)."
@@ -25,31 +27,38 @@ impl Tool for DepManagerTool {
         vec![
             ToolParameter {
                 name: "action".to_string(),
-                description: "Action to perform: add, remove, update, tree, audit, outdated".to_string(),
+                description: "Action to perform: add, remove, update, tree, audit, outdated"
+                    .to_string(),
                 required: true,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "package".to_string(),
-                description: "Package name to add/remove/update (e.g. 'serde', 'tokio')".to_string(),
+                description: "Package name to add/remove/update (e.g. 'serde', 'tokio')"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "features".to_string(),
-                description: "Comma-separated features to enable (used with add action, e.g. 'derive,serde')".to_string(),
+                description:
+                    "Comma-separated features to enable (used with add action, e.g. 'derive,serde')"
+                        .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "version".to_string(),
-                description: "Specific version constraint (used with add action, e.g. '1.0', '^1.4', '~0.3')".to_string(),
+                description:
+                    "Specific version constraint (used with add action, e.g. '1.0', '^1.4', '~0.3')"
+                        .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "dev_dependency".to_string(),
-                description: "Add as dev-dependency (used with add action, default: false)".to_string(),
+                description: "Add as dev-dependency (used with add action, default: false)"
+                    .to_string(),
                 required: false,
                 parameter_type: "boolean".to_string(),
             },
@@ -80,7 +89,9 @@ impl Tool for DepManagerTool {
             "tree" => cmd_tree(project_path),
             "audit" => cmd_audit(project_path),
             "outdated" => cmd_outdated(project_path),
-            other => Err(format!("Unknown action: {other}. Supported: add, remove, update, tree, audit, outdated")),
+            other => Err(format!(
+                "Unknown action: {other}. Supported: add, remove, update, tree, audit, outdated"
+            )),
         }
     }
 }
@@ -103,20 +114,23 @@ fn cmd_add(params: &HashMap<String, Value>, project_path: &str) -> Result<Value,
         args.push(features.to_string());
     }
 
-    if params.get("dev_dependency").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if params
+        .get("dev_dependency")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         args.push("--dev".to_string());
     }
 
     let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_cargo_with_output(project_path, &str_args)
-        .map(|output| {
-            serde_json::json!({
-                "status": "ok",
-                "action": "add",
-                "package": package,
-                "output": output,
-            })
+    run_cargo_with_output(project_path, &str_args).map(|output| {
+        serde_json::json!({
+            "status": "ok",
+            "action": "add",
+            "package": package,
+            "output": output,
         })
+    })
 }
 
 fn cmd_remove(params: &HashMap<String, Value>, project_path: &str) -> Result<Value, String> {
@@ -125,26 +139,24 @@ fn cmd_remove(params: &HashMap<String, Value>, project_path: &str) -> Result<Val
         .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: package (for remove action)")?;
 
-    run_cargo_with_output(project_path, &["rm", package])
-        .map(|output| {
-            serde_json::json!({
-                "status": "ok",
-                "action": "remove",
-                "package": package,
-                "output": output,
-            })
+    run_cargo_with_output(project_path, &["rm", package]).map(|output| {
+        serde_json::json!({
+            "status": "ok",
+            "action": "remove",
+            "package": package,
+            "output": output,
         })
+    })
 }
 
 fn cmd_update(project_path: &str) -> Result<Value, String> {
-    run_cargo_with_output(project_path, &["update"])
-        .map(|output| {
-            serde_json::json!({
-                "status": "ok",
-                "action": "update",
-                "output": output,
-            })
+    run_cargo_with_output(project_path, &["update"]).map(|output| {
+        serde_json::json!({
+            "status": "ok",
+            "action": "update",
+            "output": output,
         })
+    })
 }
 
 fn cmd_tree(project_path: &str) -> Result<Value, String> {
@@ -192,7 +204,7 @@ fn cmd_audit(project_path: &str) -> Result<Value, String> {
             "action": "audit",
             "message": "cargo-audit is not installed. Install with: cargo install cargo-audit",
             "hint": "Use 'tree' action to inspect dependency tree manually.",
-        }))
+        })),
     }
 }
 
@@ -215,7 +227,7 @@ fn cmd_outdated(project_path: &str) -> Result<Value, String> {
             "status": "info",
             "action": "outdated",
             "message": "cargo-outdated is not installed. Install with: cargo install cargo-outdated",
-        }))
+        })),
     }
 }
 

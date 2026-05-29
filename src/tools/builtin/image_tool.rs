@@ -72,10 +72,7 @@ impl Tool for ImageTool {
 
         match action {
             "info" => {
-                let size_bytes = Path::new(path)
-                    .metadata()
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                let size_bytes = Path::new(path).metadata().map(|m| m.len()).unwrap_or(0);
                 Ok(serde_json::json!({
                     "width": width,
                     "height": height,
@@ -84,8 +81,14 @@ impl Tool for ImageTool {
                 }))
             }
             "resize" | "thumbnail" => {
-                let target_w = params.get("width").and_then(|v| v.as_u64()).unwrap_or(width as u64) as u32;
-                let target_h = params.get("height").and_then(|v| v.as_u64()).unwrap_or(height as u64) as u32;
+                let target_w = params
+                    .get("width")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(width as u64) as u32;
+                let target_h = params
+                    .get("height")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(height as u64) as u32;
                 let output = params
                     .get("output")
                     .and_then(|v| v.as_str())
@@ -118,7 +121,9 @@ impl Tool for ImageTool {
                     "format": format_from_path(output).unwrap_or("unknown"),
                 }))
             }
-            _ => Err(format!("Unknown action: {action}. Valid: info, resize, thumbnail, convert")),
+            _ => Err(format!(
+                "Unknown action: {action}. Valid: info, resize, thumbnail, convert"
+            )),
         }
     }
 }

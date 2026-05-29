@@ -212,7 +212,11 @@ fn pragma_to_json(conn: &Connection, sql: &str) -> Result<Vec<Value>, String> {
         .map_err(|e| format!("Failed to prepare PRAGMA: {}", e))?;
 
     let col_names: Vec<String> = (0..stmt.column_count())
-        .map(|i| stmt.column_name(i).map(|n| n.to_string()).unwrap_or(format!("col_{}", i)))
+        .map(|i| {
+            stmt.column_name(i)
+                .map(|n| n.to_string())
+                .unwrap_or(format!("col_{}", i))
+        })
         .collect();
 
     let col_count = col_names.len();
@@ -261,7 +265,11 @@ async fn execute_query(db_path: &str, params: &HashMap<String, Value>) -> Result
     // Convert JSON params to rusqlite params
     // Collect column info before query_map (borrow issue)
     let col_names: Vec<String> = (0..stmt.column_count())
-        .map(|i| stmt.column_name(i).map(|n| n.to_string()).unwrap_or(format!("col_{}", i)))
+        .map(|i| {
+            stmt.column_name(i)
+                .map(|n| n.to_string())
+                .unwrap_or(format!("col_{}", i))
+        })
         .collect();
 
     let names_for_closure = col_names.clone();
@@ -272,10 +280,8 @@ async fn execute_query(db_path: &str, params: &HashMap<String, Value>) -> Result
         .iter()
         .map(|v| json_to_rusqlite_value(v))
         .collect();
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = rusqlite_params
-        .iter()
-        .map(|p| p.as_ref())
-        .collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        rusqlite_params.iter().map(|p| p.as_ref()).collect();
 
     let rows_iter = stmt
         .query_map(param_refs.as_slice(), move |row| {
@@ -327,7 +333,10 @@ fn json_to_rusqlite_value(val: &Value) -> Box<dyn rusqlite::types::ToSql> {
 // 2. EXECUTE — Single SQL statement with optional params
 // ============================================================================
 
-async fn execute_statement(db_path: &str, params: &HashMap<String, Value>) -> Result<Value, String> {
+async fn execute_statement(
+    db_path: &str,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let sql = params
         .get("sql_statement")
         .and_then(|v| v.as_str())
@@ -346,10 +355,8 @@ async fn execute_statement(db_path: &str, params: &HashMap<String, Value>) -> Re
             .iter()
             .map(|v| json_to_rusqlite_value(v))
             .collect();
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = rusqlite_params
-            .iter()
-            .map(|p| p.as_ref())
-            .collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            rusqlite_params.iter().map(|p| p.as_ref()).collect();
         let affected = conn
             .execute(sql, param_refs.as_slice())
             .map_err(|e| format!("Execute failed: {}", e))?;
@@ -384,10 +391,7 @@ async fn execute_batch(db_path: &str, params: &HashMap<String, Value>) -> Result
         return Err("statements array is empty".to_string());
     }
 
-    let sql_texts: Vec<&str> = statements
-        .iter()
-        .filter_map(|v| v.as_str())
-        .collect();
+    let sql_texts: Vec<&str> = statements.iter().filter_map(|v| v.as_str()).collect();
 
     if sql_texts.len() != statements.len() {
         return Err("All elements in statements must be strings".to_string());
@@ -398,7 +402,7 @@ async fn execute_batch(db_path: &str, params: &HashMap<String, Value>) -> Result
     conn.execute_batch("BEGIN TRANSACTION")
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
-    let mut results: Vec<Value> = Vec::new();
+    let mut results: Vec<Value> = Vec::with_capacity(sql_texts.len());
     let mut total_affected: i64 = 0;
 
     for (i, sql) in sql_texts.iter().enumerate() {
@@ -454,7 +458,7 @@ async fn list_tables(db_path: &str) -> Result<Value, String> {
         .filter_map(|r| r.ok())
         .collect();
 
-    let mut table_details: Vec<Value> = Vec::new();
+    let mut table_details: Vec<Value> = Vec::with_capacity(tables.len());
     for table in &tables {
         let count_sql = format!("SELECT COUNT(*) FROM {}", quote_id(table));
         let row_count: i64 = conn
@@ -506,7 +510,10 @@ async fn describe_table(db_path: &str, params: &HashMap<String, Value>) -> Resul
         .unwrap_or(false);
 
     if !exists {
-        return Err(format!("Table '{}' does not exist in database '{}'", table_name, db_path));
+        return Err(format!(
+            "Table '{}' does not exist in database '{}'",
+            table_name, db_path
+        ));
     }
 
     // Columns
@@ -517,7 +524,7 @@ async fn describe_table(db_path: &str, params: &HashMap<String, Value>) -> Resul
     let idx_list_sql = format!("PRAGMA index_list({})", quote_id(table_name));
     let idx_list = pragma_to_json(&conn, &idx_list_sql)?;
 
-    let mut indexes: Vec<Value> = Vec::new();
+    let mut indexes: Vec<Value> = Vec::with_capacity(idx_list.len());
     for idx in &idx_list {
         let idx_name = idx.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let info_sql = format!("PRAGMA index_info({})", quote_id(idx_name));
@@ -585,13 +592,15 @@ async fn create_table(db_path: &str, params: &HashMap<String, Value>) -> Result<
     let columns = params
         .get("columns")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| "Missing required parameter: columns (JSON array of column definitions)".to_string())?;
+        .ok_or_else(|| {
+            "Missing required parameter: columns (JSON array of column definitions)".to_string()
+        })?;
 
     if columns.is_empty() {
         return Err("columns array must not be empty".to_string());
     }
 
-    let mut col_defs: Vec<String> = Vec::new();
+    let mut col_defs: Vec<String> = Vec::with_capacity(columns.len());
     for (i, col) in columns.iter().enumerate() {
         let col_name = col
             .get("name")
@@ -609,7 +618,11 @@ async fn create_table(db_path: &str, params: &HashMap<String, Value>) -> Result<
             def.push_str(" PRIMARY KEY");
         }
 
-        if !col.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true) {
+        if !col
+            .get("nullable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+        {
             def.push_str(" NOT NULL");
         }
 
@@ -622,8 +635,8 @@ async fn create_table(db_path: &str, params: &HashMap<String, Value>) -> Result<
                 Value::Bool(b) => def.push_str(&format!(" DEFAULT {}", if *b { 1 } else { 0 })),
                 Value::Number(n) => def.push_str(&format!(" DEFAULT {}", n)),
                 Value::Array(_) | Value::Object(_) => {
-                    let s = serde_json::to_string(def_val)
-                        .map_err(|e| format!("JSON error: {}", e))?;
+                    let s =
+                        serde_json::to_string(def_val).map_err(|e| format!("JSON error: {}", e))?;
                     def.push_str(&format!(" DEFAULT '{}'", s.replace('\'', "''")));
                 }
             }
@@ -680,7 +693,9 @@ async fn alter_table(db_path: &str, params: &HashMap<String, Value>) -> Result<V
             let col_type = params
                 .get("column_type")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| "Missing required parameter: column_type (e.g. TEXT, INTEGER)".to_string())?;
+                .ok_or_else(|| {
+                    "Missing required parameter: column_type (e.g. TEXT, INTEGER)".to_string()
+                })?;
             format!(
                 "ALTER TABLE {} ADD COLUMN {} {}",
                 quote_id(table_name),
@@ -720,7 +735,9 @@ async fn alter_table(db_path: &str, params: &HashMap<String, Value>) -> Result<V
                 .get("new_name")
                 .or_else(|| params.get("new_table_name"))
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| "Missing required parameter: new_name or new_table_name".to_string())?;
+                .ok_or_else(|| {
+                    "Missing required parameter: new_name or new_table_name".to_string()
+                })?;
             format!(
                 "ALTER TABLE {} RENAME TO {}",
                 quote_id(table_name),
@@ -801,7 +818,10 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
         .unwrap_or(false);
 
     if !table_exists {
-        return Err(format!("Table '{}' does not exist. Create it first or use create_table.", table_name));
+        return Err(format!(
+            "Table '{}' does not exist. Create it first or use create_table.",
+            table_name
+        ));
     }
 
     if has_header {
@@ -846,8 +866,10 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
             match result {
                 Ok(record) => {
                     let values: Vec<String> = record.iter().map(|v| v.to_string()).collect();
-                    let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-                        values.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+                    let params_refs: Vec<&dyn rusqlite::types::ToSql> = values
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
                     if let Err(e) = stmt.execute(params_refs.as_slice()) {
                         errors.push(format!("Line {}: {}", line_num + 2, e));
                     } else {
@@ -876,10 +898,7 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
             .from_path(csv_path)
             .map_err(|e| format!("Failed to read CSV: {}", e))?;
 
-        let all_records: Vec<csv::StringRecord> = rdr
-            .records()
-            .filter_map(|r| r.ok())
-            .collect();
+        let all_records: Vec<csv::StringRecord> = rdr.records().filter_map(|r| r.ok()).collect();
 
         if all_records.is_empty() {
             return Ok(json!({
@@ -917,8 +936,10 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
                 ));
                 continue;
             }
-            let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-                values.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+            let params_refs: Vec<&dyn rusqlite::types::ToSql> = values
+                .iter()
+                .map(|v| v as &dyn rusqlite::types::ToSql)
+                .collect();
             if let Err(e) = stmt.execute(params_refs.as_slice()) {
                 errors.push(format!("Line {}: {}", line_num + 1, e));
             } else {
@@ -962,7 +983,11 @@ async fn export_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
 
     let col_count = stmt.column_count();
     let col_names: Vec<String> = (0..col_count)
-        .map(|i| stmt.column_name(i).map(|n| n.to_string()).unwrap_or(format!("col_{}", i)))
+        .map(|i| {
+            stmt.column_name(i)
+                .map(|n| n.to_string())
+                .unwrap_or(format!("col_{}", i))
+        })
         .collect();
 
     let mut wtr = csv::Writer::from_path(csv_path)
@@ -1011,7 +1036,8 @@ async fn export_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
         exported += 1;
     }
 
-    wtr.flush().map_err(|e| format!("Failed to flush CSV: {}", e))?;
+    wtr.flush()
+        .map_err(|e| format!("Failed to flush CSV: {}", e))?;
 
     Ok(json!({
         "action": "export_csv",
@@ -1039,12 +1065,8 @@ async fn backup_database(db_path: &str, params: &HashMap<String, Value>) -> Resu
         .backup(rusqlite::DatabaseName::Main, backup_path, None::<fn(_)>)
         .map_err(|e| format!("Backup failed: {}", e))?;
 
-    let src_size = std::fs::metadata(db_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
-    let dst_size = std::fs::metadata(backup_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let src_size = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+    let dst_size = std::fs::metadata(backup_path).map(|m| m.len()).unwrap_or(0);
 
     Ok(json!({
         "action": "backup",
@@ -1118,10 +1140,13 @@ async fn run_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resul
 
     let dir = std::path::Path::new(migrations_dir);
     if !dir.exists() {
-        return Err(format!("Migrations directory '{}' does not exist", migrations_dir));
+        return Err(format!(
+            "Migrations directory '{}' does not exist",
+            migrations_dir
+        ));
     }
 
-    let mut migration_files: Vec<(String, String)> = Vec::new();
+    let mut migration_files: Vec<(String, String)> = Vec::with_capacity(64);
     let entries = std::fs::read_dir(dir)
         .map_err(|e| format!("Failed to read migrations directory: {}", e))?;
 
@@ -1151,8 +1176,8 @@ async fn run_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resul
         .filter_map(|r| r.ok())
         .collect();
 
-    let mut applied_list: Vec<Value> = Vec::new();
-    let mut errors: Vec<String> = Vec::new();
+    let mut applied_list: Vec<Value> = Vec::with_capacity(migration_files.len());
+    let mut errors: Vec<String> = Vec::with_capacity(1);
 
     for (filename, full_path) in &migration_files {
         let version = filename.split('_').next().unwrap_or(filename).to_string();
@@ -1206,7 +1231,10 @@ async fn run_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resul
             }
             Err(e) => {
                 let _ = conn.execute_batch("ROLLBACK");
-                errors.push(format!("Migration '{}' failed: {}, rolled back.", filename, e));
+                errors.push(format!(
+                    "Migration '{}' failed: {}, rolled back.",
+                    filename, e
+                ));
             }
         }
     }
@@ -1261,11 +1289,15 @@ async fn list_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resu
 
     let applied_versions: std::collections::HashSet<String> = applied_rows
         .iter()
-        .filter_map(|v| v.get("version").and_then(|s| s.as_str()).map(|s| s.to_string()))
+        .filter_map(|v| {
+            v.get("version")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        })
         .collect();
 
     let dir = std::path::Path::new(migrations_dir);
-    let mut available: Vec<Value> = Vec::new();
+    let mut available: Vec<Value> = Vec::with_capacity(64);
 
     if dir.exists() {
         let entries = std::fs::read_dir(dir)
@@ -1330,8 +1362,12 @@ async fn create_migration(params: &HashMap<String, Value>) -> Result<Value, Stri
         .unwrap_or("new_migration");
 
     let dir = std::path::Path::new(migrations_dir);
-    std::fs::create_dir_all(dir)
-        .map_err(|e| format!("Failed to create migrations directory '{}': {}", migrations_dir, e))?;
+    std::fs::create_dir_all(dir).map_err(|e| {
+        format!(
+            "Failed to create migrations directory '{}': {}",
+            migrations_dir, e
+        )
+    })?;
 
     let now = chrono::Utc::now();
     let version = now.format("%Y%m%d%H%M%S").to_string();
@@ -1339,10 +1375,20 @@ async fn create_migration(params: &HashMap<String, Value>) -> Result<Value, Stri
     let safe_desc: String = description
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let safe_desc = safe_desc.trim_matches('_').to_string();
-    let safe_desc = if safe_desc.is_empty() { "migration".to_string() } else { safe_desc };
+    let safe_desc = if safe_desc.is_empty() {
+        "migration".to_string()
+    } else {
+        safe_desc
+    };
 
     let filename = format!("{}_{}.sql", version, safe_desc);
     let filepath = dir.join(&filename);
@@ -1354,8 +1400,13 @@ async fn create_migration(params: &HashMap<String, Value>) -> Result<Value, Stri
         description,
     );
 
-    std::fs::write(&filepath, &content)
-        .map_err(|e| format!("Failed to write migration file '{}': {}", filepath.display(), e))?;
+    std::fs::write(&filepath, &content).map_err(|e| {
+        format!(
+            "Failed to write migration file '{}': {}",
+            filepath.display(),
+            e
+        )
+    })?;
 
     Ok(json!({
         "action": "migrate_create",
@@ -1480,7 +1531,10 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("query")),
             ("database_path".to_string(), json!(path)),
-            ("sql".to_string(), json!("SELECT name, age FROM users WHERE age > ?")),
+            (
+                "sql".to_string(),
+                json!("SELECT name, age FROM users WHERE age > ?"),
+            ),
             ("params".to_string(), json!([28])),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
@@ -1499,7 +1553,10 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("query")),
             ("database_path".to_string(), json!(path)),
-            ("sql".to_string(), json!("SELECT name FROM users WHERE age > ? AND age < ?")),
+            (
+                "sql".to_string(),
+                json!("SELECT name FROM users WHERE age > ? AND age < ?"),
+            ),
             ("params".to_string(), json!([20, 32])),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
@@ -1513,7 +1570,10 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("query")),
             ("database_path".to_string(), json!(path)),
-            ("sql".to_string(), json!("SELECT * FROM users WHERE age > ?")),
+            (
+                "sql".to_string(),
+                json!("SELECT * FROM users WHERE age > ?"),
+            ),
             ("params".to_string(), json!([100])),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
@@ -1544,7 +1604,9 @@ mod tests {
         ]);
         let result = DatabaseTool.execute(&params).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required parameter: sql"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required parameter: sql"));
         cleanup(&path);
     }
 
@@ -1556,13 +1618,20 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("execute")),
             ("database_path".to_string(), json!(path)),
-            ("sql_statement".to_string(), json!("INSERT INTO users (name, age, email) VALUES ('Diana', 28, 'diana@test.com')")),
+            (
+                "sql_statement".to_string(),
+                json!(
+                    "INSERT INTO users (name, age, email) VALUES ('Diana', 28, 'diana@test.com')"
+                ),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["affected_rows"], 1);
 
         let conn = Connection::open(&path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 4);
         cleanup(&path);
     }
@@ -1573,13 +1642,20 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("execute")),
             ("database_path".to_string(), json!(path)),
-            ("sql_statement".to_string(), json!("UPDATE users SET age = 31 WHERE name = 'Alice'")),
+            (
+                "sql_statement".to_string(),
+                json!("UPDATE users SET age = 31 WHERE name = 'Alice'"),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["affected_rows"], 1);
 
         let conn = Connection::open(&path).unwrap();
-        let age: i64 = conn.query_row("SELECT age FROM users WHERE name = 'Alice'", [], |r| r.get(0)).unwrap();
+        let age: i64 = conn
+            .query_row("SELECT age FROM users WHERE name = 'Alice'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(age, 31);
         cleanup(&path);
     }
@@ -1590,13 +1666,18 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("execute")),
             ("database_path".to_string(), json!(path)),
-            ("sql_statement".to_string(), json!("DELETE FROM users WHERE name = 'Bob'")),
+            (
+                "sql_statement".to_string(),
+                json!("DELETE FROM users WHERE name = 'Bob'"),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["affected_rows"], 1);
 
         let conn = Connection::open(&path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 2);
         cleanup(&path);
     }
@@ -1607,14 +1688,19 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("execute")),
             ("database_path".to_string(), json!(path)),
-            ("sql_statement".to_string(), json!("INSERT INTO users (name, age, email) VALUES (?1, ?2, ?3)")),
+            (
+                "sql_statement".to_string(),
+                json!("INSERT INTO users (name, age, email) VALUES (?1, ?2, ?3)"),
+            ),
             ("params".to_string(), json!(["Eve", 22, "eve@test.com"])),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["affected_rows"], 1);
 
         let conn = Connection::open(&path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 4);
         cleanup(&path);
     }
@@ -1627,18 +1713,23 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("execute_batch")),
             ("database_path".to_string(), json!(path)),
-            ("statements".to_string(), json!([
-                "INSERT INTO users (name, age, email) VALUES ('Frank', 40, 'frank@test.com')",
-                "INSERT INTO users (name, age, email) VALUES ('Grace', 32, 'grace@test.com')",
-                "UPDATE users SET age = 26 WHERE name = 'Bob'",
-            ])),
+            (
+                "statements".to_string(),
+                json!([
+                    "INSERT INTO users (name, age, email) VALUES ('Frank', 40, 'frank@test.com')",
+                    "INSERT INTO users (name, age, email) VALUES ('Grace', 32, 'grace@test.com')",
+                    "UPDATE users SET age = 26 WHERE name = 'Bob'",
+                ]),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["statement_count"], 3);
         assert_eq!(result["total_affected_rows"], 3);
 
         let conn = Connection::open(&path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 5);
         cleanup(&path);
     }
@@ -1649,18 +1740,27 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("execute_batch")),
             ("database_path".to_string(), json!(path)),
-            ("statements".to_string(), json!([
-                "INSERT INTO users (name, age, email) VALUES ('Grace', 32, 'grace@test.com')",
-                "INSERT INTO nonexistent VALUES (1)",
-            ])),
+            (
+                "statements".to_string(),
+                json!([
+                    "INSERT INTO users (name, age, email) VALUES ('Grace', 32, 'grace@test.com')",
+                    "INSERT INTO nonexistent VALUES (1)",
+                ]),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("rolled back") || err.contains("failed"), "Got: {}", err);
+        assert!(
+            err.contains("rolled back") || err.contains("failed"),
+            "Got: {}",
+            err
+        );
 
         let conn = Connection::open(&path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 3);
         cleanup(&path);
     }
@@ -1784,12 +1884,15 @@ mod tests {
             ("action".to_string(), json!("create_table")),
             ("database_path".to_string(), json!(path)),
             ("table_name".to_string(), json!("products")),
-            ("columns".to_string(), json!([
-                {"name": "id", "type": "INTEGER", "pk": true, "nullable": false},
-                {"name": "name", "type": "TEXT", "nullable": false},
-                {"name": "price", "type": "REAL", "nullable": true, "default": 0.0},
-                {"name": "active", "type": "INTEGER", "nullable": false, "default": true}
-            ])),
+            (
+                "columns".to_string(),
+                json!([
+                    {"name": "id", "type": "INTEGER", "pk": true, "nullable": false},
+                    {"name": "name", "type": "TEXT", "nullable": false},
+                    {"name": "price", "type": "REAL", "nullable": true, "default": 0.0},
+                    {"name": "active", "type": "INTEGER", "nullable": false, "default": true}
+                ]),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["table"], "products");
@@ -1797,7 +1900,11 @@ mod tests {
 
         let conn = Connection::open(&path).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='products'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='products'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
         cleanup(&path);
@@ -1868,7 +1975,11 @@ mod tests {
 
         let conn = Connection::open(&path).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='employees'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='employees'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
         cleanup(&path);
@@ -1904,7 +2015,11 @@ mod tests {
 
         let conn = Connection::open(&path).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 0);
         cleanup(&path);
@@ -1971,8 +2086,10 @@ mod tests {
             .has_headers(false)
             .from_path(&csv_path)
             .unwrap();
-        wtr.write_record(["10", "Xavier", "45", "x@test.com"]).unwrap();
-        wtr.write_record(["11", "Yvonne", "29", "y@test.com"]).unwrap();
+        wtr.write_record(["10", "Xavier", "45", "x@test.com"])
+            .unwrap();
+        wtr.write_record(["11", "Yvonne", "29", "y@test.com"])
+            .unwrap();
         wtr.flush().unwrap();
 
         let params = HashMap::from([
@@ -1987,7 +2104,9 @@ mod tests {
         assert_eq!(result["has_header"], false);
 
         let conn = Connection::open(&path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 5);
 
         let _ = std::fs::remove_file(&csv_path);
@@ -2030,7 +2149,9 @@ mod tests {
         assert!(result["source_size_bytes"].as_u64().unwrap_or(0) > 0);
 
         let conn = Connection::open(&backup_path).unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count, 3);
 
         let _ = std::fs::remove_file(&backup_path);
@@ -2071,7 +2192,10 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("run_sql_file")),
             ("database_path".to_string(), json!(path)),
-            ("file_path".to_string(), json!("/tmp/nonexistent_file_12345.sql")),
+            (
+                "file_path".to_string(),
+                json!("/tmp/nonexistent_file_12345.sql"),
+            ),
         ]);
         let result = DatabaseTool.execute(&params).await;
         assert!(result.is_err());
@@ -2095,7 +2219,10 @@ mod tests {
         ]);
         let result = DatabaseTool.execute(&params).await.unwrap();
         assert_eq!(result["action"], "migrate_create");
-        assert!(result["filepath"].as_str().unwrap().contains("create_posts_table"));
+        assert!(result["filepath"]
+            .as_str()
+            .unwrap()
+            .contains("create_posts_table"));
         let filepath = result["filepath"].as_str().unwrap().to_string();
 
         // Write actual migration content
@@ -2120,7 +2247,11 @@ mod tests {
         // Verify table exists
         let conn = Connection::open(&path).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='posts'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='posts'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
 

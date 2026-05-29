@@ -19,7 +19,9 @@ pub struct CodeTransformTool;
 
 #[async_trait::async_trait]
 impl Tool for CodeTransformTool {
-    fn name(&self) -> &str { "code_transform" }
+    fn name(&self) -> &str {
+        "code_transform"
+    }
 
     fn description(&self) -> &str {
         "Apply safe, pattern-based code transformations to Rust files. Actions: add_derive, remove_derive, replace_unwrap, rename, change_visibility. Operates on single files with dry-run support."
@@ -89,7 +91,10 @@ impl Tool for CodeTransformTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: file_path")?;
 
-        let dry_run = params.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dry_run = params
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let original = fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read {file_path}: {e}"))?;
@@ -147,7 +152,10 @@ fn transform_add_derive(source: &str, params: &HashMap<String, Value>) -> Result
     Ok(result.into_owned())
 }
 
-fn transform_remove_derive(source: &str, params: &HashMap<String, Value>) -> Result<String, String> {
+fn transform_remove_derive(
+    source: &str,
+    params: &HashMap<String, Value>,
+) -> Result<String, String> {
     let derive = params
         .get("derive")
         .and_then(|v| v.as_str())
@@ -175,9 +183,11 @@ fn transform_remove_derive(source: &str, params: &HashMap<String, Value>) -> Res
     // Clean up empty lines left by removed attributes
     let result = result
         .lines()
-        .filter(|line| !line.trim().is_empty() || {
-            // Keep empty lines that are between non-empty lines
-            true
+        .filter(|line| {
+            !line.trim().is_empty() || {
+                // Keep empty lines that are between non-empty lines
+                true
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -191,8 +201,11 @@ fn transform_replace_unwrap(source: &str) -> String {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"\.unwrap\(\)").unwrap());
 
-    re.replace_all(source, ".map_err(|e| anyhow::anyhow!(\"unwrap failed: {:?}\", e))?")
-        .into_owned()
+    re.replace_all(
+        source,
+        ".map_err(|e| anyhow::anyhow!(\"unwrap failed: {:?}\", e))?",
+    )
+    .into_owned()
 }
 
 fn transform_rename(source: &str, params: &HashMap<String, Value>) -> Result<String, String> {
@@ -208,13 +221,15 @@ fn transform_rename(source: &str, params: &HashMap<String, Value>) -> Result<Str
 
     // Word-boundary replacement
     let pattern = format!(r"\b{}\b", regex::escape(from));
-    let re = regex::Regex::new(&pattern)
-        .map_err(|e| format!("Invalid regex pattern: {e}"))?;
+    let re = regex::Regex::new(&pattern).map_err(|e| format!("Invalid regex pattern: {e}"))?;
 
     Ok(re.replace_all(source, to).into_owned())
 }
 
-fn transform_change_visibility(source: &str, params: &HashMap<String, Value>) -> Result<String, String> {
+fn transform_change_visibility(
+    source: &str,
+    params: &HashMap<String, Value>,
+) -> Result<String, String> {
     let visibility = params
         .get("visibility")
         .and_then(|v| v.as_str())
@@ -230,8 +245,7 @@ fn transform_change_visibility(source: &str, params: &HashMap<String, Value>) ->
         r"(?m)^(pub(?:\([^)]*\))?\s+)?(fn|struct|enum|trait|impl|const|static|type)\s+{target}\b",
         target = regex::escape(target),
     );
-    let re = regex::Regex::new(&pattern)
-        .map_err(|e| format!("Invalid regex pattern: {e}"))?;
+    let re = regex::Regex::new(&pattern).map_err(|e| format!("Invalid regex pattern: {e}"))?;
 
     let new_vis: String = if visibility == "private" {
         String::new()
@@ -239,10 +253,12 @@ fn transform_change_visibility(source: &str, params: &HashMap<String, Value>) ->
         format!("{visibility} ")
     };
 
-    Ok(re.replace_all(source, |caps: &regex::Captures| {
-        let kind = &caps[2];
-        format!("{new_vis}{kind} {target}")
-    }).into_owned())
+    Ok(re
+        .replace_all(source, |caps: &regex::Captures| {
+            let kind = &caps[2];
+            format!("{new_vis}{kind} {target}")
+        })
+        .into_owned())
 }
 
 // ============================================================================

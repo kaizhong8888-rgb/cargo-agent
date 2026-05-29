@@ -55,7 +55,15 @@ impl ScheduleStore {
     }
 
     fn next_id(&self) -> String {
-        let max = self.schedules.iter().filter_map(|s| s.id.strip_prefix("sched-").and_then(|n| n.parse::<u64>().ok())).max().unwrap_or(0);
+        let max = self
+            .schedules
+            .iter()
+            .filter_map(|s| {
+                s.id.strip_prefix("sched-")
+                    .and_then(|n| n.parse::<u64>().ok())
+            })
+            .max()
+            .unwrap_or(0);
         format!("sched-{}", max + 1)
     }
 }
@@ -73,7 +81,9 @@ pub struct SchedulerTool;
 
 #[async_trait::async_trait]
 impl Tool for SchedulerTool {
-    fn name(&self) -> &str { "scheduler" }
+    fn name(&self) -> &str {
+        "scheduler"
+    }
 
     fn description(&self) -> &str {
         "Manage scheduled/recurring tasks. Actions: create (new recurring task), list (show all schedules), cancel (disable a schedule), enable (re-enable), delete (remove), run_now (trigger immediately). Useful for periodic dependency checks, test runs, or health monitoring."
@@ -180,18 +190,22 @@ impl Tool for SchedulerTool {
                 }))
             }
             "list" => {
-                let schedules: Vec<Value> = store.schedules.iter().map(|s| {
-                    serde_json::json!({
-                        "id": s.id,
-                        "description": s.description,
-                        "command": s.command,
-                        "interval_secs": s.interval_secs,
-                        "working_dir": s.working_dir,
-                        "enabled": s.enabled,
-                        "created_at": s.created_at,
-                        "last_run": s.last_run,
+                let schedules: Vec<Value> = store
+                    .schedules
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "id": s.id,
+                            "description": s.description,
+                            "command": s.command,
+                            "interval_secs": s.interval_secs,
+                            "working_dir": s.working_dir,
+                            "enabled": s.enabled,
+                            "created_at": s.created_at,
+                            "last_run": s.last_run,
+                        })
                     })
-                }).collect();
+                    .collect();
 
                 Ok(serde_json::json!({
                     "status": "ok",
@@ -304,7 +318,7 @@ impl Tool for SchedulerTool {
                             "schedule_id": id,
                             "error": format!("Failed to execute command: {e}"),
                             "executed_at": now,
-                        }))
+                        })),
                     }
                 } else {
                     Ok(serde_json::json!({
@@ -314,7 +328,9 @@ impl Tool for SchedulerTool {
                     }))
                 }
             }
-            other => Err(format!("Unknown action: {other}. Supported: create, list, cancel, enable, delete, run_now")),
+            other => Err(format!(
+                "Unknown action: {other}. Supported: create, list, cancel, enable, delete, run_now"
+            )),
         }
     }
 }

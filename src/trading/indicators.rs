@@ -19,16 +19,16 @@ pub struct BollingerBands {
 /// 随机指标 (KDJ / Stochastic Oscillator) 输出
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StochasticOutput {
-    pub k: Vec<f64>,  // %K 快线
-    pub d: Vec<f64>,  // %D 慢线 (信号线)
-    pub j: Vec<f64>,  // J 值 = 3*K - 2*D
+    pub k: Vec<f64>, // %K 快线
+    pub d: Vec<f64>, // %D 慢线 (信号线)
+    pub j: Vec<f64>, // J 值 = 3*K - 2*D
 }
 
 /// 一目均衡表 (Ichimoku Cloud) 输出
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IchimokuOutput {
-    pub tenkan_sen: Vec<f64>,  // 转换线 (9)
-    pub kijun_sen: Vec<f64>,   // 基准线 (26)
+    pub tenkan_sen: Vec<f64>,    // 转换线 (9)
+    pub kijun_sen: Vec<f64>,     // 基准线 (26)
     pub senkou_span_a: Vec<f64>, // 先行带A
     pub senkou_span_b: Vec<f64>, // 先行带B
     pub chikou_span: Vec<f64>,   // 迟行带
@@ -37,16 +37,16 @@ pub struct IchimokuOutput {
 /// SuperTrend 输出
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuperTrendOutput {
-    pub trend: Vec<f64>,       // 趋势线 (上轨或下轨)
-    pub direction: Vec<i8>,    // 方向: 1=多头, -1=空头
+    pub trend: Vec<f64>,    // 趋势线 (上轨或下轨)
+    pub direction: Vec<i8>, // 方向: 1=多头, -1=空头
 }
 
 /// Keltner Channels 输出
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeltnerChannels {
-    pub middle: Vec<f64>,  // EMA 中线
-    pub upper: Vec<f64>,   // 上轨
-    pub lower: Vec<f64>,   // 下轨
+    pub middle: Vec<f64>, // EMA 中线
+    pub upper: Vec<f64>,  // 上轨
+    pub lower: Vec<f64>,  // 下轨
 }
 
 // ========================================================================
@@ -265,7 +265,13 @@ pub fn atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f6
 //       %D = SMA(%K, 3)
 //       J  = 3 * %K - 2 * %D
 // ========================================================================
-pub fn stochastic(highs: &[f64], lows: &[f64], closes: &[f64], k_period: usize, d_period: usize) -> StochasticOutput {
+pub fn stochastic(
+    highs: &[f64],
+    lows: &[f64],
+    closes: &[f64],
+    k_period: usize,
+    d_period: usize,
+) -> StochasticOutput {
     let n = closes.len();
     let mut raw_k = vec![f64::NAN; n];
 
@@ -288,14 +294,18 @@ pub fn stochastic(highs: &[f64], lows: &[f64], closes: &[f64], k_period: usize, 
     }
 
     let k = sma(&raw_k, d_period); // %K 通常使用 d_period=3 的平滑
-    let d = sma(&k, d_period);     // %D 是 %K 的移动平均
-    let j: Vec<f64> = k.iter().zip(d.iter()).map(|(kv, dv)| {
-        if kv.is_nan() || dv.is_nan() {
-            f64::NAN
-        } else {
-            3.0 * kv - 2.0 * dv
-        }
-    }).collect();
+    let d = sma(&k, d_period); // %D 是 %K 的移动平均
+    let j: Vec<f64> = k
+        .iter()
+        .zip(d.iter())
+        .map(|(kv, dv)| {
+            if kv.is_nan() || dv.is_nan() {
+                f64::NAN
+            } else {
+                3.0 * kv - 2.0 * dv
+            }
+        })
+        .collect();
 
     StochasticOutput { k, d, j }
 }
@@ -412,8 +422,14 @@ fn ichimoku_line(highs: &[f64], lows: &[f64], period: usize, n: usize) -> Vec<f6
     let mut result = vec![f64::NAN; period - 1];
     for i in (period - 1)..n {
         let start = i + 1 - period;
-        let h_max = highs[start..=i].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let l_min = lows[start..=i].iter().cloned().fold(f64::INFINITY, f64::min);
+        let h_max = highs[start..=i]
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
+        let l_min = lows[start..=i]
+            .iter()
+            .cloned()
+            .fold(f64::INFINITY, f64::min);
         result.push((h_max + l_min) / 2.0);
     }
     result
@@ -514,13 +530,22 @@ pub fn keltner_channels(
         }
     }
 
-    KeltnerChannels { middle, upper, lower }
+    KeltnerChannels {
+        middle,
+        upper,
+        lower,
+    }
 }
 
 // ========================================================================
 // 抛物线转向 (Parabolic SAR)
 // ========================================================================
-pub fn parabolic_sar(highs: &[f64], lows: &[f64], acceleration: f64, max_acceleration: f64) -> Vec<f64> {
+pub fn parabolic_sar(
+    highs: &[f64],
+    lows: &[f64],
+    acceleration: f64,
+    max_acceleration: f64,
+) -> Vec<f64> {
     let n = highs.len();
     let mut sar = vec![f64::NAN; n];
     let mut ep = vec![0.0; n]; // 极点价格
@@ -638,9 +663,13 @@ mod tests {
 
     #[test]
     fn test_stochastic() {
-        let highs = vec![110.0, 112.0, 115.0, 113.0, 116.0, 118.0, 120.0, 119.0, 117.0, 121.0];
+        let highs = vec![
+            110.0, 112.0, 115.0, 113.0, 116.0, 118.0, 120.0, 119.0, 117.0, 121.0,
+        ];
         let lows = vec![90.0, 92.0, 95.0, 93.0, 96.0, 98.0, 100.0, 99.0, 97.0, 101.0];
-        let closes = vec![105.0, 108.0, 110.0, 109.0, 112.0, 115.0, 117.0, 116.0, 114.0, 118.0];
+        let closes = vec![
+            105.0, 108.0, 110.0, 109.0, 112.0, 115.0, 117.0, 116.0, 114.0, 118.0,
+        ];
         let stoch = stochastic(&highs, &lows, &closes, 5, 3);
         assert_eq!(stoch.k.len(), 10);
         assert_eq!(stoch.d.len(), 10);
@@ -682,8 +711,12 @@ mod tests {
     #[test]
     fn test_ichimoku() {
         let n = 100;
-        let highs: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 10.0 + 5.0).collect();
-        let lows: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 10.0 - 5.0).collect();
+        let highs: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64).sin() * 10.0 + 5.0)
+            .collect();
+        let lows: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64).sin() * 10.0 - 5.0)
+            .collect();
         let closes: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 10.0).collect();
         let ichi = ichimoku(&highs, &lows, &closes);
         assert_eq!(ichi.tenkan_sen.len(), n);
@@ -693,8 +726,12 @@ mod tests {
     #[test]
     fn test_supertrend() {
         let n = 200;
-        let highs: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 5.0 + 2.0).collect();
-        let lows: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 5.0 - 2.0).collect();
+        let highs: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64).sin() * 5.0 + 2.0)
+            .collect();
+        let lows: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64).sin() * 5.0 - 2.0)
+            .collect();
         let closes: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 5.0).collect();
         let st = supertrend(&highs, &lows, &closes, 10, 3.0);
         assert_eq!(st.trend.len(), n);
@@ -707,8 +744,12 @@ mod tests {
     #[test]
     fn test_keltner() {
         let n = 100;
-        let highs: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 5.0 + 1.0).collect();
-        let lows: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 5.0 - 1.0).collect();
+        let highs: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64).sin() * 5.0 + 1.0)
+            .collect();
+        let lows: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64).sin() * 5.0 - 1.0)
+            .collect();
         let closes: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64).sin() * 5.0).collect();
         let kc = keltner_channels(&highs, &lows, &closes, 20, 14, 2.0);
         assert_eq!(kc.upper.len(), n);

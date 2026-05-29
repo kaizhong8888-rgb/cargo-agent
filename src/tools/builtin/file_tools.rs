@@ -15,21 +15,20 @@ impl Tool for ReadFile {
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "path".to_string(),
-                description: "Path to the file".to_string(),
-                required: true,
-                parameter_type: "string".to_string(),
-            },
-        ]
+        vec![ToolParameter {
+            name: "path".to_string(),
+            description: "Path to the file".to_string(),
+            required: true,
+            parameter_type: "string".to_string(),
+        }]
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params.get("path")
+        let path = params
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: path")?;
-        
+
         match std::fs::read_to_string(path) {
             Ok(content) => Ok(serde_json::json!({
                 "status": "ok",
@@ -74,13 +73,15 @@ impl Tool for WriteFile {
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params.get("path")
+        let path = params
+            .get("path")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: path")?;
-        let content = params.get("content")
+        let content = params
+            .get("content")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: content")?;
-        
+
         match std::fs::write(path, content) {
             Ok(_) => Ok(serde_json::json!({
                 "status": "ok",

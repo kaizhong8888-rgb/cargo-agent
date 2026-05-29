@@ -99,12 +99,12 @@ impl Gateway {
 
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
-        let skill_registry = Arc::new(
-            SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(|_| {
+        let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
+            |_| {
                 tracing::warn!("Failed to load skills from {}", skills_dir.display());
                 SkillRegistry::new()
-            }),
-        );
+            },
+        ));
 
         let active_skills = skill_registry.active_skills().len();
         let total_skills = skill_registry.list().len();
@@ -156,7 +156,10 @@ impl Gateway {
             Always run cargo check after code modifications to verify correctness.",
         );
 
-        Self { agent, model_router }
+        Self {
+            agent,
+            model_router,
+        }
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -224,7 +227,11 @@ impl Gateway {
     fn slash_tools(&self, _args: &str) -> String {
         let tools = self.agent.tool_registry.list_tools();
         let mut out = String::new();
-        out.push_str(&format!("  {}  {}\n\n", "🔧".bold(), format!("Tools ({} registered)", tools.len()).cyan().bold()));
+        out.push_str(&format!(
+            "  {}  {}\n\n",
+            "🔧".bold(),
+            format!("Tools ({} registered)", tools.len()).cyan().bold()
+        ));
 
         // Group tools by category for better readability
         let mut categories: Vec<(&str, Vec<(&str, &str)>)> = vec![
@@ -242,7 +249,9 @@ impl Gateway {
             let cat = match name {
                 "code_analyze" | "code_analyzer" | "code_transform" | "code_review"
                 | "code_execute" | "scaffold" | "dep_manager" | "self_modify" => 0,
-                "git_status" | "git_diff" | "git_log" | "git_clone" | "git_commit" | "git_push" => 1,
+                "git_status" | "git_diff" | "git_log" | "git_clone" | "git_commit" | "git_push" => {
+                    1
+                }
                 "data_processor" | "chart_generator" | "database" | "config_store"
                 | "doc_search" | "diagram" => 2,
                 "task_planner" | "task_pool" | "scheduler" | "env_secret" | "notify"
@@ -261,26 +270,46 @@ impl Gateway {
                 continue;
             }
             items.sort_by(|a, b| a.0.cmp(b.0));
-            out.push_str(&format!("  {}  {}\n", "▸".cyan().bold(), labels[idx].bold()));
+            out.push_str(&format!(
+                "  {}  {}\n",
+                "▸".cyan().bold(),
+                labels[idx].bold()
+            ));
             for (name, desc) in items {
-                out.push_str(&format!("    {}  {}\n", name.magenta().bold(), desc.dimmed()));
+                out.push_str(&format!(
+                    "    {}  {}\n",
+                    name.magenta().bold(),
+                    desc.dimmed()
+                ));
             }
             out.push('\n');
         }
 
-        out.push_str(&format!("  {} {}", "💡".dimmed(), "Use `/tool:name` for details on a specific tool.".dimmed()));
+        out.push_str(&format!(
+            "  {} {}",
+            "💡".dimmed(),
+            "Use `/tool:name` for details on a specific tool.".dimmed()
+        ));
         out
     }
 
     fn slash_tool_detail(&self, name: &str) -> String {
         if name.is_empty() {
-            return format!("  {}  {}\n\n  {}", "❓".bold(), "Tool Lookup".cyan().bold(),
-                "Usage: `/tool:tool_name` (e.g. `/tool:code_analyze`)".dimmed());
+            return format!(
+                "  {}  {}\n\n  {}",
+                "❓".bold(),
+                "Tool Lookup".cyan().bold(),
+                "Usage: `/tool:tool_name` (e.g. `/tool:code_analyze`)".dimmed()
+            );
         }
         match self.agent.tool_registry.get(name) {
             Some(tool) => {
                 let mut out = String::new();
-                out.push_str(&format!("  {}  {}\n\n", "🔧".bold(), format!("Tool: {}", tool.name()).cyan().bold()));
+                out.push_str(&format!(
+                    "  {}  {}\n\n",
+                    "🔧".bold(),
+                    format!("Tool: {}", tool.name()).cyan().bold()
+                ));
                 out.push_str(&format!("  {}\n\n", tool.description().dimmed()));
 
                 let params = tool.parameters();
@@ -301,7 +330,9 @@ impl Gateway {
                 }
                 out
             }
-            None => format!("  ❌ Tool `{name}` not found.\n  Use `/tools` to see all available tools."),
+            None => {
+                format!("  ❌ Tool `{name}` not found.\n  Use `/tools` to see all available tools.")
+            }
         }
     }
 
@@ -309,7 +340,8 @@ impl Gateway {
 
     async fn slash_memory(&self, args: &str) -> String {
         // Access memory store through the agent
-        let store: Option<std::sync::Arc<crate::memory::SqliteMemoryStore>> = self.agent.memory_store().cloned();
+        let store: Option<std::sync::Arc<crate::memory::SqliteMemoryStore>> =
+            self.agent.memory_store().cloned();
         let store = match store {
             Some(s) => s,
             None => return "  ❌ Memory store is not available (run the agent first).".to_string(),
@@ -322,26 +354,34 @@ impl Gateway {
         };
 
         match subcmd {
-            "ns" | "namespaces" | "namespace" => {
-                match store.list_namespaces() {
-                    Ok(ns_list) => {
-                        if ns_list.is_empty() {
-                            return "  📭 No memories stored yet.\n  Ask the agent to store something!".to_string();
-                        }
-                        let total: usize = ns_list.iter().map(|(_, c)| c).sum();
-                        let mut out = String::new();
-                        out.push_str(&format!("  {}  {}\n\n", "🗂".bold(), format!("Namespaces ({total} total)").cyan().bold()));
-                        for (ns, count) in &ns_list {
-                            out.push_str(&format!("    {}  {:>4} memories\n", ns.magenta().bold(), count));
-                        }
-                        out
+            "ns" | "namespaces" | "namespace" => match store.list_namespaces() {
+                Ok(ns_list) => {
+                    if ns_list.is_empty() {
+                        return "  📭 No memories stored yet.\n  Ask the agent to store something!"
+                            .to_string();
                     }
-                    Err(e) => format!("  ❌ Error reading memory store: {e}"),
+                    let total: usize = ns_list.iter().map(|(_, c)| c).sum();
+                    let mut out = String::new();
+                    out.push_str(&format!(
+                        "  {}  {}\n\n",
+                        "🗂".bold(),
+                        format!("Namespaces ({total} total)").cyan().bold()
+                    ));
+                    for (ns, count) in &ns_list {
+                        out.push_str(&format!(
+                            "    {}  {:>4} memories\n",
+                            ns.magenta().bold(),
+                            count
+                        ));
+                    }
+                    out
                 }
-            }
+                Err(e) => format!("  ❌ Error reading memory store: {e}"),
+            },
             "search" | "s" | "find" | "q" => {
                 if subargs.is_empty() {
-                    return "  Usage: `/mem:search <query>` — e.g. `/mem:search rust ownership`".to_string();
+                    return "  Usage: `/mem:search <query>` — e.g. `/mem:search rust ownership`"
+                        .to_string();
                 }
                 match store.search(None, None, Some(subargs), None, 10) {
                     Ok(results) => {
@@ -349,7 +389,12 @@ impl Gateway {
                             return format!("  🔍 No memories found for: `{subargs}`");
                         }
                         let mut out = String::new();
-                        out.push_str(&format!("  {}  {} results for \"{}\"\n\n", "🔍".bold(), results.len(), subargs.cyan()));
+                        out.push_str(&format!(
+                            "  {}  {} results for \"{}\"\n\n",
+                            "🔍".bold(),
+                            results.len(),
+                            subargs.cyan()
+                        ));
                         for m in &results {
                             let preview = if m.value.len() > 80 {
                                 format!("{}...", &m.value[..77])
@@ -368,29 +413,42 @@ impl Gateway {
                     Err(e) => format!("  ❌ Search error: {e}"),
                 }
             }
-            "stats" | "" => {
-                match store.stats() {
-                    Ok(stats) => {
-                        let mut out = String::new();
-                        out.push_str(&format!("  {}  {}\n\n", "🧠".bold(), "Memory Stats".cyan().bold()));
-                        out.push_str(&format!("  {} {}\n\n", "Total memories:".dimmed(), stats.total.to_string().bold()));
+            "stats" | "" => match store.stats() {
+                Ok(stats) => {
+                    let mut out = String::new();
+                    out.push_str(&format!(
+                        "  {}  {}\n\n",
+                        "🧠".bold(),
+                        "Memory Stats".cyan().bold()
+                    ));
+                    out.push_str(&format!(
+                        "  {} {}\n\n",
+                        "Total memories:".dimmed(),
+                        stats.total.to_string().bold()
+                    ));
 
-                        out.push_str(&format!("  {} \n", "By Namespace:".bold()));
-                        for (ns, count) in &stats.by_namespace {
-                            out.push_str(&format!("    {} {}\n", ns.magenta().bold(), count));
-                        }
-
-                        out.push_str(&format!("\n  {} \n", "By Importance:".bold()));
-                        for (imp, count) in &stats.by_importance {
-                            let bar = "█".repeat(*count);
-                            out.push_str(&format!("    {}  {} ({})\n", format!("{:>2}", imp).dimmed(), bar, count));
-                        }
-                        out
+                    out.push_str(&format!("  {} \n", "By Namespace:".bold()));
+                    for (ns, count) in &stats.by_namespace {
+                        out.push_str(&format!("    {} {}\n", ns.magenta().bold(), count));
                     }
-                    Err(e) => format!("  ❌ Stats error: {e}"),
+
+                    out.push_str(&format!("\n  {} \n", "By Importance:".bold()));
+                    for (imp, count) in &stats.by_importance {
+                        let bar = "█".repeat(*count);
+                        out.push_str(&format!(
+                            "    {}  {} ({})\n",
+                            format!("{:>2}", imp).dimmed(),
+                            bar,
+                            count
+                        ));
+                    }
+                    out
                 }
-            }
-            _ => format!("  ❌ Unknown memory subcommand: `{subcmd}`\n  Use: stats, ns, search <query>"),
+                Err(e) => format!("  ❌ Stats error: {e}"),
+            },
+            _ => format!(
+                "  ❌ Unknown memory subcommand: `{subcmd}`\n  Use: stats, ns, search <query>"
+            ),
         }
     }
 
@@ -406,13 +464,20 @@ impl Gateway {
                     Ok(out) if out.status.success() => {
                         let log = String::from_utf8_lossy(&out.stdout);
                         let mut formatted = String::new();
-                        formatted.push_str(&format!("  {}  {}\n\n", "📦".bold(), "Recent Commits".cyan().bold()));
+                        formatted.push_str(&format!(
+                            "  {}  {}\n\n",
+                            "📦".bold(),
+                            "Recent Commits".cyan().bold()
+                        ));
                         for line in log.lines() {
                             formatted.push_str(&format!("    {}\n", line.dimmed()));
                         }
                         formatted
                     }
-                    Ok(out) => format!("  ❌ git log failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Ok(out) => format!(
+                        "  ❌ git log failed:\n  {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    ),
                     Err(e) => format!("  ❌ git not available: {e}"),
                 }
             }
@@ -424,24 +489,34 @@ impl Gateway {
                     Ok(out) if out.status.success() => {
                         let diff = String::from_utf8_lossy(&out.stdout);
                         if diff.trim().is_empty() {
-                            return "  ✅ Working tree is clean, no uncommitted changes.".to_string();
+                            return "  ✅ Working tree is clean, no uncommitted changes."
+                                .to_string();
                         }
                         let mut formatted = String::new();
-                        formatted.push_str(&format!("  {}  {}\n\n", "📝".bold(), "Uncommitted Changes".cyan().bold()));
+                        formatted.push_str(&format!(
+                            "  {}  {}\n\n",
+                            "📝".bold(),
+                            "Uncommitted Changes".cyan().bold()
+                        ));
                         for line in diff.lines() {
                             formatted.push_str(&format!("    {}\n", line.dimmed()));
                         }
-                        formatted.push_str(&"\n  Use `/git:diff:full` for detailed diff.".dimmed().to_string());
+                        formatted.push_str(
+                            &"\n  Use `/git:diff:full` for detailed diff."
+                                .dimmed()
+                                .to_string(),
+                        );
                         formatted
                     }
-                    Ok(out) => format!("  ❌ git diff failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Ok(out) => format!(
+                        "  ❌ git diff failed:\n  {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    ),
                     Err(e) => format!("  ❌ git not available: {e}"),
                 }
             }
             "diff:full" | "df" => {
-                let output = std::process::Command::new("git")
-                    .args(["diff"])
-                    .output();
+                let output = std::process::Command::new("git").args(["diff"]).output();
                 match output {
                     Ok(out) if out.status.success() => {
                         let diff = String::from_utf8_lossy(&out.stdout);
@@ -450,7 +525,10 @@ impl Gateway {
                         }
                         format!("  📝 Full diff:\n\n{}", diff)
                     }
-                    Ok(out) => format!("  ❌ git diff failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Ok(out) => format!(
+                        "  ❌ git diff failed:\n  {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    ),
                     Err(e) => format!("  ❌ git not available: {e}"),
                 }
             }
@@ -462,17 +540,25 @@ impl Gateway {
                     Ok(out) if out.status.success() => {
                         let branches = String::from_utf8_lossy(&out.stdout);
                         let mut formatted = String::new();
-                        formatted.push_str(&format!("  {}  {}\n\n", "🌿".bold(), "Branches".cyan().bold()));
+                        formatted.push_str(&format!(
+                            "  {}  {}\n\n",
+                            "🌿".bold(),
+                            "Branches".cyan().bold()
+                        ));
                         for line in branches.lines() {
                             if line.starts_with('*') {
-                                formatted.push_str(&format!("    {} (current)\n", line.green().bold()));
+                                formatted
+                                    .push_str(&format!("    {} (current)\n", line.green().bold()));
                             } else {
                                 formatted.push_str(&format!("    {}\n", line.dimmed()));
                             }
                         }
                         formatted
                     }
-                    Ok(out) => format!("  ❌ git branch failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Ok(out) => format!(
+                        "  ❌ git branch failed:\n  {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    ),
                     Err(e) => format!("  ❌ git not available: {e}"),
                 }
             }
@@ -489,16 +575,23 @@ impl Gateway {
                         let branch_output = std::process::Command::new("git")
                             .args(["branch", "--show-current"])
                             .output();
-                        let branch = branch_output.ok()
+                        let branch = branch_output
+                            .ok()
                             .filter(|o| o.status.success())
                             .and_then(|o| String::from_utf8(o.stdout).ok())
                             .map(|s| s.trim().to_string())
                             .unwrap_or_else(|| "?".to_string());
 
-                        formatted.push_str(&format!("  {}  {}  {}\n\n", "📦".bold(), "Git Status".cyan().bold(), format!("[{}]", branch).dimmed()));
+                        formatted.push_str(&format!(
+                            "  {}  {}  {}\n\n",
+                            "📦".bold(),
+                            "Git Status".cyan().bold(),
+                            format!("[{}]", branch).dimmed()
+                        ));
 
                         if status.trim().is_empty() {
-                            formatted.push_str(&format!("  {}  Working tree is clean\n", "✅".green()));
+                            formatted
+                                .push_str(&format!("  {}  Working tree is clean\n", "✅".green()));
                         } else {
                             for line in status.lines() {
                                 let (prefix, file) = if line.len() > 3 {
@@ -514,13 +607,24 @@ impl Gateway {
                                     "R" => "🔄",
                                     _ => "  ",
                                 };
-                                formatted.push_str(&format!("    {} {}  {}\n", icon, prefix.dimmed(), file.yellow()));
+                                formatted.push_str(&format!(
+                                    "    {} {}  {}\n",
+                                    icon,
+                                    prefix.dimmed(),
+                                    file.yellow()
+                                ));
                             }
                         }
-                        formatted.push_str(&"\n  Use `/git:log` for commit history, `/git:diff` for changes.".dimmed());
+                        formatted.push_str(
+                            &"\n  Use `/git:log` for commit history, `/git:diff` for changes."
+                                .dimmed(),
+                        );
                         formatted
                     }
-                    Ok(out) => format!("  ❌ git status failed:\n  {}", String::from_utf8_lossy(&out.stderr)),
+                    Ok(out) => format!(
+                        "  ❌ git status failed:\n  {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    ),
                     Err(e) => format!("  ❌ git not available: {e}"),
                 }
             }
@@ -563,12 +667,25 @@ impl Gateway {
                         };
 
                         let mut out = String::new();
-                        out.push_str(&format!("  {}  {}\n\n", "📋".bold(), "Pending Tasks".cyan().bold()));
+                        out.push_str(&format!(
+                            "  {}  {}\n\n",
+                            "📋".bold(),
+                            "Pending Tasks".cyan().bold()
+                        ));
 
                         let mut count = 0;
                         for (_id, title, status, _created) in rows.flatten() {
-                            let icon = if status == "in_progress" { "🔄" } else { "⏳" };
-                            out.push_str(&format!("    {}  {}  ({})\n", icon, title.bold(), status.dimmed()));
+                            let icon = if status == "in_progress" {
+                                "🔄"
+                            } else {
+                                "⏳"
+                            };
+                            out.push_str(&format!(
+                                "    {}  {}  ({})\n",
+                                icon,
+                                title.bold(),
+                                status.dimmed()
+                            ));
                             count += 1;
                         }
 
@@ -584,17 +701,60 @@ impl Gateway {
                 match rusqlite::Connection::open(path) {
                     Ok(conn) => {
                         // Get counts by status
-                        let total: usize = conn.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap_or(0);
-                        let pending: usize = conn.query_row("SELECT COUNT(*) FROM tasks WHERE status = 'pending'", [], |r| r.get(0)).unwrap_or(0);
-                        let in_progress: usize = conn.query_row("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'", [], |r| r.get(0)).unwrap_or(0);
-                        let completed: usize = conn.query_row("SELECT COUNT(*) FROM tasks WHERE status = 'completed'", [], |r| r.get(0)).unwrap_or(0);
+                        let total: usize = conn
+                            .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
+                            .unwrap_or(0);
+                        let pending: usize = conn
+                            .query_row(
+                                "SELECT COUNT(*) FROM tasks WHERE status = 'pending'",
+                                [],
+                                |r| r.get(0),
+                            )
+                            .unwrap_or(0);
+                        let in_progress: usize = conn
+                            .query_row(
+                                "SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'",
+                                [],
+                                |r| r.get(0),
+                            )
+                            .unwrap_or(0);
+                        let completed: usize = conn
+                            .query_row(
+                                "SELECT COUNT(*) FROM tasks WHERE status = 'completed'",
+                                [],
+                                |r| r.get(0),
+                            )
+                            .unwrap_or(0);
 
                         let mut out = String::new();
-                        out.push_str(&format!("  {}  {}\n\n", "📊".bold(), "Task Overview".cyan().bold()));
-                        out.push_str(&format!("  {} {}\n", "Total tasks:".dimmed(), total.to_string().bold()));
-                        out.push_str(&format!("  {} {} {}\n", "⏳".dimmed(), "Pending:".dimmed(), pending));
-                        out.push_str(&format!("  {} {} {}\n", "🔄".dimmed(), "In Progress:".dimmed(), in_progress));
-                        out.push_str(&format!("  {} {} {}\n", "✅".dimmed(), "Completed:".dimmed(), completed));
+                        out.push_str(&format!(
+                            "  {}  {}\n\n",
+                            "📊".bold(),
+                            "Task Overview".cyan().bold()
+                        ));
+                        out.push_str(&format!(
+                            "  {} {}\n",
+                            "Total tasks:".dimmed(),
+                            total.to_string().bold()
+                        ));
+                        out.push_str(&format!(
+                            "  {} {} {}\n",
+                            "⏳".dimmed(),
+                            "Pending:".dimmed(),
+                            pending
+                        ));
+                        out.push_str(&format!(
+                            "  {} {} {}\n",
+                            "🔄".dimmed(),
+                            "In Progress:".dimmed(),
+                            in_progress
+                        ));
+                        out.push_str(&format!(
+                            "  {} {} {}\n",
+                            "✅".dimmed(),
+                            "Completed:".dimmed(),
+                            completed
+                        ));
 
                         if pending + in_progress > 0 {
                             out.push_str(&"\n  Use `/tasks:todo` to see pending tasks.".dimmed());
@@ -615,12 +775,19 @@ impl Gateway {
         let active_count = self.agent.skill_registry.active_skills().len();
 
         let mut out = String::new();
-        out.push_str(&format!("  {}  {} ({})\n\n", "🎯".bold(), "Skills".cyan().bold(),
-            format!("{} loaded, {} active", skills.len(), active_count).dimmed()));
+        out.push_str(&format!(
+            "  {}  {} ({})\n\n",
+            "🎯".bold(),
+            "Skills".cyan().bold(),
+            format!("{} loaded, {} active", skills.len(), active_count).dimmed()
+        ));
 
         if skills.is_empty() {
             out.push_str(&format!("  {}  No skills loaded.\n", "📭".dimmed()));
-            out.push_str(&format!("  {}  Ask the agent to create a skill with manage_skills.\n", "💡".dimmed()));
+            out.push_str(&format!(
+                "  {}  Ask the agent to create a skill with manage_skills.\n",
+                "💡".dimmed()
+            ));
             return out;
         }
 
@@ -631,7 +798,12 @@ impl Gateway {
             } else {
                 "🔵 on-demand"
             };
-            out.push_str(&format!("    {}  {}  {}\n", name.magenta().bold(), status.dimmed(), desc.dimmed()));
+            out.push_str(&format!(
+                "    {}  {}  {}\n",
+                name.magenta().bold(),
+                status.dimmed(),
+                desc.dimmed()
+            ));
         }
 
         out.push_str(&"\n  Use `/help:skills` for more info.".dimmed());
@@ -652,7 +824,8 @@ impl Gateway {
         };
 
         match self.agent.export_conversation(&path) {
-            Ok(()) => format!("  ✅ Conversation exported to: {}\n  ({:.1} messages, {} tokens)",
+            Ok(()) => format!(
+                "  ✅ Conversation exported to: {}\n  ({:.1} messages, {} tokens)",
                 path.cyan(),
                 self.agent.messages().len(),
                 self.agent.token_usage().total_tokens,
@@ -668,7 +841,11 @@ impl Gateway {
         let msg_count = self.agent.messages().len();
 
         let mut out = String::new();
-        out.push_str(&format!("  {}  {}\n\n", "📊".bold(), "Session Statistics".cyan().bold()));
+        out.push_str(&format!(
+            "  {}  {}\n\n",
+            "📊".bold(),
+            "Session Statistics".cyan().bold()
+        ));
 
         // Conversation
         out.push_str(&format!("  {}  {}\n", "Conversation".bold(), ""));
@@ -680,9 +857,18 @@ impl Gateway {
             out.push_str("    No API calls made yet.\n");
         } else {
             out.push_str(&format!("    API calls:    {}\n", usage.api_calls));
-            out.push_str(&format!("    Prompt:       {} tokens\n", usage.prompt_tokens));
-            out.push_str(&format!("    Completion:   {} tokens\n", usage.completion_tokens));
-            out.push_str(&format!("    Total:        {} tokens\n", usage.total_tokens));
+            out.push_str(&format!(
+                "    Prompt:       {} tokens\n",
+                usage.prompt_tokens
+            ));
+            out.push_str(&format!(
+                "    Completion:   {} tokens\n",
+                usage.completion_tokens
+            ));
+            out.push_str(&format!(
+                "    Total:        {} tokens\n",
+                usage.total_tokens
+            ));
         }
 
         // Tools
@@ -706,5 +892,10 @@ impl Gateway {
     /// Return a reference to the agent for dashboard display.
     pub fn agent(&self) -> &AIAgent {
         &self.agent
+    }
+
+    /// Return the configured model name for dashboard display.
+    pub fn model_name(&self) -> &str {
+        &self.model_router.default_model
     }
 }

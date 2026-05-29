@@ -24,13 +24,21 @@ impl TaskComplexity {
         let lower = message.to_lowercase();
 
         let complex_keywords = [
-            "architect", "design", "review", "security", "refactor",
-            "optimize", "analyze", "compare", "plan", "strategy",
-            "implementation", "trade-off", "tradeoff",
+            "architect",
+            "design",
+            "review",
+            "security",
+            "refactor",
+            "optimize",
+            "analyze",
+            "compare",
+            "plan",
+            "strategy",
+            "implementation",
+            "trade-off",
+            "tradeoff",
         ];
-        let has_complex_keyword = complex_keywords
-            .iter()
-            .any(|kw| lower.contains(kw));
+        let has_complex_keyword = complex_keywords.iter().any(|kw| lower.contains(kw));
 
         let has_multiple_questions = message.matches('?').count() > 1;
 
@@ -76,9 +84,15 @@ impl ModelRouter {
     /// Select the appropriate model for a given message.
     pub fn select(&self, message: &str) -> &str {
         match TaskComplexity::estimate(message) {
-            TaskComplexity::Low => self.low_complexity_model.as_deref().unwrap_or(&self.default_model),
+            TaskComplexity::Low => self
+                .low_complexity_model
+                .as_deref()
+                .unwrap_or(&self.default_model),
             TaskComplexity::Medium => &self.default_model,
-            TaskComplexity::High => self.high_complexity_model.as_deref().unwrap_or(&self.default_model),
+            TaskComplexity::High => self
+                .high_complexity_model
+                .as_deref()
+                .unwrap_or(&self.default_model),
         }
     }
 
@@ -100,7 +114,10 @@ mod tests {
     #[test]
     fn complexity_low_short_message() {
         assert_eq!(TaskComplexity::estimate("hi"), TaskComplexity::Low);
-        assert_eq!(TaskComplexity::estimate("what time is it"), TaskComplexity::Low);
+        assert_eq!(
+            TaskComplexity::estimate("what time is it"),
+            TaskComplexity::Low
+        );
     }
 
     #[test]
@@ -121,13 +138,24 @@ mod tests {
 
     #[test]
     fn complexity_high_keywords() {
-        assert_eq!(TaskComplexity::estimate("review this architecture"), TaskComplexity::High);
-        assert_eq!(TaskComplexity::estimate("security analysis needed"), TaskComplexity::High);
+        assert_eq!(
+            TaskComplexity::estimate("review this architecture"),
+            TaskComplexity::High
+        );
+        assert_eq!(
+            TaskComplexity::estimate("security analysis needed"),
+            TaskComplexity::High
+        );
     }
 
     #[test]
     fn complexity_multiple_questions() {
-        assert_eq!(TaskComplexity::estimate("Is Rust hard? What about the learning curve? How long to master?"), TaskComplexity::High);
+        assert_eq!(
+            TaskComplexity::estimate(
+                "Is Rust hard? What about the learning curve? How long to master?"
+            ),
+            TaskComplexity::High
+        );
     }
 
     #[test]

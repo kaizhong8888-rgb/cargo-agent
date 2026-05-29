@@ -102,10 +102,7 @@ impl SmaCrossoverWithRsi {
         rsi_overbought: f64,
     ) -> Self {
         assert!(fast_period < slow_period, "快周期必须小于慢周期");
-        assert!(
-            rsi_oversold < rsi_overbought,
-            "超卖阈值必须小于超买阈值"
-        );
+        assert!(rsi_oversold < rsi_overbought, "超卖阈值必须小于超买阈值");
         Self {
             fast_period,
             slow_period,
@@ -149,7 +146,9 @@ impl Strategy for SmaCrossoverWithRsi {
                 signals[i] = Signal::Buy;
             }
             // 卖出信号：死叉 + RSI 不处于超卖区域
-            else if prev_fast >= prev_slow && curr_fast < curr_slow && curr_rsi > self.rsi_oversold
+            else if prev_fast >= prev_slow
+                && curr_fast < curr_slow
+                && curr_rsi > self.rsi_oversold
             {
                 signals[i] = Signal::Sell;
             }
@@ -234,7 +233,12 @@ pub struct MacdStrategy {
 }
 
 impl MacdStrategy {
-    pub fn new(fast_period: usize, slow_period: usize, signal_period: usize, mode: MacdMode) -> Self {
+    pub fn new(
+        fast_period: usize,
+        slow_period: usize,
+        signal_period: usize,
+        mode: MacdMode,
+    ) -> Self {
         assert!(fast_period < slow_period, "快周期必须小于慢周期");
         Self {
             fast_period,
@@ -245,12 +249,7 @@ impl MacdStrategy {
         }
     }
 
-    fn detect_bullish_divergence(
-        &self,
-        closes: &[f64],
-        macd_line: &[f64],
-        i: usize,
-    ) -> bool {
+    fn detect_bullish_divergence(&self, closes: &[f64], macd_line: &[f64], i: usize) -> bool {
         let lookback = self.divergence_lookback.min(i);
         if lookback < 5 {
             return false;
@@ -292,12 +291,7 @@ impl MacdStrategy {
         }
     }
 
-    fn detect_bearish_divergence(
-        &self,
-        closes: &[f64],
-        macd_line: &[f64],
-        i: usize,
-    ) -> bool {
+    fn detect_bearish_divergence(&self, closes: &[f64], macd_line: &[f64], i: usize) -> bool {
         let lookback = self.divergence_lookback.min(i);
         if lookback < 5 {
             return false;
@@ -351,7 +345,12 @@ impl Strategy for MacdStrategy {
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
-        let macd_out = indicators::macd(&closes, self.fast_period, self.slow_period, self.signal_period);
+        let macd_out = indicators::macd(
+            &closes,
+            self.fast_period,
+            self.slow_period,
+            self.signal_period,
+        );
         let macd_line = &macd_out.macd_line;
         let signal_line = &macd_out.signal_line;
         let histogram = &macd_out.histogram;
@@ -370,7 +369,10 @@ impl Strategy for MacdStrategy {
             let curr_hist = histogram[i];
             let prev_hist = histogram[i - 1];
 
-            if prev_macd.is_nan() || curr_macd.is_nan() || prev_signal.is_nan() || curr_signal.is_nan()
+            if prev_macd.is_nan()
+                || curr_macd.is_nan()
+                || prev_signal.is_nan()
+                || curr_signal.is_nan()
             {
                 continue;
             }
@@ -384,9 +386,17 @@ impl Strategy for MacdStrategy {
                     }
                 }
                 MacdMode::CrossoverWithHistogram => {
-                    if prev_macd <= prev_signal && curr_macd > curr_signal && prev_hist <= 0.0 && curr_hist > 0.0 {
+                    if prev_macd <= prev_signal
+                        && curr_macd > curr_signal
+                        && prev_hist <= 0.0
+                        && curr_hist > 0.0
+                    {
                         signals[i] = Signal::Buy;
-                    } else if prev_macd >= prev_signal && curr_macd < curr_signal && prev_hist >= 0.0 && curr_hist < 0.0 {
+                    } else if prev_macd >= prev_signal
+                        && curr_macd < curr_signal
+                        && prev_hist >= 0.0
+                        && curr_hist < 0.0
+                    {
                         signals[i] = Signal::Sell;
                     }
                 }
@@ -427,7 +437,12 @@ pub struct TurtleTradingStrategy {
 }
 
 impl TurtleTradingStrategy {
-    pub fn new(entry_period: usize, exit_period: usize, atr_period: usize, stop_loss_atr: f64) -> Self {
+    pub fn new(
+        entry_period: usize,
+        exit_period: usize,
+        atr_period: usize,
+        stop_loss_atr: f64,
+    ) -> Self {
         assert!(entry_period > 0 && exit_period > 0 && atr_period > 0);
         Self {
             entry_period,
@@ -874,7 +889,14 @@ impl Strategy for KeltnerChannelsStrategy {
         let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
 
-        let kc = indicators::keltner_channels(&highs, &lows, &closes, self.ema_period, self.atr_period, self.multiplier);
+        let kc = indicators::keltner_channels(
+            &highs,
+            &lows,
+            &closes,
+            self.ema_period,
+            self.atr_period,
+            self.multiplier,
+        );
         let upper = kc.upper;
         let lower = kc.lower;
 
@@ -952,7 +974,8 @@ impl Strategy for ParabolicSarStrategy {
         let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
 
-        let sar = indicators::parabolic_sar(&highs, &lows, self.acceleration, self.max_acceleration);
+        let sar =
+            indicators::parabolic_sar(&highs, &lows, self.acceleration, self.max_acceleration);
 
         let mut signals = vec![Signal::Hold; candles.len()];
 
@@ -1009,7 +1032,12 @@ impl EnsembleStrategy {
         buy_threshold: usize,
         sell_threshold: usize,
     ) -> Self {
-        let name = format!("Ensemble ({} strategies, {}/{})", strategies.len(), buy_threshold, sell_threshold);
+        let name = format!(
+            "Ensemble ({} strategies, {}/{})",
+            strategies.len(),
+            buy_threshold,
+            sell_threshold
+        );
         Self {
             strategies,
             buy_threshold,
@@ -1069,16 +1097,36 @@ pub fn create_default_strategies() -> Vec<Box<dyn Strategy>> {
         Box::new(SmaCrossoverWithRsi::new(5, 20, 14, 30.0, 70.0)),
         Box::new(RsiMeanReversion::new(14, 30.0, 70.0)),
         Box::new(MacdStrategy::new(12, 26, 9, MacdMode::Crossover)),
-        Box::new(MacdStrategy::new(12, 26, 9, MacdMode::CrossoverWithHistogram)),
-        Box::new(MacdStrategy::new(12, 26, 9, MacdMode::CrossoverWithDivergence)),
+        Box::new(MacdStrategy::new(
+            12,
+            26,
+            9,
+            MacdMode::CrossoverWithHistogram,
+        )),
+        Box::new(MacdStrategy::new(
+            12,
+            26,
+            9,
+            MacdMode::CrossoverWithDivergence,
+        )),
         Box::new(TurtleTradingStrategy::new(20, 10, 20, 2.0)),
         Box::new(TripleEmaStrategy::new(5, 13, 34)),
         Box::new(BollingerBandsStrategy::new(20, 2.0, 0.95, 0.95, false)),
         Box::new(BollingerBandsStrategy::new(20, 2.0, 0.95, 0.95, true)),
         Box::new(VwapRsiStrategy::new(14, 30.0, 70.0, 1.0)),
         Box::new(SuperTrendStrategy::new(10, 3.0)),
-        Box::new(KeltnerChannelsStrategy::new(20, 14, 2.0, KeltnerMode::Breakout)),
-        Box::new(KeltnerChannelsStrategy::new(20, 14, 2.0, KeltnerMode::Reversion)),
+        Box::new(KeltnerChannelsStrategy::new(
+            20,
+            14,
+            2.0,
+            KeltnerMode::Breakout,
+        )),
+        Box::new(KeltnerChannelsStrategy::new(
+            20,
+            14,
+            2.0,
+            KeltnerMode::Reversion,
+        )),
         Box::new(ParabolicSarStrategy::new(0.02, 0.2)),
     ]
 }
@@ -1124,7 +1172,11 @@ mod tests {
     #[test]
     fn test_macd_strategy_all_modes() {
         let candles = create_test_candles();
-        for mode in &[MacdMode::Crossover, MacdMode::CrossoverWithHistogram, MacdMode::CrossoverWithDivergence] {
+        for mode in &[
+            MacdMode::Crossover,
+            MacdMode::CrossoverWithHistogram,
+            MacdMode::CrossoverWithDivergence,
+        ] {
             let strategy = MacdStrategy::new(12, 26, 9, *mode);
             let signals = strategy.generate(&candles);
             assert_eq!(signals.len(), candles.len());

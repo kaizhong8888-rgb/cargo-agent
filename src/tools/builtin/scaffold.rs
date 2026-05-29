@@ -17,7 +17,9 @@ pub struct ScaffoldTool;
 
 #[async_trait::async_trait]
 impl Tool for ScaffoldTool {
-    fn name(&self) -> &str { "project_scaffold" }
+    fn name(&self) -> &str {
+        "project_scaffold"
+    }
 
     fn description(&self) -> &str {
         "Generate a complete Rust project structure from a template. Templates: cli (CLI app with clap), lib (library crate), web (Axum web service), game (simple game). Creates Cargo.toml, src/, tests/, and README.md."
@@ -39,7 +41,9 @@ impl Tool for ScaffoldTool {
             },
             ToolParameter {
                 name: "target_dir".to_string(),
-                description: "Parent directory to create the project in (default: current directory)".to_string(),
+                description:
+                    "Parent directory to create the project in (default: current directory)"
+                        .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -90,7 +94,9 @@ impl Tool for ScaffoldTool {
             "lib" => generate_lib_project(name, target_dir, description, author.as_deref()),
             "web" => generate_web_project(name, target_dir, description, author.as_deref()),
             "game" => generate_game_project(name, target_dir, description, author.as_deref()),
-            other => Err(format!("Unknown template: {other}. Supported: cli, lib, web, game")),
+            other => Err(format!(
+                "Unknown template: {other}. Supported: cli, lib, web, game"
+            )),
         }
     }
 }
@@ -104,8 +110,10 @@ fn generate_cli_project(
     let project_dir = Path::new(target).join(name);
     create_dirs(&project_dir, &["src", "tests"])?;
 
-    write_file(&project_dir.join("Cargo.toml"), &format!(
-        r#"[package]
+    write_file(
+        &project_dir.join("Cargo.toml"),
+        &format!(
+            r#"[package]
 name = "{name}"
 version = "0.1.0"
 edition = "2021"
@@ -124,10 +132,13 @@ tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 [dev-dependencies]
 assert_cmd = "2.0"
 "#,
-        format_author_line(author),
-    ))?;
+            format_author_line(author),
+        ),
+    )?;
 
-    write_file(&project_dir.join("src/main.rs"), r#"use anyhow::Result;
+    write_file(
+        &project_dir.join("src/main.rs"),
+        r#"use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -173,7 +184,8 @@ mod tests {
         assert_eq!(result, "Hello, Rust!");
     }
 }
-"#)?;
+"#,
+    )?;
 
     write_file(&project_dir.join("README.md"), &format!(
         "# {name}\n\n{description}\n\n## Usage\n\n```bash\ncargo run -- --name YourName\n```\n\n## Development\n\n```bash\ncargo test\ncargo clippy\n```\n"
@@ -191,8 +203,10 @@ fn generate_lib_project(
     let project_dir = Path::new(target).join(name);
     create_dirs(&project_dir, &["src", "tests", "benches", "examples"])?;
 
-    write_file(&project_dir.join("Cargo.toml"), &format!(
-        r#"[package]
+    write_file(
+        &project_dir.join("Cargo.toml"),
+        &format!(
+            r#"[package]
 name = "{name}"
 version = "0.1.0"
 edition = "2021"
@@ -207,11 +221,14 @@ thiserror = "1.0"
 [dev-dependencies]
 rstest = "0.18"
 "#,
-        format_author_line(author),
-    ))?;
+            format_author_line(author),
+        ),
+    )?;
 
-    write_file(&project_dir.join("src/lib.rs"), &format!(
-        r#"//! {description}
+    write_file(
+        &project_dir.join("src/lib.rs"),
+        &format!(
+            r#"//! {description}
 
 use thiserror::Error;
 
@@ -250,11 +267,14 @@ mod tests {{
     }}
 }}
 "#,
-        camel = to_camel_case(name),
-    ))?;
+            camel = to_camel_case(name),
+        ),
+    )?;
 
-    write_file(&project_dir.join("tests/integration_test.rs"), &format!(
-        r#"// Integration tests for {name}
+    write_file(
+        &project_dir.join("tests/integration_test.rs"),
+        &format!(
+            r#"// Integration tests for {name}
 
 use {snake}::*;
 
@@ -264,8 +284,9 @@ fn library_hello_integration() {{
     assert!(result.starts_with("Hello,"));
 }}
 "#,
-        snake = to_snake_case(name),
-    ))?;
+            snake = to_snake_case(name),
+        ),
+    )?;
 
     write_file(&project_dir.join("README.md"), &format!(
         "# {name}\n\n{description}\n\n## Usage\n\n```rust\nuse {name}::hello;\n\nfn main() {{\n    println!(\"{{}}\", hello(\"World\").unwrap());\n}}\n```\n"
@@ -283,8 +304,10 @@ fn generate_web_project(
     let project_dir = Path::new(target).join(name);
     create_dirs(&project_dir, &["src", "tests", "migrations"])?;
 
-    write_file(&project_dir.join("Cargo.toml"), &format!(
-        r#"[package]
+    write_file(
+        &project_dir.join("Cargo.toml"),
+        &format!(
+            r#"[package]
 name = "{name}"
 version = "0.1.0"
 edition = "2021"
@@ -300,10 +323,13 @@ tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 anyhow = "1.0"
 "#,
-        format_author_line(author),
-    ))?;
+            format_author_line(author),
+        ),
+    )?;
 
-    write_file(&project_dir.join("src/main.rs"), r#"use axum::{routing::get, Json, Router};
+    write_file(
+        &project_dir.join("src/main.rs"),
+        r#"use axum::{routing::get, Json, Router};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -341,7 +367,8 @@ async fn main() -> anyhow::Result<()> {
 async fn root() -> &'static str {
     "Hello from cargo-agent web service!"
 }
-"#)?;
+"#,
+    )?;
 
     write_file(&project_dir.join("README.md"), &format!(
         "# {name}\n\n{description}\n\n## Running\n\n```bash\ncargo run\n# Server starts on http://localhost:3000\ncurl http://localhost:3000/health\n```\n"
@@ -359,8 +386,10 @@ fn generate_game_project(
     let project_dir = Path::new(target).join(name);
     create_dirs(&project_dir, &["src", "assets"])?;
 
-    write_file(&project_dir.join("Cargo.toml"), &format!(
-        r#"[package]
+    write_file(
+        &project_dir.join("Cargo.toml"),
+        &format!(
+            r#"[package]
 name = "{name}"
 version = "0.1.0"
 edition = "2021"
@@ -371,10 +400,13 @@ description = "{description}"
 macroquad = "0.4"
 rand = "0.8"
 "#,
-        format_author_line(author),
-    ))?;
+            format_author_line(author),
+        ),
+    )?;
 
-    write_file(&project_dir.join("src/main.rs"), r#"use macroquad::prelude::*;
+    write_file(
+        &project_dir.join("src/main.rs"),
+        r#"use macroquad::prelude::*;
 
 fn window_conf() -> Conf {
     Conf {
@@ -407,7 +439,8 @@ async fn main() {
         next_frame().await
     }
 }
-"#)?;
+"#,
+    )?;
 
     write_file(&project_dir.join("README.md"), &format!(
         "# {name}\n\n{description}\n\n## Controls\n\n- Arrow keys to move\n\n## Build\n\n```bash\ncargo run --release\n```\n"
@@ -423,8 +456,7 @@ async fn main() {
 fn create_dirs(base: &Path, subdirs: &[&str]) -> Result<(), String> {
     fs::create_dir_all(base).map_err(|e| format!("Failed to create {base:?}: {e}"))?;
     for dir in subdirs {
-        fs::create_dir_all(base.join(dir))
-            .map_err(|e| format!("Failed to create {dir}: {e}"))?;
+        fs::create_dir_all(base.join(dir)).map_err(|e| format!("Failed to create {dir}: {e}"))?;
     }
     Ok(())
 }
@@ -521,7 +553,9 @@ mod tests {
     #[test]
     fn generate_lib_project_creates_files() {
         let temp = std::env::temp_dir().join(format!("scaffold-test-{}", uuid::Uuid::new_v4()));
-        let result = generate_lib_project("test-lib", temp.to_str().unwrap(), "A test", Some("Test")).unwrap();
+        let result =
+            generate_lib_project("test-lib", temp.to_str().unwrap(), "A test", Some("Test"))
+                .unwrap();
         assert_eq!(result["status"], "ok");
         assert_eq!(result["template"], "lib");
 

@@ -20,7 +20,9 @@ pub struct CodeExecutorTool;
 
 #[async_trait::async_trait]
 impl Tool for CodeExecutorTool {
-    fn name(&self) -> &str { "code_execute" }
+    fn name(&self) -> &str {
+        "code_execute"
+    }
 
     fn description(&self) -> &str {
         "Compile and run Rust code in an isolated temporary directory. Supports cargo run, cargo build, cargo test, and cargo check. Returns stdout, stderr, and exit status."
@@ -101,10 +103,8 @@ impl Tool for CodeExecutorTool {
         }
 
         // Create temp directory
-        let temp_dir = std::env::temp_dir().join(format!(
-            "cargo-agent-exec-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cargo-agent-exec-{}", uuid::Uuid::new_v4()));
 
         let cleanup = TempDirGuard(&temp_dir);
 
@@ -137,8 +137,7 @@ impl Tool for CodeExecutorTool {
             src_dir.join("main.rs")
         };
 
-        fs::write(&source_file, code)
-            .map_err(|e| format!("Failed to write source file: {e}"))?;
+        fs::write(&source_file, code).map_err(|e| format!("Failed to write source file: {e}"))?;
 
         // Run cargo command
         let (cargo_cmd, extra_args) = match command {
@@ -230,10 +229,8 @@ mod tests {
 
     #[test]
     fn temp_dir_guard_cleans_up() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "cargo-agent-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cargo-agent-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&temp_dir).unwrap();
         assert!(temp_dir.exists());
 

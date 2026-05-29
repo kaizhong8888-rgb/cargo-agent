@@ -1,7 +1,7 @@
 pub mod builtin;
 pub mod registry;
 
-pub use registry::{ToolRegistry, Tool, ToolParameter};
+pub use registry::{Tool, ToolParameter, ToolRegistry};
 
 use serde_json::Value;
 use std::collections::HashMap;

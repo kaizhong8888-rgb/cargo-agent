@@ -14,7 +14,9 @@ pub struct StoreMemory {
 
 #[async_trait::async_trait]
 impl Tool for StoreMemory {
-    fn name(&self) -> &str { "store_memory" }
+    fn name(&self) -> &str {
+        "store_memory"
+    }
 
     fn description(&self) -> &str {
         "Store a memory with a key-value pair for later recall. Use namespaces to organize memories. Supports tags and importance level (1-10)."
@@ -56,37 +58,41 @@ impl Tool for StoreMemory {
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let key = params.get("key")
+        let key = params
+            .get("key")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: key")?
             .to_string();
 
-        let value = params.get("value")
+        let value = params
+            .get("value")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: value")?
             .to_string();
 
-        let namespace = params.get("namespace")
+        let namespace = params
+            .get("namespace")
             .and_then(|v| v.as_str())
             .unwrap_or("default")
             .to_string();
 
-        let tags_str = params.get("tags")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let tags_str = params.get("tags").and_then(|v| v.as_str()).unwrap_or("");
         let tags: Vec<String> = if tags_str.is_empty() {
             vec![]
         } else {
             tags_str.split(',').map(|s| s.trim().to_string()).collect()
         };
 
-        let importance = params.get("importance")
+        let importance = params
+            .get("importance")
             .and_then(|v| v.as_u64())
             .map(|v| v as u8)
             .unwrap_or(5)
             .clamp(1, 10);
 
-        let entry = self.memory.store(&key, &value, &namespace, &tags, importance)
+        let entry = self
+            .memory
+            .store(&key, &value, &namespace, &tags, importance)
             .map_err(|e| format!("Storage error: {e}"))?;
 
         Ok(serde_json::json!({
@@ -105,31 +111,37 @@ pub struct RecallMemory {
 
 #[async_trait::async_trait]
 impl Tool for RecallMemory {
-    fn name(&self) -> &str { "recall_memory" }
+    fn name(&self) -> &str {
+        "recall_memory"
+    }
 
     fn description(&self) -> &str {
         "Retrieve a stored memory by its key. Returns the full memory entry including value, tags, and metadata."
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "key".to_string(),
-                description: "The key of the memory to recall".to_string(),
-                required: true,
-                parameter_type: "string".to_string(),
-            },
-        ]
+        vec![ToolParameter {
+            name: "key".to_string(),
+            description: "The key of the memory to recall".to_string(),
+            required: true,
+            parameter_type: "string".to_string(),
+        }]
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let key = params.get("key")
+        let key = params
+            .get("key")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: key")?;
 
-        match self.memory.recall(key).map_err(|e| format!("Recall error: {e}"))? {
+        match self
+            .memory
+            .recall(key)
+            .map_err(|e| format!("Recall error: {e}"))?
+        {
             Some(entry) => {
-                let tags_list: Vec<String> = entry.tags
+                let tags_list: Vec<String> = entry
+                    .tags
                     .split(',')
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string())
@@ -161,7 +173,9 @@ pub struct SearchMemories {
 
 #[async_trait::async_trait]
 impl Tool for SearchMemories {
-    fn name(&self) -> &str { "search_memories" }
+    fn name(&self) -> &str {
+        "search_memories"
+    }
 
     fn description(&self) -> &str {
         "Search through stored memories by namespace, tags, or text content. Returns matching memories sorted by importance."
@@ -206,32 +220,36 @@ impl Tool for SearchMemories {
         let namespace_filter = params.get("namespace").and_then(|v| v.as_str());
         let tag_filter = params.get("tag").and_then(|v| v.as_str());
         let query = params.get("query").and_then(|v| v.as_str());
-        let min_importance = params.get("min_importance")
+        let min_importance = params
+            .get("min_importance")
             .and_then(|v| v.as_u64())
             .map(|v| v as u8);
-        let limit = params.get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20) as usize;
+        let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
-        let results = self.memory.search(
-            namespace_filter, tag_filter, query, min_importance, limit,
-        ).map_err(|e| format!("Search error: {e}"))?;
+        let results = self
+            .memory
+            .search(namespace_filter, tag_filter, query, min_importance, limit)
+            .map_err(|e| format!("Search error: {e}"))?;
 
-        let result_values: Vec<Value> = results.iter().map(|entry| {
-            let tags_list: Vec<String> = entry.tags
-                .split(',')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect();
-            serde_json::json!({
-                "key": entry.key,
-                "value": entry.value,
-                "namespace": entry.namespace,
-                "tags": tags_list,
-                "importance": entry.importance,
-                "created_at": entry.created_at,
+        let result_values: Vec<Value> = results
+            .iter()
+            .map(|entry| {
+                let tags_list: Vec<String> = entry
+                    .tags
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                serde_json::json!({
+                    "key": entry.key,
+                    "value": entry.value,
+                    "namespace": entry.namespace,
+                    "tags": tags_list,
+                    "importance": entry.importance,
+                    "created_at": entry.created_at,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(serde_json::json!({
             "count": result_values.len(),
@@ -247,7 +265,9 @@ pub struct ListNamespaces {
 
 #[async_trait::async_trait]
 impl Tool for ListNamespaces {
-    fn name(&self) -> &str { "list_namespaces" }
+    fn name(&self) -> &str {
+        "list_namespaces"
+    }
 
     fn description(&self) -> &str {
         "List all memory namespaces and the count of memories in each."
@@ -258,15 +278,20 @@ impl Tool for ListNamespaces {
     }
 
     async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
-        let namespaces = self.memory.list_namespaces()
+        let namespaces = self
+            .memory
+            .list_namespaces()
             .map_err(|e| format!("List error: {e}"))?;
 
-        let ns_list: Vec<Value> = namespaces.iter().map(|(ns, count)| {
-            serde_json::json!({
-                "namespace": ns,
-                "count": count,
+        let ns_list: Vec<Value> = namespaces
+            .iter()
+            .map(|(ns, count)| {
+                serde_json::json!({
+                    "namespace": ns,
+                    "count": count,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(serde_json::json!({
             "namespaces": ns_list,
@@ -281,29 +306,32 @@ pub struct DeleteMemory {
 
 #[async_trait::async_trait]
 impl Tool for DeleteMemory {
-    fn name(&self) -> &str { "delete_memory" }
+    fn name(&self) -> &str {
+        "delete_memory"
+    }
 
     fn description(&self) -> &str {
         "Delete a stored memory by its key."
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
-        vec![
-            ToolParameter {
-                name: "key".to_string(),
-                description: "The key of the memory to delete".to_string(),
-                required: true,
-                parameter_type: "string".to_string(),
-            },
-        ]
+        vec![ToolParameter {
+            name: "key".to_string(),
+            description: "The key of the memory to delete".to_string(),
+            required: true,
+            parameter_type: "string".to_string(),
+        }]
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let key = params.get("key")
+        let key = params
+            .get("key")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: key")?;
 
-        let deleted = self.memory.delete(key)
+        let deleted = self
+            .memory
+            .delete(key)
             .map_err(|e| format!("Delete error: {e}"))?;
 
         if deleted {
@@ -328,7 +356,9 @@ pub struct MemoryStats {
 
 #[async_trait::async_trait]
 impl Tool for MemoryStats {
-    fn name(&self) -> &str { "memory_stats" }
+    fn name(&self) -> &str {
+        "memory_stats"
+    }
 
     fn description(&self) -> &str {
         "Get statistics about the memory system: total memories, per-namespace breakdown, importance distribution."
@@ -339,22 +369,32 @@ impl Tool for MemoryStats {
     }
 
     async fn execute(&self, _params: &HashMap<String, Value>) -> Result<Value, String> {
-        let stats = self.memory.stats()
+        let stats = self
+            .memory
+            .stats()
             .map_err(|e| format!("Stats error: {e}"))?;
 
-        let ns_breakdown: Vec<Value> = stats.by_namespace.iter().map(|(ns, count)| {
-            serde_json::json!({
-                "namespace": ns,
-                "count": count,
+        let ns_breakdown: Vec<Value> = stats
+            .by_namespace
+            .iter()
+            .map(|(ns, count)| {
+                serde_json::json!({
+                    "namespace": ns,
+                    "count": count,
+                })
             })
-        }).collect();
+            .collect();
 
-        let imp_breakdown: Vec<Value> = stats.by_importance.iter().map(|(imp, count)| {
-            serde_json::json!({
-                "importance": imp,
-                "count": count,
+        let imp_breakdown: Vec<Value> = stats
+            .by_importance
+            .iter()
+            .map(|(imp, count)| {
+                serde_json::json!({
+                    "importance": imp,
+                    "count": count,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(serde_json::json!({
             "total_memories": stats.total,
@@ -366,10 +406,20 @@ impl Tool for MemoryStats {
 
 /// Register all memory tools with the registry, sharing a single memory store.
 pub fn register_all(registry: &mut ToolRegistry, memory: Arc<SqliteMemoryStore>) {
-    registry.register(Box::new(StoreMemory { memory: memory.clone() }));
-    registry.register(Box::new(RecallMemory { memory: memory.clone() }));
-    registry.register(Box::new(SearchMemories { memory: memory.clone() }));
-    registry.register(Box::new(ListNamespaces { memory: memory.clone() }));
-    registry.register(Box::new(DeleteMemory { memory: memory.clone() }));
+    registry.register(Box::new(StoreMemory {
+        memory: memory.clone(),
+    }));
+    registry.register(Box::new(RecallMemory {
+        memory: memory.clone(),
+    }));
+    registry.register(Box::new(SearchMemories {
+        memory: memory.clone(),
+    }));
+    registry.register(Box::new(ListNamespaces {
+        memory: memory.clone(),
+    }));
+    registry.register(Box::new(DeleteMemory {
+        memory: memory.clone(),
+    }));
     registry.register(Box::new(MemoryStats { memory }));
 }

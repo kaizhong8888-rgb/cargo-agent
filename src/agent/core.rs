@@ -36,7 +36,11 @@ pub struct TokenUsage {
 }
 
 impl AIAgent {
-    pub fn new(client: ModelClient, tool_registry: ToolRegistry, skill_registry: Arc<SkillRegistry>) -> Self {
+    pub fn new(
+        client: ModelClient,
+        tool_registry: ToolRegistry,
+        skill_registry: Arc<SkillRegistry>,
+    ) -> Self {
         Self {
             tool_registry,
             skill_registry,
@@ -73,7 +77,9 @@ impl AIAgent {
     /// Inject relevant memories as a context message before the user message.
     /// Uses TF-IDF semantic scoring for better relevance than simple keyword matching.
     fn inject_memory_context(&mut self, user_message: &str) {
-        let Some(store) = &self.memory_store else { return };
+        let Some(store) = &self.memory_store else {
+            return;
+        };
 
         // Primary: TF-IDF semantic search
         let mut all_memories = store.semantic_search(user_message, 5).unwrap_or_default();
@@ -89,7 +95,9 @@ impl AIAgent {
             for word in &words {
                 if let Ok(results) = store.search(None, None, Some(word), Some(7), 5) {
                     for m in results {
-                        if !all_memories.iter().any(|s: &crate::memory::sqlite_store::ScoredMemory| s.entry.key == m.key) {
+                        if !all_memories.iter().any(
+                            |s: &crate::memory::sqlite_store::ScoredMemory| s.entry.key == m.key,
+                        ) {
                             all_memories.push(crate::memory::sqlite_store::ScoredMemory {
                                 entry: m,
                                 score: 0.0,
@@ -111,9 +119,15 @@ impl AIAgent {
             .iter()
             .map(|m| {
                 if m.score > 0.0 {
-                    format!("- [{}] (namespace: {}, relevance: {:.2}): {}", m.entry.key, m.entry.namespace, m.score, m.entry.value)
+                    format!(
+                        "- [{}] (namespace: {}, relevance: {:.2}): {}",
+                        m.entry.key, m.entry.namespace, m.score, m.entry.value
+                    )
                 } else {
-                    format!("- [{}] (namespace: {}, importance: {}): {}", m.entry.key, m.entry.namespace, m.entry.importance, m.entry.value)
+                    format!(
+                        "- [{}] (namespace: {}, importance: {}): {}",
+                        m.entry.key, m.entry.namespace, m.entry.importance, m.entry.value
+                    )
                 }
             })
             .collect();
@@ -131,9 +145,7 @@ impl AIAgent {
 
     fn try_init_memory_store() -> Option<Arc<SqliteMemoryStore>> {
         let db_path = PathBuf::from(&*crate::constants::AGENT_DIR).join("memories.db");
-        SqliteMemoryStore::open(db_path)
-            .ok()
-            .map(Arc::new)
+        SqliteMemoryStore::open(db_path).ok().map(Arc::new)
     }
 
     /// Inject active skill instructions into the conversation context.
@@ -211,11 +223,13 @@ impl AIAgent {
         }
 
         // Build summary of tool calls for diagnostics
-        let tool_call_count = self.messages
+        let tool_call_count = self
+            .messages
             .iter()
             .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("tool"))
             .count();
-        let assistant_count = self.messages
+        let assistant_count = self
+            .messages
             .iter()
             .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("assistant"))
             .count();
@@ -236,31 +250,42 @@ impl AIAgent {
         }
 
         // Find system messages to keep
-        let system_msgs: Vec<_> = self.messages
+        let system_msgs: Vec<_> = self
+            .messages
             .iter()
             .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("system"))
             .cloned()
             .collect();
 
         // Keep the last TRUNCATE_KEEP non-system messages
-        let non_system: Vec<_> = self.messages
+        let non_system: Vec<_> = self
+            .messages
             .iter()
             .filter(|m| m.get("role").and_then(|v| v.as_str()) != Some("system"))
             .cloned()
             .collect();
 
-        let mut recent = non_system.iter().rev().take(TRUNCATE_KEEP).rev().cloned().collect::<Vec<_>>();
+        let mut recent = non_system
+            .iter()
+            .rev()
+            .take(TRUNCATE_KEEP)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>();
 
         // Ensure the first message is not a tool result — tool results must
         // follow an assistant message with tool_calls. If the window starts
         // with tool, back up to include the preceding assistant message.
-        if recent.first().is_some_and(|m| {
-            m.get("role").and_then(|v| v.as_str()) == Some("tool")
-        }) {
+        if recent
+            .first()
+            .is_some_and(|m| m.get("role").and_then(|v| v.as_str()) == Some("tool"))
+        {
             // Scan back in non_system to find the assistant with tool_calls
             for (idx, msg) in non_system.iter().enumerate() {
                 if msg.get("role").and_then(|v| v.as_str()) == Some("assistant")
-                    && msg.get("tool_calls").is_some_and(|tc| tc.as_array().is_some_and(|a| !a.is_empty()))
+                    && msg
+                        .get("tool_calls")
+                        .is_some_and(|tc| tc.as_array().is_some_and(|a| !a.is_empty()))
                 {
                     // Include this assistant and all subsequent messages
                     recent = non_system[idx..].to_vec();
@@ -270,18 +295,20 @@ impl AIAgent {
         }
 
         // Also ensure we don't start with assistant if it has tool_calls but no tool results follow
-        if recent.first().is_some_and(|m| {
-            m.get("role").and_then(|v| v.as_str()) == Some("assistant")
-        }) {
+        if recent
+            .first()
+            .is_some_and(|m| m.get("role").and_then(|v| v.as_str()) == Some("assistant"))
+        {
             let first = &recent[0];
-            let has_tool_calls = first.get("tool_calls")
+            let has_tool_calls = first
+                .get("tool_calls")
                 .and_then(|tc| tc.as_array())
                 .is_some_and(|a| !a.is_empty());
             if has_tool_calls {
                 // Check if tool results follow
-                let has_tool_result = recent.get(1).is_some_and(|m| {
-                    m.get("role").and_then(|v| v.as_str()) == Some("tool")
-                });
+                let has_tool_result = recent
+                    .get(1)
+                    .is_some_and(|m| m.get("role").and_then(|v| v.as_str()) == Some("tool"));
                 if !has_tool_result {
                     // Remove tool_calls from the assistant message to avoid API error
                     if let Some(obj) = recent[0].as_object_mut() {
@@ -344,16 +371,14 @@ impl AIAgent {
 
         let params = args
             .as_object()
-            .map(|m| {
-                m.iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect()
-            })
+            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
 
         match self.tool_registry.get(name) {
             Some(tool) => match tool.execute(&params).await {
-                Ok(value) => serde_json::to_string(&value).unwrap_or("Serialization error".to_string()),
+                Ok(value) => {
+                    serde_json::to_string(&value).unwrap_or("Serialization error".to_string())
+                }
                 Err(e) => format!("Tool error: {e}"),
             },
             None => format!("Unknown tool: {name}"),
@@ -411,7 +436,10 @@ mod tests {
         usage.completion_tokens += 50;
         usage.total_tokens += 150;
         usage.api_calls += 1;
-        assert_eq!(usage.total_tokens, usage.prompt_tokens + usage.completion_tokens);
+        assert_eq!(
+            usage.total_tokens,
+            usage.prompt_tokens + usage.completion_tokens
+        );
         assert_eq!(usage.api_calls, 1);
     }
 
@@ -468,7 +496,10 @@ fn build_assistant_message(response: &ModelResponse) -> serde_json::Value {
                 })
             })
             .collect();
-        msg.insert("tool_calls".to_string(), serde_json::Value::Array(tool_calls));
+        msg.insert(
+            "tool_calls".to_string(),
+            serde_json::Value::Array(tool_calls),
+        );
     }
 
     serde_json::Value::Object(msg)

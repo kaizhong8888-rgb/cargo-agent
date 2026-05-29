@@ -56,7 +56,8 @@ impl Tool for TaskPlannerTool {
             },
             ToolParameter {
                 name: "status".to_string(),
-                description: "Task status: pending, in_progress, completed, blocked, failed".to_string(),
+                description: "Task status: pending, in_progress, completed, blocked, failed"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -74,7 +75,8 @@ impl Tool for TaskPlannerTool {
             },
             ToolParameter {
                 name: "request".to_string(),
-                description: "User request to decompose into tasks (for decompose action)".to_string(),
+                description: "User request to decompose into tasks (for decompose action)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -111,15 +113,30 @@ impl TaskPlannerTool {
             .ok_or("Missing required parameter: title")?;
 
         let id = Uuid::new_v4().to_string();
-        let description = params.get("description").and_then(|v| v.as_str()).unwrap_or("");
-        let status = params.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
-        let parent_id = params.get("parent_id").and_then(|v| v.as_str()).unwrap_or("");
-        let depends_on = params.get("depends_on").and_then(|v| v.as_str()).unwrap_or("");
+        let description = params
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let status = params
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pending");
+        let parent_id = params
+            .get("parent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let depends_on = params
+            .get("depends_on")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         let deps: Vec<String> = if depends_on.is_empty() {
             Vec::new()
         } else {
-            depends_on.split(',').map(|s| s.trim().to_string()).collect()
+            depends_on
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect()
         };
 
         let now = now_iso8601();
@@ -134,8 +151,8 @@ impl TaskPlannerTool {
             "updated_at": now,
         });
 
-        let value_str = serde_json::to_string(&record)
-            .map_err(|e| format!("Failed to serialize task: {e}"))?;
+        let value_str =
+            serde_json::to_string(&record).map_err(|e| format!("Failed to serialize task: {e}"))?;
 
         self.memory
             .store(&Self::task_key(&id), &value_str, TASK_NS, &[], 5)
@@ -152,7 +169,10 @@ impl TaskPlannerTool {
         let status_filter = params.get("status").and_then(|v| v.as_str());
         let parent_filter = params.get("parent_id").and_then(|v| v.as_str());
 
-        let all = self.memory.search(Some(TASK_NS), None, None, None, 1000).unwrap_or_default();
+        let all = self
+            .memory
+            .search(Some(TASK_NS), None, None, None, 1000)
+            .unwrap_or_default();
 
         let mut tasks: Vec<Value> = all
             .iter()
@@ -171,9 +191,9 @@ impl TaskPlannerTool {
         tasks.sort_by(|a, b| {
             let a_is_child = a["parent_id"].is_null();
             let b_is_child = b["parent_id"].is_null();
-            a_is_child.cmp(&b_is_child).then(
-                b["created_at"].as_str().cmp(&a["created_at"].as_str()),
-            )
+            a_is_child
+                .cmp(&b_is_child)
+                .then(b["created_at"].as_str().cmp(&a["created_at"].as_str()))
         });
 
         let summary = build_summary(&tasks);
@@ -218,8 +238,8 @@ impl TaskPlannerTool {
 
         task["updated_at"] = now_iso8601().into();
 
-        let value_str = serde_json::to_string(&task)
-            .map_err(|e| format!("Failed to serialize task: {e}"))?;
+        let value_str =
+            serde_json::to_string(&task).map_err(|e| format!("Failed to serialize task: {e}"))?;
 
         self.memory
             .store(&key, &value_str, TASK_NS, &[], 5)
@@ -302,8 +322,8 @@ impl TaskPlannerTool {
             "is_epic": true,
         });
 
-        let value_str = serde_json::to_string(&record)
-            .map_err(|e| format!("Failed to serialize task: {e}"))?;
+        let value_str =
+            serde_json::to_string(&record).map_err(|e| format!("Failed to serialize task: {e}"))?;
 
         self.memory
             .store(&Self::task_key(&id), &value_str, TASK_NS, &[], 5)
@@ -363,14 +383,17 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_store() -> Arc<SqliteMemoryStore> {
-        let path = PathBuf::from(std::env::temp_dir().join(format!("task_test_{}.db", Uuid::new_v4())));
+        let path =
+            PathBuf::from(std::env::temp_dir().join(format!("task_test_{}.db", Uuid::new_v4())));
         Arc::new(SqliteMemoryStore::open(path).expect("failed to open test store"))
     }
 
     #[test]
     fn test_create_and_show_task() {
         let store = test_store();
-        let tool = TaskPlannerTool { memory: store.clone() };
+        let tool = TaskPlannerTool {
+            memory: store.clone(),
+        };
 
         let mut params = HashMap::new();
         params.insert("title".to_string(), Value::String("Test task".into()));
@@ -398,7 +421,9 @@ mod tests {
     #[test]
     fn test_list_tasks_with_filter() {
         let store = test_store();
-        let tool = TaskPlannerTool { memory: store.clone() };
+        let tool = TaskPlannerTool {
+            memory: store.clone(),
+        };
 
         // Create two tasks with different statuses
         let mut p1 = HashMap::new();
@@ -425,7 +450,9 @@ mod tests {
     #[test]
     fn test_update_task_status() {
         let store = test_store();
-        let tool = TaskPlannerTool { memory: store.clone() };
+        let tool = TaskPlannerTool {
+            memory: store.clone(),
+        };
 
         let mut params = HashMap::new();
         params.insert("title".to_string(), Value::String("Updatable".into()));
@@ -446,7 +473,9 @@ mod tests {
     #[test]
     fn test_delete_task() {
         let store = test_store();
-        let tool = TaskPlannerTool { memory: store.clone() };
+        let tool = TaskPlannerTool {
+            memory: store.clone(),
+        };
 
         let mut params = HashMap::new();
         params.insert("title".to_string(), Value::String("To delete".into()));

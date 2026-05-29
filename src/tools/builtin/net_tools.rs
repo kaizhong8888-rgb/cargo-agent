@@ -71,9 +71,7 @@ impl Tool for FetchTool {
             .unwrap_or(100_000)
             .min(1_000_000) as usize;
 
-        let extra_headers = params
-            .get("headers")
-            .and_then(|v| v.as_object());
+        let extra_headers = params.get("headers").and_then(|v| v.as_object());
 
         // Validate URL
         if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -138,7 +136,10 @@ impl Tool for FetchTool {
         }
 
         // Read body with size limit
-        let body_bytes = response.bytes().await.map_err(|e| format!("Failed to read response body: {e}"))?;
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read response body: {e}"))?;
 
         let truncated = body_bytes.len() > max_size;
         let body_text = if truncated {
@@ -174,7 +175,9 @@ pub struct HttpClientTool;
 
 #[async_trait::async_trait]
 impl Tool for HttpClientTool {
-    fn name(&self) -> &str { "http_client" }
+    fn name(&self) -> &str {
+        "http_client"
+    }
 
     fn description(&self) -> &str {
         "Make HTTP requests (GET/POST/PUT/DELETE/HEAD/PATCH) with JSON body, custom headers, cookies, and multipart file uploads. For API testing and web service integration."
@@ -309,11 +312,7 @@ impl Tool for HttpClientTool {
                 .iter()
                 .map(|(k, v)| {
                     let val = v.as_str().unwrap_or("true");
-                    format!(
-                        "{}={}",
-                        url_escape(k),
-                        url_escape(val),
-                    )
+                    format!("{}={}", url_escape(k), url_escape(val),)
                 })
                 .collect();
             if pairs.is_empty() {
@@ -353,7 +352,8 @@ impl Tool for HttpClientTool {
             if !cookie_parts.is_empty() {
                 headers.insert(
                     reqwest::header::COOKIE,
-                    HeaderValue::from_str(&cookie_parts.join("; ")).map_err(|e| format!("Invalid cookie: {e}"))?,
+                    HeaderValue::from_str(&cookie_parts.join("; "))
+                        .map_err(|e| format!("Invalid cookie: {e}"))?,
                 );
             }
         }
@@ -430,7 +430,11 @@ impl Tool for HttpClientTool {
         let headers_out: HashMap<String, String> = response
             .headers()
             .iter()
-            .filter_map(|(k, v)| v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string())))
+            .filter_map(|(k, v)| {
+                v.to_str()
+                    .ok()
+                    .map(|s| (k.as_str().to_string(), s.to_string()))
+            })
             .collect();
 
         // For HEAD requests, return headers only
@@ -445,7 +449,10 @@ impl Tool for HttpClientTool {
         }
 
         // Read body
-        let body_bytes = response.bytes().await.map_err(|e| format!("Failed to read response body: {e}"))?;
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read response body: {e}"))?;
         let truncated = body_bytes.len() > max_size;
         let body_text = if truncated {
             String::from_utf8_lossy(&body_bytes[..max_size]).to_string()

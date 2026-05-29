@@ -21,35 +21,84 @@ use std::path::Path;
 // ============================================================================
 
 // Structure analysis patterns
-static RE_FN: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]"#).expect("valid regex"));
-static RE_STRUCT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_ENUM: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_TRAIT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_IMPL: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s+for\s+[a-zA-Z_][a-zA-Z0-9_<>]*)?)\s*\{?"#).expect("valid regex"));
-static RE_MOD: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\{|;)"#).expect("valid regex"));
-static RE_TYPE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?type\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_CONST: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_STATIC: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_MACRO: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?macro_rules!\s*\(?\s*([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
+static RE_FN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]"#)
+        .expect("valid regex")
+});
+static RE_STRUCT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex")
+});
+static RE_ENUM: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex")
+});
+static RE_TRAIT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)"#)
+        .expect("valid regex")
+});
+static RE_IMPL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s+for\s+[a-zA-Z_][a-zA-Z0-9_<>]*)?)\s*\{?"#).expect("valid regex")
+});
+static RE_MOD: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\{|;)"#)
+        .expect("valid regex")
+});
+static RE_TYPE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?type\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex")
+});
+static RE_CONST: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex")
+});
+static RE_STATIC: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?static\s+(?:mut\s+)?([a-zA-Z_][a-zA-Z0-9_]*)"#)
+        .expect("valid regex")
+});
+static RE_MACRO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?macro_rules!\s*\(?\s*([a-zA-Z_][a-zA-Z0-9_]*)"#)
+        .expect("valid regex")
+});
 
 // Dependency analysis patterns
-static RE_EXTERN_CRATE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*extern\s+crate\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_USE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*use\s+([a-zA-Z_][a-zA-Z0-9_:*{}\s]*(?:;|$))"#).expect("valid regex"));
+static RE_EXTERN_CRATE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*extern\s+crate\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex")
+});
+static RE_USE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*use\s+([a-zA-Z_][a-zA-Z0-9_:*{}\s]*(?:;|$))"#).expect("valid regex")
+});
 
 // Complexity analysis patterns
-static RE_FN_START: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex"));
-static RE_UNSAFE_BLOCK: Lazy<Regex> = Lazy::new(|| Regex::new(r#"unsafe\s*\{|#\[allow\(unsafe"#).expect("valid regex"));
+static RE_FN_START: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)"#)
+        .expect("valid regex")
+});
+static RE_UNSAFE_BLOCK: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"unsafe\s*\{|#\[allow\(unsafe"#).expect("valid regex"));
 
 // Summary analysis patterns
-static RE_FN_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
-static RE_STRUCT_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
-static RE_ENUM_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
-static RE_TRAIT_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
-static RE_IMPL_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+"#).expect("valid regex"));
-static RE_MOD_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex"));
-static RE_TEST: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*#\[test\]"#).expect("valid regex"));
-static RE_UNSAFE_SUMMARY: Lazy<Regex> = Lazy::new(|| Regex::new(r#"unsafe\s*\{"#).expect("valid regex"));
-static RE_DOC_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*///"#).expect("valid regex"));
+static RE_FN_SUMMARY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+[a-zA-Z_][a-zA-Z0-9_]*"#)
+        .expect("valid regex")
+});
+static RE_STRUCT_SUMMARY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex")
+});
+static RE_ENUM_SUMMARY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?enum\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex")
+});
+static RE_TRAIT_SUMMARY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:unsafe\s+)?trait\s+[a-zA-Z_][a-zA-Z0-9_]*"#)
+        .expect("valid regex")
+});
+static RE_IMPL_SUMMARY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?m)^\s*(?:unsafe\s+)?impl\s+"#).expect("valid regex"));
+static RE_MOD_SUMMARY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?mod\s+[a-zA-Z_][a-zA-Z0-9_]*"#).expect("valid regex")
+});
+static RE_TEST: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?m)^\s*#\[test\]"#).expect("valid regex"));
+static RE_UNSAFE_SUMMARY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"unsafe\s*\{"#).expect("valid regex"));
+static RE_DOC_COMMENT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?m)^\s*///"#).expect("valid regex"));
 static RE_COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*//"#).expect("valid regex"));
 static RE_BLANK_LINE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?m)^\s*$"#).expect("valid regex"));
 
@@ -185,7 +234,12 @@ impl Tool for CodeAnalyzerTool {
 // ============================================================================
 
 /// Recursively collect .rs files from a directory.
-fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, depth: usize) -> Result<(), String> {
+fn collect_rust_files(
+    dir: &Path,
+    files: &mut Vec<String>,
+    recursive: bool,
+    depth: usize,
+) -> Result<(), String> {
     if depth > 20 {
         return Ok(());
     }
@@ -198,7 +252,10 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, dept
 
         // Skip hidden directories and common non-source dirs
         if path.is_dir() {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
             if name.starts_with('.') || name == "target" || name == "node_modules" {
                 continue;
             }
@@ -215,8 +272,7 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, dept
 
 /// Read a file's content.
 fn read_file_content(path: &str) -> Result<String, String> {
-    std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read file '{path}': {e}"))
+    std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))
 }
 
 // ============================================================================
@@ -234,61 +290,75 @@ fn analyze_structure(files: &[String], detail: &str) -> Result<Value, String> {
 
         // Extract items using pre-compiled regex statics
         let functions: Vec<Value> = if detail == "full" {
-            RE_FN.captures_iter(&content)
+            RE_FN
+                .captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            RE_FN.captures_iter(&content)
+            RE_FN
+                .captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let structs: Vec<Value> = if detail == "full" {
-            RE_STRUCT.captures_iter(&content)
+            RE_STRUCT
+                .captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            RE_STRUCT.captures_iter(&content)
+            RE_STRUCT
+                .captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let enums: Vec<Value> = if detail == "full" {
-            RE_ENUM.captures_iter(&content)
+            RE_ENUM
+                .captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            RE_ENUM.captures_iter(&content)
+            RE_ENUM
+                .captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let traits: Vec<Value> = if detail == "full" {
-            RE_TRAIT.captures_iter(&content)
+            RE_TRAIT
+                .captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            RE_TRAIT.captures_iter(&content)
+            RE_TRAIT
+                .captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let impls: Vec<Value> = if detail == "full" {
-            RE_IMPL.captures_iter(&content)
-                .map(|c| serde_json::json!({ "target": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
+            RE_IMPL
+                .captures_iter(&content)
+                .map(
+                    |c| serde_json::json!({ "target": c.get(1).map(|m| m.as_str()).unwrap_or("") }),
+                )
                 .collect()
         } else {
-            RE_IMPL.captures_iter(&content)
+            RE_IMPL
+                .captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
 
         let modules: Vec<Value> = if detail == "full" {
-            RE_MOD.captures_iter(&content)
+            RE_MOD
+                .captures_iter(&content)
                 .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
                 .collect()
         } else {
-            RE_MOD.captures_iter(&content)
+            RE_MOD
+                .captures_iter(&content)
                 .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
                 .collect()
         };
@@ -378,7 +448,11 @@ fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
         // Find use statements using pre-compiled regex
         let use_stmts: Vec<String> = RE_USE
             .captures_iter(&content)
-            .map(|c| c.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default())
+            .map(|c| {
+                c.get(1)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default()
+            })
             .collect();
         if !use_stmts.is_empty() {
             all_use_statements.insert(relative_path.clone(), use_stmts.clone());
@@ -388,7 +462,11 @@ fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
         for use_stmt in &use_stmts {
             if let Some(first) = use_stmt.split("::").next() {
                 let crate_name = first.trim();
-                if !crate_name.is_empty() && crate_name != "self" && crate_name != "super" && crate_name != "crate" {
+                if !crate_name.is_empty()
+                    && crate_name != "self"
+                    && crate_name != "super"
+                    && crate_name != "crate"
+                {
                     *crate_references.entry(crate_name.to_string()).or_insert(0) += 1;
                 }
             }
@@ -431,9 +509,10 @@ fn analyze_complexity(files: &[String], detail: &str) -> Result<Value, String> {
             .captures_iter(&content)
             .filter_map(|c| {
                 let name = c.get(1).map(|m| m.as_str().to_string())?;
-                let pos = c.get(0).map(|m| {
-                    content[..m.start()].lines().count()
-                }).unwrap_or(0);
+                let pos = c
+                    .get(0)
+                    .map(|m| content[..m.start()].lines().count())
+                    .unwrap_or(0);
                 Some((pos, name))
             })
             .collect();
@@ -532,21 +611,73 @@ fn analyze_patterns(files: &[String]) -> Result<Value, String> {
     // Regex strings are compiled per-call since they're user-visible patterns,
     // but we use .ok() to avoid unwrap — invalid regex just yields zero matches.
     let patterns: Vec<(&str, &str, &str)> = vec![
-        ("unsafe_blocks", r#"unsafe\s*\{"#, "Unsafe blocks (potential memory safety risks)"),
-        ("unwrap_calls", r#"\.unwrap\(\)"#, "unwrap() calls (will panic on None/Err)"),
-        ("expect_calls", r#"\.expect\("#, "expect() calls (will panic on None/Err)"),
-        ("todo_macros", r#"(?m)^\s*todo!\("#, "todo!() macros (unimplemented code)"),
-        ("unimplemented", r#"unimplemented!\("#, "unimplemented!() macros"),
+        (
+            "unsafe_blocks",
+            r#"unsafe\s*\{"#,
+            "Unsafe blocks (potential memory safety risks)",
+        ),
+        (
+            "unwrap_calls",
+            r#"\.unwrap\(\)"#,
+            "unwrap() calls (will panic on None/Err)",
+        ),
+        (
+            "expect_calls",
+            r#"\.expect\("#,
+            "expect() calls (will panic on None/Err)",
+        ),
+        (
+            "todo_macros",
+            r#"(?m)^\s*todo!\("#,
+            "todo!() macros (unimplemented code)",
+        ),
+        (
+            "unimplemented",
+            r#"unimplemented!\("#,
+            "unimplemented!() macros",
+        ),
         ("panic_calls", r#"(?m)^\s*panic!\("#, "panic!() calls"),
-        ("dbg_macros", r#"dbg!\("#, "dbg!() macros (debugging artifacts)"),
-        ("allow_attributes", r#"#\[allow\([^)]*\]"#, "#[allow(...)] attributes (suppressed warnings)"),
-        ("todo_comments", r#"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND|OPTIMIZE)"#, "TODO/FIXME/HACK comments"),
-        ("unwrap_or", r#"\.unwrap_or\("#, "unwrap_or() calls (safe fallback)"),
+        (
+            "dbg_macros",
+            r#"dbg!\("#,
+            "dbg!() macros (debugging artifacts)",
+        ),
+        (
+            "allow_attributes",
+            r#"#\[allow\([^)]*\]"#,
+            "#[allow(...)] attributes (suppressed warnings)",
+        ),
+        (
+            "todo_comments",
+            r#"(?i)(?m)^\s*//\s*(TODO|FIXME|HACK|XXX|BUG|WORKAROUND|OPTIMIZE)"#,
+            "TODO/FIXME/HACK comments",
+        ),
+        (
+            "unwrap_or",
+            r#"\.unwrap_or\("#,
+            "unwrap_or() calls (safe fallback)",
+        ),
         ("as_ref_calls", r#"\.as_ref\(\)"#, "as_ref() calls"),
-        ("clone_calls", r#"\.clone\(\)"#, "clone() calls (potential performance issues)"),
-        ("box_allocations", r#"Box::new\("#, "Box::new() heap allocations"),
-        ("rc_allocations", r#"(?:Rc|Arc)::new\("#, "Rc/Arc reference counting"),
-        ("lazy_static", r#"lazy_static!\s*\{|LazyLock|LazyCell"#, "Lazy static initialization"),
+        (
+            "clone_calls",
+            r#"\.clone\(\)"#,
+            "clone() calls (potential performance issues)",
+        ),
+        (
+            "box_allocations",
+            r#"Box::new\("#,
+            "Box::new() heap allocations",
+        ),
+        (
+            "rc_allocations",
+            r#"(?:Rc|Arc)::new\("#,
+            "Rc/Arc reference counting",
+        ),
+        (
+            "lazy_static",
+            r#"lazy_static!\s*\{|LazyLock|LazyCell"#,
+            "Lazy static initialization",
+        ),
     ];
 
     let mut file_results = Vec::new();
@@ -576,7 +707,8 @@ fn analyze_patterns(files: &[String]) -> Result<Value, String> {
     }
 
     // Sort patterns by total count
-    let mut sorted_patterns: Vec<(String, usize, &str)> = patterns.iter()
+    let mut sorted_patterns: Vec<(String, usize, &str)> = patterns
+        .iter()
         .map(|(key, _, desc)| {
             let count = total_counts.get(*key).copied().unwrap_or(0);
             (key.to_string(), count, *desc)

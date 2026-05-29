@@ -199,7 +199,8 @@ impl Tool for ListDirTool {
         vec![
             ToolParameter {
                 name: "path".to_string(),
-                description: "Path to the directory to list (default: current directory)".to_string(),
+                description: "Path to the directory to list (default: current directory)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -217,13 +218,15 @@ impl Tool for ListDirTool {
             },
             ToolParameter {
                 name: "max_preview_lines".to_string(),
-                description: "Number of lines to preview for text files (default: 0, no preview)".to_string(),
+                description: "Number of lines to preview for text files (default: 0, no preview)"
+                    .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
             ToolParameter {
                 name: "use_gitignore".to_string(),
-                description: "Whether to respect .gitignore rules when listing (default: false)".to_string(),
+                description: "Whether to respect .gitignore rules when listing (default: false)"
+                    .to_string(),
                 required: false,
                 parameter_type: "boolean".to_string(),
             },
@@ -231,10 +234,7 @@ impl Tool for ListDirTool {
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let recursive = params
             .get("recursive")
             .and_then(|v| v.as_bool())
@@ -276,7 +276,14 @@ impl Tool for ListDirTool {
         };
 
         if recursive {
-            let entries = list_dir_recursive(dir_path, dir_path, 0, max_depth, max_preview_lines, gitignore.as_ref())?;
+            let entries = list_dir_recursive(
+                dir_path,
+                dir_path,
+                0,
+                max_depth,
+                max_preview_lines,
+                gitignore.as_ref(),
+            )?;
             Ok(serde_json::json!({
                 "status": "ok",
                 "path": path,
@@ -299,10 +306,47 @@ impl Tool for ListDirTool {
 
 /// Known text file extensions for preview.
 const TEXT_EXTENSIONS: &[&str] = &[
-    "rs", "toml", "md", "txt", "json", "yaml", "yml", "xml", "html", "css", "js", "ts",
-    "py", "rb", "go", "java", "c", "cpp", "h", "hpp", "sh", "bash", "zsh", "fish",
-    "lua", "sql", "r", "scala", "kt", "swift", "zig", "lock", "csv", "cfg", "ini",
-    "env", "gitignore", "gitattributes", "editorconfig", "dockerfile", "conf",
+    "rs",
+    "toml",
+    "md",
+    "txt",
+    "json",
+    "yaml",
+    "yml",
+    "xml",
+    "html",
+    "css",
+    "js",
+    "ts",
+    "py",
+    "rb",
+    "go",
+    "java",
+    "c",
+    "cpp",
+    "h",
+    "hpp",
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "lua",
+    "sql",
+    "r",
+    "scala",
+    "kt",
+    "swift",
+    "zig",
+    "lock",
+    "csv",
+    "cfg",
+    "ini",
+    "env",
+    "gitignore",
+    "gitattributes",
+    "editorconfig",
+    "dockerfile",
+    "conf",
 ];
 
 /// Preview the first N lines of a text file.
@@ -329,7 +373,8 @@ fn preview_file(path: &Path, max_lines: usize) -> Option<Vec<String>> {
 
     let content = std::fs::read_to_string(path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
-    let preview: Vec<String> = lines.iter()
+    let preview: Vec<String> = lines
+        .iter()
         .take(max_lines)
         .enumerate()
         .map(|(i, l)| format!("{:4}: {}", i + 1, l))
@@ -354,15 +399,17 @@ fn list_dir_flat(
         .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
 
     // Collect and sort by name for deterministic output
-    let mut dir_entries: Vec<_> = read_dir
-        .filter_map(|e| e.ok())
-        .collect();
+    let mut dir_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
     dir_entries.sort_by_key(|e| e.file_name());
 
     for entry in &dir_entries {
         let name = entry.file_name().to_string_lossy().to_string();
-        let file_type = entry.file_type().map_err(|e| format!("Failed to get file type: {e}"))?;
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to get file type: {e}"))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {e}"))?;
 
         let kind = if file_type.is_dir() {
             "directory"
@@ -398,19 +445,20 @@ fn list_dir_flat(
                     .unwrap_or(0);
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert(
-                        "preview".to_string(), Value::Array(
-                            preview.into_iter().map(Value::String).collect()
-                        )
+                        "preview".to_string(),
+                        Value::Array(preview.into_iter().map(Value::String).collect()),
                     );
                 }
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert(
-                        "preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated))
+                        "preview_lines".to_string(),
+                        Value::Number(serde_json::Number::from(truncated)),
                     );
                 }
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert(
-                        "total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines))
+                        "total_lines".to_string(),
+                        Value::Number(serde_json::Number::from(total_lines)),
                     );
                 }
             }
@@ -439,15 +487,17 @@ fn list_dir_recursive(
     let read_dir = std::fs::read_dir(dir)
         .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
 
-    let mut dir_entries: Vec<_> = read_dir
-        .filter_map(|e| e.ok())
-        .collect();
+    let mut dir_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
     dir_entries.sort_by_key(|e| e.file_name());
 
     for entry in &dir_entries {
         let _name = entry.file_name().to_string_lossy().to_string();
-        let file_type = entry.file_type().map_err(|e| format!("Failed to get file type: {e}"))?;
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to get file type: {e}"))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {e}"))?;
 
         let kind = if file_type.is_dir() {
             "directory"
@@ -459,7 +509,8 @@ fn list_dir_recursive(
 
         // Compute relative path from root
         let full_path = entry.path();
-        let relative = full_path.strip_prefix(root)
+        let relative = full_path
+            .strip_prefix(root)
             .unwrap_or(&full_path)
             .to_string_lossy()
             .to_string();
@@ -482,7 +533,14 @@ fn list_dir_recursive(
 
         // Recurse into subdirectories
         if file_type.is_dir() {
-            let children = list_dir_recursive(root, &full_path, depth + 1, max_depth, max_preview_lines, gitignore)?;
+            let children = list_dir_recursive(
+                root,
+                &full_path,
+                depth + 1,
+                max_depth,
+                max_preview_lines,
+                gitignore,
+            )?;
             if !children.is_empty() {
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert("children".to_string(), Value::Array(children));
@@ -500,19 +558,20 @@ fn list_dir_recursive(
                     .unwrap_or(0);
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert(
-                        "preview".to_string(), Value::Array(
-                            preview.into_iter().map(Value::String).collect()
-                        )
+                        "preview".to_string(),
+                        Value::Array(preview.into_iter().map(Value::String).collect()),
                     );
                 }
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert(
-                        "preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated))
+                        "preview_lines".to_string(),
+                        Value::Number(serde_json::Number::from(truncated)),
                     );
                 }
                 if let Some(obj) = item.as_object_mut() {
                     obj.insert(
-                        "total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines))
+                        "total_lines".to_string(),
+                        Value::Number(serde_json::Number::from(total_lines)),
                     );
                 }
             }
@@ -563,7 +622,8 @@ impl Tool for GrepTool {
             },
             ToolParameter {
                 name: "file_pattern".to_string(),
-                description: "Optional file regex pattern to filter (e.g. '*.rs', '*.toml')".to_string(),
+                description: "Optional file regex pattern to filter (e.g. '*.rs', '*.toml')"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -575,7 +635,8 @@ impl Tool for GrepTool {
             },
             ToolParameter {
                 name: "context_lines".to_string(),
-                description: "Number of context lines before/after each match (default: 0)".to_string(),
+                description: "Number of context lines before/after each match (default: 0)"
+                    .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -587,13 +648,16 @@ impl Tool for GrepTool {
             },
             ToolParameter {
                 name: "files_only".to_string(),
-                description: "If true, only return matching file names without line details (default: false)".to_string(),
+                description:
+                    "If true, only return matching file names without line details (default: false)"
+                        .to_string(),
                 required: false,
                 parameter_type: "boolean".to_string(),
             },
             ToolParameter {
                 name: "max_file_size".to_string(),
-                description: "Skip files larger than this many bytes (default: 1MB = 1048576)".to_string(),
+                description: "Skip files larger than this many bytes (default: 1MB = 1048576)"
+                    .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -606,14 +670,9 @@ impl Tool for GrepTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: pattern")?;
 
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
-        let file_pattern = params
-            .get("file_pattern")
-            .and_then(|v| v.as_str());
+        let file_pattern = params.get("file_pattern").and_then(|v| v.as_str());
 
         let max_results = params
             .get("max_results")
@@ -661,10 +720,7 @@ impl Tool for GrepTool {
         // Build file filter regex
         let file_re: Option<Regex> = file_pattern.map(|fp| {
             // Convert simple glob-like patterns to regex
-            let glob_re = fp
-                .replace('.', "\\.")
-                .replace('*', ".*")
-                .replace('?', ".");
+            let glob_re = fp.replace('.', "\\.").replace('*', ".*").replace('?', ".");
             Regex::new(&format!("(?i)^{glob_re}$"))
                 .unwrap_or_else(|_| Regex::new(".*").expect("invalid regex: fallback .*"))
         });
@@ -703,15 +759,15 @@ impl Tool for GrepTool {
 fn is_binary_file(path: &Path) -> bool {
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let binary_extensions: HashSet<&str> = [
-        "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg",
-        "woff", "woff2", "ttf", "eot", "otf",
-        "mp3", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv",
-        "zip", "tar", "gz", "bz2", "7z", "rar", "xz", "zst",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "o", "so", "dylib", "dll", "exe", "class", "jar", "wasm",
-        "iso", "img", "bin", "dat", "db", "sqlite",
-        "ttc", "dfont",
-    ].iter().cloned().collect();
+        "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "woff", "woff2", "ttf", "eot", "otf",
+        "mp3", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "zip", "tar", "gz", "bz2", "7z",
+        "rar", "xz", "zst", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "o", "so", "dylib",
+        "dll", "exe", "class", "jar", "wasm", "iso", "img", "bin", "dat", "db", "sqlite", "ttc",
+        "dfont",
+    ]
+    .iter()
+    .cloned()
+    .collect();
     binary_extensions.contains(extension)
 }
 
@@ -734,9 +790,17 @@ fn should_skip_entry(dir_name: &str, _path: &Path) -> bool {
     }
     matches!(
         name_lower.as_str(),
-        "node_modules" | "target" | "vendor" | ".git"
-            | ".svn" | "__pycache__" | ".venv" | "venv"
-            | ".idea" | ".vscode" | ".DS_Store"
+        "node_modules"
+            | "target"
+            | "vendor"
+            | ".git"
+            | ".svn"
+            | "__pycache__"
+            | ".venv"
+            | "venv"
+            | ".idea"
+            | ".vscode"
+            | ".DS_Store"
     )
 }
 

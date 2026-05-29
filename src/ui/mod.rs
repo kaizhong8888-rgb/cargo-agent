@@ -17,7 +17,11 @@ use std::io::{self, Write};
 pub fn show_banner() {
     let version = env!("CARGO_PKG_VERSION");
     println!();
-    println!("  {} {}", "Cargo Agent".bold().cyan(), format!("v{version}").dimmed());
+    println!(
+        "  {} {}",
+        "Cargo Agent".bold().cyan(),
+        format!("v{version}").dimmed()
+    );
     println!("  {}", "Self-evolving AI assistant".dimmed());
     println!("  {}", "Type /quit to exit".dimmed());
     println!();
@@ -25,7 +29,11 @@ pub fn show_banner() {
 
 /// Show the one-shot response banner (for `cargo-agent run`).
 pub fn show_response_banner() {
-    println!("  {} {}\n", "Cargo Agent".bold().cyan(), env!("CARGO_PKG_VERSION").dimmed());
+    println!(
+        "  {} {}\n",
+        "Cargo Agent".bold().cyan(),
+        env!("CARGO_PKG_VERSION").dimmed()
+    );
 }
 
 // ============================================================================
@@ -77,7 +85,8 @@ pub fn print_info(msg: &str) {
 
 /// Print a tool execution indicator in magenta.
 pub fn print_tool_call(name: &str, summary: &str) {
-    println!("  {} {} {}",
+    println!(
+        "  {} {} {}",
         "⚙".magenta().bold(),
         name.magenta(),
         format!("— {summary}").dimmed(),
@@ -97,13 +106,24 @@ pub fn print_response(text: &str) {
             let (lang, body) = if let Some(newline_pos) = code.find('\n') {
                 let first_line = code[..newline_pos].trim().to_string();
                 let rest = code[newline_pos + 1..].to_string();
-                (if first_line.is_empty() { None } else { Some(first_line) }, rest)
+                (
+                    if first_line.is_empty() {
+                        None
+                    } else {
+                        Some(first_line)
+                    },
+                    rest,
+                )
             } else {
                 (None, code)
             };
 
             if let Some(lang) = lang {
-                println!("  {} {}", "┌".cyan().bold(), format!("[{lang}]").cyan().bold());
+                println!(
+                    "  {} {}",
+                    "┌".cyan().bold(),
+                    format!("[{lang}]").cyan().bold()
+                );
             }
             for line in body.lines() {
                 println!("  {}", line.on_black().bright_yellow());
@@ -151,7 +171,8 @@ fn render_inline_bold(text: &str) -> String {
     // Simple: replace **text** with colored/bold text
     // We use regex to find **...** patterns
     static BOLD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = BOLD_RE.get_or_init(|| regex::Regex::new(r"\*\*(.+?)\*\*").expect("invalid regex: bold markdown"));
+    let re = BOLD_RE
+        .get_or_init(|| regex::Regex::new(r"\*\*(.+?)\*\*").expect("invalid regex: bold markdown"));
 
     let mut result = String::new();
     let mut last_end = 0;
@@ -229,11 +250,7 @@ impl Spinner {
 
     fn render_frame(&mut self) {
         let frame = SPINNER_FRAMES[self.frame];
-        let output = format!(
-            "\r\x1b[K  {} {}",
-            frame.cyan(),
-            self.message.dimmed()
-        );
+        let output = format!("\r\x1b[K  {} {}", frame.cyan(), self.message.dimmed());
         let _ = self.stdout.write_all(output.as_bytes());
         let _ = self.stdout.flush();
     }

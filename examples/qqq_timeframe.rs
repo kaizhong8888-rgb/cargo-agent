@@ -1,9 +1,9 @@
 /// Triple EMA 多时间框架回测：日线 vs 周线 vs 月线
 use cargo_agent::trading::backtest::BacktestEngine;
 use cargo_agent::trading::data::Candle;
-use cargo_agent::trading::strategy::{Strategy, TripleEmaStrategy};
 use cargo_agent::trading::report::BacktestResult;
-use chrono::{Utc, Duration};
+use cargo_agent::trading::strategy::{Strategy, TripleEmaStrategy};
+use chrono::{Duration, Utc};
 use rand::Rng;
 
 /// 生成 QQQ 风格的日线数据
@@ -20,10 +20,16 @@ fn generate_daily(count: usize, start_price: f64) -> Vec<Candle> {
         let ts = start + Duration::hours(i as i64);
         let shock = rng.gen_range(-volatility..volatility);
         momentum = momentum * momentum_decay + shock * (1.0 - momentum_decay);
-        let mean_revert = if price > start_price * 2.0 { -0.003 }
-            else if price < start_price * 0.8 { 0.005 } else { 0.0 };
+        let mean_revert = if price > start_price * 2.0 {
+            -0.003
+        } else if price < start_price * 0.8 {
+            0.005
+        } else {
+            0.0
+        };
         let change = base_trend + momentum * 0.6 + mean_revert;
-        let open = price; let close = (price * (1.0 + change)).max(0.1);
+        let open = price;
+        let close = (price * (1.0 + change)).max(0.1);
         let high = open.max(close) * (1.0 + rng.gen_range(0.0..0.01));
         let low = open.min(close) * (1.0 - rng.gen_range(0.0..0.01));
         let vol = rng.gen_range(10_000.0..1_000_000.0);
@@ -37,7 +43,9 @@ fn generate_daily(count: usize, start_price: f64) -> Vec<Candle> {
 fn aggregate_candles(daily: &[Candle], bars_per_period: usize) -> Vec<Candle> {
     let mut result = Vec::new();
     for chunk in daily.chunks(bars_per_period) {
-        if chunk.is_empty() { continue; }
+        if chunk.is_empty() {
+            continue;
+        }
         let ts = chunk[0].timestamp;
         let open = chunk[0].open;
         let close = chunk.last().unwrap().close;
@@ -49,15 +57,26 @@ fn aggregate_candles(daily: &[Candle], bars_per_period: usize) -> Vec<Candle> {
     result
 }
 
-fn sep() { println!("{}", "=".repeat(92)); }
+fn sep() {
+    println!("{}", "=".repeat(92));
+}
 
 fn run_backtest(name: &str, candles: &[Candle], params_list: &[(usize, usize, usize, &str)]) {
     let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
-    if closes.len() < 100 { println!("  {}: 数据太少 ({}根) 无法回测", name, closes.len()); return; }
-    
-    let hold_return = (closes.last().unwrap() - closes.first().unwrap()) / closes.first().unwrap() * 100.0;
+    if closes.len() < 100 {
+        println!("  {}: 数据太少 ({}根) 无法回测", name, closes.len());
+        return;
+    }
+
+    let hold_return =
+        (closes.last().unwrap() - closes.first().unwrap()) / closes.first().unwrap() * 100.0;
     println!("  {} 数据: {} 根K线", name, candles.len());
-    println!("  起始: ${:.2} -> 最新: ${:.2}  (基准涨幅: {:>+.2}%)", closes[0], closes.last().unwrap(), hold_return);
+    println!(
+        "  起始: ${:.2} -> 最新: ${:.2}  (基准涨幅: {:>+.2}%)",
+        closes[0],
+        closes.last().unwrap(),
+        hold_return
+    );
     println!();
 
     let mut results = Vec::new();
@@ -66,33 +85,60 @@ fn run_backtest(name: &str, candles: &[Candle], params_list: &[(usize, usize, us
         let mut engine = BacktestEngine::new(100_000.0, 0.001, 0.001);
         if let Ok(trades) = engine.run(candles, &strategy) {
             let report = BacktestResult::new(&engine, candles, &trades);
-            results.push((format!("Triple EMA ({},{},{}) {}", fast, mid, slow, desc), report, trades));
+            results.push((
+                format!("Triple EMA ({},{},{}) {}", fast, mid, slow, desc),
+                report,
+                trades,
+            ));
         }
     }
 
     results.sort_by(|a, b| {
-        b.1.engine.total_return_pct.partial_cmp(&a.1.engine.total_return_pct).unwrap_or(std::cmp::Ordering::Equal)
+        b.1.engine
+            .total_return_pct
+            .partial_cmp(&a.1.engine.total_return_pct)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    println!("  {:<4} {:<34} {:>10} {:>9} {:>9} {:>6} {:>8} {:>8}", 
-        "排名", "参数", "收益率", "夏普比", "最大回撤", "交易数", "胜率", "盈亏比");
+    println!(
+        "  {:<4} {:<34} {:>10} {:>9} {:>9} {:>6} {:>8} {:>8}",
+        "排名", "参数", "收益率", "夏普比", "最大回撤", "交易数", "胜率", "盈亏比"
+    );
     println!("  {}", "-".repeat(84));
 
     for (i, (name, report, _)) in results.iter().enumerate() {
         let r = &report.engine;
-        let medal = match i { 0 => "🥇", 1 => "🥈", 2 => "🥉", _ => "  " };
-        println!("  {} {:>2}  {:<34} {:>+8.2}% {:>7.2} {:>7.2}% {:>5} {:>7.1}% {:>7.2}",
-            medal, i+1, name, r.total_return_pct, r.sharpe_ratio, r.max_drawdown_pct,
-            r.total_trades, r.win_rate, r.profit_factor);
+        let medal = match i {
+            0 => "🥇",
+            1 => "🥈",
+            2 => "🥉",
+            _ => "  ",
+        };
+        println!(
+            "  {} {:>2}  {:<34} {:>+8.2}% {:>7.2} {:>7.2}% {:>5} {:>7.1}% {:>7.2}",
+            medal,
+            i + 1,
+            name,
+            r.total_return_pct,
+            r.sharpe_ratio,
+            r.max_drawdown_pct,
+            r.total_trades,
+            r.win_rate,
+            r.profit_factor
+        );
     }
-    println!("  {} 基准: Buy & Hold {:>+.2}%", if results.is_empty() { "" } else { "" }, hold_return);
+    println!(
+        "  {} 基准: Buy & Hold {:>+.2}%",
+        if results.is_empty() { "" } else { "" },
+        hold_return
+    );
     println!();
 }
 
 fn main() {
     // 生成连续日线数据（约4年 = 1000个交易日）
     let daily_candles = generate_daily(1000, 180.0);
-    
+
     // 聚合为周线（5天/周）和月线（21天/月）
     let weekly_candles = aggregate_candles(&daily_candles, 5);
     let monthly_candles = aggregate_candles(&daily_candles, 21);

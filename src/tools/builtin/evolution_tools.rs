@@ -95,7 +95,8 @@ impl Tool for SelfModifyTool {
 
 impl SelfModifyTool {
     fn project_root(&self) -> Result<PathBuf, String> {
-        let mut dir = std::env::current_dir().map_err(|e| format!("Cannot get current dir: {e}"))?;
+        let mut dir =
+            std::env::current_dir().map_err(|e| format!("Cannot get current dir: {e}"))?;
         for _ in 0..10 {
             if dir.join("Cargo.toml").exists() {
                 return Ok(dir);
@@ -447,15 +448,22 @@ impl SelfReflectTool {
         let mut recommendations: Vec<String> = Vec::new();
 
         if evolution_memories.is_empty() {
-            recommendations.push("Start recording evolution events to build self-knowledge".to_string());
+            recommendations
+                .push("Start recording evolution events to build self-knowledge".to_string());
         }
 
         if stats.total < 5 {
-            recommendations.push("Store more memories across different namespaces for better context retention".to_string());
+            recommendations.push(
+                "Store more memories across different namespaces for better context retention"
+                    .to_string(),
+            );
         }
 
         if high_importance.len() < 3 {
-            recommendations.push("Consider storing more high-importance (8-10) memories for critical knowledge".to_string());
+            recommendations.push(
+                "Consider storing more high-importance (8-10) memories for critical knowledge"
+                    .to_string(),
+            );
         }
 
         if stats.by_namespace.len() < 3 {
@@ -463,31 +471,43 @@ impl SelfReflectTool {
         }
 
         // Check if certain important namespaces exist
-        let namespace_names: Vec<&str> = stats.by_namespace.iter().map(|(s, _)| s.as_str()).collect();
+        let namespace_names: Vec<&str> =
+            stats.by_namespace.iter().map(|(s, _)| s.as_str()).collect();
         if !namespace_names.contains(&"security") {
-            recommendations.push("Create a 'security' namespace to store security best practices and audit findings".to_string());
+            recommendations.push(
+                "Create a 'security' namespace to store security best practices and audit findings"
+                    .to_string(),
+            );
         }
         if !namespace_names.contains(&"project") {
-            recommendations.push("Create a 'project' namespace to track project-specific context and decisions".to_string());
+            recommendations.push(
+                "Create a 'project' namespace to track project-specific context and decisions"
+                    .to_string(),
+            );
         }
 
         if recommendations.is_empty() {
-            recommendations.push("System is healthy. Continue building knowledge and evolving capabilities.".to_string());
+            recommendations.push(
+                "System is healthy. Continue building knowledge and evolving capabilities."
+                    .to_string(),
+            );
         }
 
-        let ns_breakdown: Vec<Value> = stats.by_namespace.iter().map(|(ns, count)| {
-            serde_json::json!({"namespace": ns, "count": count})
-        }).collect();
+        let ns_breakdown: Vec<Value> = stats
+            .by_namespace
+            .iter()
+            .map(|(ns, count)| serde_json::json!({"namespace": ns, "count": count}))
+            .collect();
 
-        let imp_breakdown: Vec<Value> = stats.by_importance.iter().map(|(imp, count)| {
-            serde_json::json!({"importance": imp, "count": count})
-        }).collect();
+        let imp_breakdown: Vec<Value> = stats
+            .by_importance
+            .iter()
+            .map(|(imp, count)| serde_json::json!({"importance": imp, "count": count}))
+            .collect();
 
         let lessons: Vec<&str> = evolution_memories
             .iter()
-            .filter(|m| {
-                m.tags.contains("lesson_learned") || m.tags.contains("error_learned")
-            })
+            .filter(|m| m.tags.contains("lesson_learned") || m.tags.contains("error_learned"))
             .map(|m| m.value.as_str())
             .collect();
 
@@ -510,7 +530,10 @@ impl SelfReflectTool {
     }
 
     /// Focus on tool usage patterns: analyze available tools and identify coverage.
-    fn reflect_tool_usage(&self, store: &crate::memory::SqliteMemoryStore) -> Result<Value, String> {
+    fn reflect_tool_usage(
+        &self,
+        store: &crate::memory::SqliteMemoryStore,
+    ) -> Result<Value, String> {
         // Get tool registration info from memories if any
         let tool_mentions = store
             .search(None, None, Some("tool"), None, 30)
@@ -530,7 +553,9 @@ impl SelfReflectTool {
         if skills_count < 5 {
             recommendations.push(format!("Only {skills_count} skills installed. Consider creating more domain-specific skills."));
         } else {
-            recommendations.push(format!("Good skill coverage with {skills_count} skills installed."));
+            recommendations.push(format!(
+                "Good skill coverage with {skills_count} skills installed."
+            ));
         }
 
         if tool_mentions.is_empty() {
@@ -547,7 +572,10 @@ impl SelfReflectTool {
     }
 
     /// Focus on knowledge gaps: identify namespaces with sparse coverage.
-    fn reflect_knowledge_gaps(&self, store: &crate::memory::SqliteMemoryStore) -> Result<Value, String> {
+    fn reflect_knowledge_gaps(
+        &self,
+        store: &crate::memory::SqliteMemoryStore,
+    ) -> Result<Value, String> {
         let stats = store.stats().map_err(|e| format!("Stats error: {e}"))?;
 
         let mut gaps: Vec<Value> = Vec::new();
@@ -560,7 +588,11 @@ impl SelfReflectTool {
                 .map_err(|e| format!("Search error: {e}"))?;
 
             let total_importance: u64 = memories.iter().map(|m| m.importance as u64).sum();
-            let avg_importance = if *count > 0 { total_importance / *count as u64 } else { 0 };
+            let avg_importance = if *count > 0 {
+                total_importance / *count as u64
+            } else {
+                0
+            };
 
             gaps.push(serde_json::json!({
                 "namespace": ns,
@@ -571,7 +603,8 @@ impl SelfReflectTool {
         }
 
         if stats.by_namespace.is_empty() {
-            recommendations.push("No memories stored yet. Start by storing key information.".to_string());
+            recommendations
+                .push("No memories stored yet. Start by storing key information.".to_string());
         }
 
         // Check for overall balance
@@ -589,7 +622,10 @@ impl SelfReflectTool {
     }
 
     /// Focus on error patterns: search for errors and failures in memories.
-    fn reflect_error_patterns(&self, store: &crate::memory::SqliteMemoryStore) -> Result<Value, String> {
+    fn reflect_error_patterns(
+        &self,
+        store: &crate::memory::SqliteMemoryStore,
+    ) -> Result<Value, String> {
         let error_memories = store
             .search(None, None, Some("error"), None, 30)
             .map_err(|e| format!("Search error: {e}"))?;
@@ -613,7 +649,10 @@ impl SelfReflectTool {
         if all_errors.is_empty() {
             recommendations.push("No errors recorded. System appears stable.".to_string());
         } else {
-            recommendations.push(format!("Found {} error/failure records. Review and address recurring issues.", all_errors.len()));
+            recommendations.push(format!(
+                "Found {} error/failure records. Review and address recurring issues.",
+                all_errors.len()
+            ));
         }
 
         Ok(serde_json::json!({
@@ -626,16 +665,23 @@ impl SelfReflectTool {
     }
 
     /// Focus on response quality: assess stored knowledge completeness.
-    fn reflect_response_quality(&self, store: &crate::memory::SqliteMemoryStore) -> Result<Value, String> {
+    fn reflect_response_quality(
+        &self,
+        store: &crate::memory::SqliteMemoryStore,
+    ) -> Result<Value, String> {
         let stats = store.stats().map_err(|e| format!("Stats error: {e}"))?;
 
         // Count high-quality (importance >= 7) vs low-quality memories
-        let high_quality: u64 = stats.by_importance.iter()
+        let high_quality: u64 = stats
+            .by_importance
+            .iter()
             .filter(|(imp, _)| *imp >= 7)
             .map(|(_, count)| *count as u64)
             .sum();
 
-        let low_quality: u64 = stats.by_importance.iter()
+        let low_quality: u64 = stats
+            .by_importance
+            .iter()
             .filter(|(imp, _)| *imp <= 3)
             .map(|(_, count)| *count as u64)
             .sum();
@@ -649,7 +695,9 @@ impl SelfReflectTool {
             if high_pct < 30.0 {
                 recommendations.push(format!("Only {high_pct:.0}% of memories are high-importance (>=7). Focus on capturing more critical knowledge."));
             } else {
-                recommendations.push(format!("Good knowledge quality: {high_pct:.0}% of memories are high-importance."));
+                recommendations.push(format!(
+                    "Good knowledge quality: {high_pct:.0}% of memories are high-importance."
+                ));
             }
         }
 
@@ -805,7 +853,8 @@ impl Tool for ManageSkillsTool {
             },
             ToolParameter {
                 name: "always_active".to_string(),
-                description: "Whether the skill is always active (true/false, default: false)".to_string(),
+                description: "Whether the skill is always active (true/false, default: false)"
+                    .to_string(),
                 required: false,
                 parameter_type: "boolean".to_string(),
             },
@@ -832,13 +881,17 @@ impl Tool for ManageSkillsTool {
             "list" => {
                 let registry = SkillRegistry::load_from_dir(&skills_dir)
                     .map_err(|e| format!("Failed to load skills: {e}"))?;
-                let skills: Vec<Value> = registry.list().iter().map(|(name, desc, active)| {
-                    serde_json::json!({
-                        "name": name,
-                        "description": desc,
-                        "always_active": active,
+                let skills: Vec<Value> = registry
+                    .list()
+                    .iter()
+                    .map(|(name, desc, active)| {
+                        serde_json::json!({
+                            "name": name,
+                            "description": desc,
+                            "always_active": active,
+                        })
                     })
-                }).collect();
+                    .collect();
                 Ok(serde_json::json!({
                     "status": "ok",
                     "count": skills.len(),
@@ -887,7 +940,10 @@ impl Tool for ManageSkillsTool {
                 let keywords: Vec<String> = if keywords_str.is_empty() {
                     vec![]
                 } else {
-                    keywords_str.split(',').map(|s| s.trim().to_string()).collect()
+                    keywords_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect()
                 };
                 let always_active = params
                     .get("always_active")
@@ -909,7 +965,8 @@ impl Tool for ManageSkillsTool {
                     reference_files: vec![],
                 };
 
-                let file_path = skill.save_to(&skills_dir)
+                let file_path = skill
+                    .save_to(&skills_dir)
                     .map_err(|e| format!("Failed to save skill: {e}"))?;
 
                 Ok(serde_json::json!({
@@ -944,7 +1001,9 @@ impl Tool for ManageSkillsTool {
 
 pub fn register_all(registry: &mut ToolRegistry, memory: Arc<SqliteMemoryStore>) {
     registry.register(Box::new(SelfModifyTool));
-    registry.register(Box::new(SelfReflectTool { memory: memory.clone() }));
+    registry.register(Box::new(SelfReflectTool {
+        memory: memory.clone(),
+    }));
     registry.register(Box::new(RecordEvolutionTool { memory }));
     registry.register(Box::new(ManageSkillsTool));
 }
@@ -989,9 +1048,18 @@ mod tests {
 
         // Create a temp file
         let result = tool.write_file(&HashMap::from([
-            ("action".to_string(), Value::String("write_file".to_string())),
-            ("path".to_string(), Value::String("src/tools/builtin/test_temp.rs".to_string())),
-            ("content".to_string(), Value::String("// temp file\n".to_string())),
+            (
+                "action".to_string(),
+                Value::String("write_file".to_string()),
+            ),
+            (
+                "path".to_string(),
+                Value::String("src/tools/builtin/test_temp.rs".to_string()),
+            ),
+            (
+                "content".to_string(),
+                Value::String("// temp file\n".to_string()),
+            ),
             ("verify".to_string(), Value::Bool(false)),
         ]));
         assert!(result.is_ok());
@@ -999,14 +1067,23 @@ mod tests {
         // Verify it was created
         let read_result = tool.read_file(&HashMap::from([
             ("action".to_string(), Value::String("read_file".to_string())),
-            ("path".to_string(), Value::String("src/tools/builtin/test_temp.rs".to_string())),
+            (
+                "path".to_string(),
+                Value::String("src/tools/builtin/test_temp.rs".to_string()),
+            ),
         ]));
         assert!(read_result.is_ok());
 
         // Delete it
         let delete_result = tool.delete_file(&HashMap::from([
-            ("action".to_string(), Value::String("delete_file".to_string())),
-            ("path".to_string(), Value::String("src/tools/builtin/test_temp.rs".to_string())),
+            (
+                "action".to_string(),
+                Value::String("delete_file".to_string()),
+            ),
+            (
+                "path".to_string(),
+                Value::String("src/tools/builtin/test_temp.rs".to_string()),
+            ),
         ]));
         assert!(delete_result.is_ok());
         assert_eq!(delete_result.unwrap()["status"], "deleted");
@@ -1019,35 +1096,57 @@ mod tests {
 
         // Create a file
         tool.write_file(&HashMap::from([
-            ("action".to_string(), Value::String("write_file".to_string())),
+            (
+                "action".to_string(),
+                Value::String("write_file".to_string()),
+            ),
             ("path".to_string(), Value::String(test_path.to_string())),
-            ("content".to_string(), Value::String("fn hello() { println!(\"world\"); }".to_string())),
+            (
+                "content".to_string(),
+                Value::String("fn hello() { println!(\"world\"); }".to_string()),
+            ),
             ("verify".to_string(), Value::Bool(false)),
-        ])).unwrap();
+        ]))
+        .unwrap();
 
         // Patch it
         let patch_result = tool.patch_file(&HashMap::from([
-            ("action".to_string(), Value::String("patch_file".to_string())),
+            (
+                "action".to_string(),
+                Value::String("patch_file".to_string()),
+            ),
             ("path".to_string(), Value::String(test_path.to_string())),
             ("old_text".to_string(), Value::String("world".to_string())),
-            ("new_text".to_string(), Value::String("universe".to_string())),
+            (
+                "new_text".to_string(),
+                Value::String("universe".to_string()),
+            ),
             ("verify".to_string(), Value::Bool(false)),
         ]));
         assert!(patch_result.is_ok());
         assert_eq!(patch_result.unwrap()["status"], "patched");
 
         // Verify the change
-        let read_result = tool.read_file(&HashMap::from([
-            ("action".to_string(), Value::String("read_file".to_string())),
-            ("path".to_string(), Value::String(test_path.to_string())),
-        ])).unwrap();
-        assert!(read_result["content"].as_str().unwrap().contains("universe"));
+        let read_result = tool
+            .read_file(&HashMap::from([
+                ("action".to_string(), Value::String("read_file".to_string())),
+                ("path".to_string(), Value::String(test_path.to_string())),
+            ]))
+            .unwrap();
+        assert!(read_result["content"]
+            .as_str()
+            .unwrap()
+            .contains("universe"));
 
         // Cleanup
         tool.delete_file(&HashMap::from([
-            ("action".to_string(), Value::String("delete_file".to_string())),
+            (
+                "action".to_string(),
+                Value::String("delete_file".to_string()),
+            ),
             ("path".to_string(), Value::String(test_path.to_string())),
-        ])).unwrap();
+        ]))
+        .unwrap();
     }
 
     #[test]
@@ -1056,17 +1155,33 @@ mod tests {
         let test_path = "src/tools/builtin/test_patch2.rs";
 
         tool.write_file(&HashMap::from([
-            ("action".to_string(), Value::String("write_file".to_string())),
+            (
+                "action".to_string(),
+                Value::String("write_file".to_string()),
+            ),
             ("path".to_string(), Value::String(test_path.to_string())),
-            ("content".to_string(), Value::String("fn hello() {}".to_string())),
+            (
+                "content".to_string(),
+                Value::String("fn hello() {}".to_string()),
+            ),
             ("verify".to_string(), Value::Bool(false)),
-        ])).unwrap();
+        ]))
+        .unwrap();
 
         let patch_result = tool.patch_file(&HashMap::from([
-            ("action".to_string(), Value::String("patch_file".to_string())),
+            (
+                "action".to_string(),
+                Value::String("patch_file".to_string()),
+            ),
             ("path".to_string(), Value::String(test_path.to_string())),
-            ("old_text".to_string(), Value::String("NONEXISTENT".to_string())),
-            ("new_text".to_string(), Value::String("something".to_string())),
+            (
+                "old_text".to_string(),
+                Value::String("NONEXISTENT".to_string()),
+            ),
+            (
+                "new_text".to_string(),
+                Value::String("something".to_string()),
+            ),
             ("verify".to_string(), Value::Bool(false)),
         ]));
         assert!(patch_result.is_ok());
@@ -1074,9 +1189,13 @@ mod tests {
 
         // Cleanup
         tool.delete_file(&HashMap::from([
-            ("action".to_string(), Value::String("delete_file".to_string())),
+            (
+                "action".to_string(),
+                Value::String("delete_file".to_string()),
+            ),
             ("path".to_string(), Value::String(test_path.to_string())),
-        ])).unwrap();
+        ]))
+        .unwrap();
     }
 
     #[test]

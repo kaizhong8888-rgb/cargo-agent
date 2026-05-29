@@ -50,7 +50,10 @@ impl SecretStore {
     }
 
     pub fn list_keys(&self) -> Vec<String> {
-        self.data.lock().map(|d| d.keys().cloned().collect()).unwrap_or_default()
+        self.data
+            .lock()
+            .map(|d| d.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
@@ -66,7 +69,10 @@ impl SecretStore {
     }
 
     pub fn remove(&self, key: &str) -> bool {
-        self.data.lock().map(|mut d| d.remove(key).is_some()).unwrap_or(false)
+        self.data
+            .lock()
+            .map(|mut d| d.remove(key).is_some())
+            .unwrap_or(false)
     }
 }
 
@@ -127,27 +133,41 @@ impl Tool for EnvSecretTool {
                 Ok(Value::Array(keys.into_iter().map(Value::String).collect()))
             }
             "get" => {
-                let key = params.get("key").and_then(|v| v.as_str()).ok_or("key is required for get".to_string())?;
+                let key = params
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or("key is required for get".to_string())?;
                 match self.store.get(key) {
                     Some(value) => Ok(Value::String(value)),
                     None => Ok(Value::String(format!("Secret '{key}' not found"))),
                 }
             }
             "set" => {
-                let key = params.get("key").and_then(|v| v.as_str()).ok_or("key is required for set".to_string())?;
-                let value = params.get("value").and_then(|v| v.as_str()).ok_or("value is required for set".to_string())?;
+                let key = params
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or("key is required for set".to_string())?;
+                let value = params
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .ok_or("value is required for set".to_string())?;
                 self.store.set(key, value);
                 Ok(Value::String(format!("Secret '{key}' set successfully")))
             }
             "remove" => {
-                let key = params.get("key").and_then(|v| v.as_str()).ok_or("key is required for remove".to_string())?;
+                let key = params
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or("key is required for remove".to_string())?;
                 if self.store.remove(key) {
                     Ok(Value::String(format!("Secret '{key}' removed")))
                 } else {
                     Ok(Value::String(format!("Secret '{key}' not found")))
                 }
             }
-            _ => Err(format!("Unknown action: {action}. Valid actions: list, get, set, remove")),
+            _ => Err(format!(
+                "Unknown action: {action}. Valid actions: list, get, set, remove"
+            )),
         }
     }
 }

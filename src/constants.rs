@@ -9,9 +9,7 @@ pub static CARGO_HOME: Lazy<String> = Lazy::new(|| {
         .unwrap_or_else(|| "~".to_string())
 });
 
-pub static AGENT_DIR: Lazy<String> = Lazy::new(|| {
-    format!("{}/.cargo-agent", *CARGO_HOME)
-});
+pub static AGENT_DIR: Lazy<String> = Lazy::new(|| format!("{}/.cargo-agent", *CARGO_HOME));
 
 /// Get the path to the memories storage directory.
 ///

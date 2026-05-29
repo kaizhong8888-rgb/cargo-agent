@@ -80,7 +80,10 @@ impl Tool for ConcurrentTaskPool {
                 .unwrap_or("unnamed")
                 .to_string();
 
-            let command = task.get("command").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let command = task
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let sleep_ms = task.get("sleep_ms").and_then(|v| v.as_u64());
 
             let sem_clone = Arc::clone(&semaphore);
@@ -334,9 +337,7 @@ mod tests {
         let tool = ConcurrentTaskPool;
         let mut params = HashMap::new();
 
-        let tasks: Vec<Value> = vec![
-            json!({"id": "fail_task", "command": "exit 42"}),
-        ];
+        let tasks: Vec<Value> = vec![json!({"id": "fail_task", "command": "exit 42"})];
 
         params.insert("tasks".to_string(), json!(tasks));
         params.insert("max_concurrent".to_string(), json!(1));

@@ -62,7 +62,8 @@ impl Tool for ChartGeneratorTool {
             ToolParameter {
                 name: "data".to_string(),
                 parameter_type: "string".to_string(),
-                description: "JSON array of objects (e.g. '[{\"label\":\"A\",\"value\":10}]')".to_string(),
+                description: "JSON array of objects (e.g. '[{\"label\":\"A\",\"value\":10}]')"
+                    .to_string(),
                 required: false,
             },
             ToolParameter {
@@ -92,13 +93,15 @@ impl Tool for ChartGeneratorTool {
             ToolParameter {
                 name: "headers".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Comma-separated column headers for table (default: auto from data)".to_string(),
+                description: "Comma-separated column headers for table (default: auto from data)"
+                    .to_string(),
                 required: false,
             },
             ToolParameter {
                 name: "rows".to_string(),
                 parameter_type: "string".to_string(),
-                description: "For table: JSON array of row arrays (e.g. '[[\"a\",1],[\"b\",2]]')".to_string(),
+                description: "For table: JSON array of row arrays (e.g. '[[\"a\",1],[\"b\",2]]')"
+                    .to_string(),
                 required: false,
             },
             ToolParameter {
@@ -151,7 +154,11 @@ fn extract_data(params: &HashMap<String, Value>) -> Result<Vec<(String, f64)>, S
         .and_then(|v| v.as_str())
         .ok_or("'values' is required when using 'labels'")?;
 
-    let labels: Vec<&str> = labels_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let labels: Vec<&str> = labels_str
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     let values: Result<Vec<f64>, _> = values_str
         .split(',')
         .map(|s| s.trim().parse::<f64>())
@@ -197,7 +204,7 @@ fn extract_data_from_json(
         .and_then(|v| v.as_str())
         .unwrap_or("value");
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(arr.len());
     for (i, item) in arr.iter().enumerate() {
         let label = match item.get(label_col) {
             Some(Value::String(s)) => s.clone(),
@@ -248,7 +255,9 @@ fn cmd_pie(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     for (label, value) in &data {
         if *value < 0.0 {
-            return Err(format!("Negative value '{value}' not allowed in pie chart for '{label}'"));
+            return Err(format!(
+                "Negative value '{value}' not allowed in pie chart for '{label}'"
+            ));
         }
         // Escape quotes in labels
         let safe_label = label.replace('"', "'");
@@ -284,10 +293,7 @@ fn cmd_bar(params: &HashMap<String, Value>) -> Result<Value, String> {
         return Err("Bar chart requires positive values".to_string());
     }
 
-    let max_width = params
-        .get("width")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
+    let max_width = params.get("width").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
     // Generate ASCII bar chart (works everywhere)
     let mut ascii_chart = format!("📊 {title}\n\n");
@@ -297,8 +303,8 @@ fn cmd_bar(params: &HashMap<String, Value>) -> Result<Value, String> {
     let label_width = max_label_len.min(30);
 
     // Also generate Mermaid xychart
-    let mut mermaid = format!("```mermaid\nxychart-beta\n    title \"{title}\"\n    x-axis ")
-        .to_string();
+    let mut mermaid =
+        format!("```mermaid\nxychart-beta\n    title \"{title}\"\n    x-axis ").to_string();
 
     // X-axis labels
     let x_labels: Vec<&str> = data.iter().map(|(l, _)| l.as_str()).collect();
@@ -324,7 +330,10 @@ fn cmd_bar(params: &HashMap<String, Value>) -> Result<Value, String> {
         })
         .collect();
 
-    mermaid.push_str(&format!("    y-axis \"Value\"\n    bar [{}]\n", values_str.join(", ")));
+    mermaid.push_str(&format!(
+        "    y-axis \"Value\"\n    bar [{}]\n",
+        values_str.join(", ")
+    ));
     mermaid.push_str("```\n\n");
 
     // ASCII representation for text fallback
@@ -372,10 +381,7 @@ fn cmd_line(params: &HashMap<String, Value>) -> Result<Value, String> {
         .iter()
         .map(|(_, v)| *v)
         .fold(f64::NEG_INFINITY, f64::max);
-    let min_val = data
-        .iter()
-        .map(|(_, v)| *v)
-        .fold(f64::INFINITY, f64::min);
+    let min_val = data.iter().map(|(_, v)| *v).fold(f64::INFINITY, f64::min);
 
     // Mermaid xychart for line
     let x_labels: Vec<&str> = data.iter().map(|(l, _)| l.as_str()).collect();
@@ -421,7 +427,10 @@ fn generate_ascii_sparkline(data: &[(String, f64)], width: usize) -> String {
         return String::new();
     }
 
-    let max_val = data.iter().map(|(_, v)| *v).fold(f64::NEG_INFINITY, f64::max);
+    let max_val = data
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::NEG_INFINITY, f64::max);
     let min_val = data.iter().map(|(_, v)| *v).fold(f64::INFINITY, f64::min);
     let range = max_val - min_val;
     if range == 0.0 {
@@ -556,7 +565,9 @@ fn generate_table_from_json(
     }
 
     // Collect all keys in order
-    let mut headers: Vec<String> = Vec::new();
+    let mut headers: Vec<String> = Vec::with_capacity(
+        arr.first().and_then(|item| item.as_object()).map(|m| m.len()).unwrap_or(0),
+    );
     for item in arr {
         if let Value::Object(map) = item {
             for key in map.keys() {
@@ -627,16 +638,16 @@ fn cmd_histogram(params: &HashMap<String, Value>) -> Result<Value, String> {
         .and_then(|v| v.as_str())
         .ok_or("'bins' is required for histogram (JSON array of {bin, count})")?;
 
-    let bins: Vec<Value> = serde_json::from_str(bins_str)
-        .map_err(|e| format!("Failed to parse bins JSON: {e}"))?;
+    let bins: Vec<Value> =
+        serde_json::from_str(bins_str).map_err(|e| format!("Failed to parse bins JSON: {e}"))?;
 
     if bins.is_empty() {
         return Err("Histogram bins array is empty".to_string());
     }
 
     // Extract bin labels and counts
-    let mut labels = Vec::new();
-    let mut counts = Vec::new();
+    let mut labels = Vec::with_capacity(bins.len());
+    let mut counts = Vec::with_capacity(bins.len());
     let max_count = bins
         .iter()
         .filter_map(|b| b.get("count").and_then(|c| c.as_u64()))
@@ -651,10 +662,7 @@ fn cmd_histogram(params: &HashMap<String, Value>) -> Result<Value, String> {
                 _ => format!("{v}"),
             })
             .unwrap_or_default();
-        let count = b
-            .get("count")
-            .and_then(|c| c.as_u64())
-            .unwrap_or(0) as usize;
+        let count = b.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as usize;
         labels.push(label);
         counts.push(count);
     }

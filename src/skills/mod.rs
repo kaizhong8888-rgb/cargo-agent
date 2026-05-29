@@ -190,9 +190,8 @@ impl Skill {
             parts.push(format!("## Reference\n{}", self.reference));
         }
         for file in &self.reference_files {
-            if let Ok(content) = std::fs::read_to_string(
-                crate::constants::skills_dir().join(file),
-            ) {
+            if let Ok(content) = std::fs::read_to_string(crate::constants::skills_dir().join(file))
+            {
                 parts.push(format!("## Reference: {}\n{}", file, content));
             }
         }
@@ -257,8 +256,9 @@ impl SkillRegistry {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "yaml") ||
-               path.extension().is_some_and(|ext| ext == "yml") {
+            if path.extension().is_some_and(|ext| ext == "yaml")
+                || path.extension().is_some_and(|ext| ext == "yml")
+            {
                 if let Ok(skill) = Skill::from_file(&path) {
                     registry.skills.insert(skill.name.clone(), skill);
                 }
@@ -297,9 +297,7 @@ impl SkillRegistry {
     /// assert_eq!(registry.active_skills()[0].name, "always-on");
     /// ```
     pub fn active_skills(&self) -> Vec<&Skill> {
-        self.skills.values()
-            .filter(|s| s.always_active)
-            .collect()
+        self.skills.values().filter(|s| s.always_active).collect()
     }
 
     /// Find skills that match the user message by keyword.
@@ -326,7 +324,8 @@ impl SkillRegistry {
     /// assert!(registry.matching_skills("I need Python help").is_empty());
     /// ```
     pub fn matching_skills(&self, message: &str) -> Vec<&Skill> {
-        self.skills.values()
+        self.skills
+            .values()
             .filter(|s| !s.always_active && s.matches_message(message))
             .collect()
     }
@@ -406,7 +405,8 @@ impl SkillRegistry {
     /// assert!(list[0].2); // always_active
     /// ```
     pub fn list(&self) -> Vec<(String, String, bool)> {
-        self.skills.values()
+        self.skills
+            .values()
             .map(|s| (s.name.clone(), s.description.clone(), s.always_active))
             .collect()
     }
@@ -438,12 +438,20 @@ impl SkillRegistry {
 
         // Always-active skills first
         for skill in self.active_skills() {
-            parts.push(format!("## Skill: {}\n{}", skill.name, skill.build_context()));
+            parts.push(format!(
+                "## Skill: {}\n{}",
+                skill.name,
+                skill.build_context()
+            ));
         }
 
         // Keyword-matched skills
         for skill in self.matching_skills(message) {
-            parts.push(format!("## Skill: {}\n{}", skill.name, skill.build_context()));
+            parts.push(format!(
+                "## Skill: {}\n{}",
+                skill.name,
+                skill.build_context()
+            ));
         }
 
         if parts.is_empty() {

@@ -195,8 +195,7 @@ impl SqliteMemoryStore {
             .lock()
             .expect("memory store mutex poisoned: another thread panicked while holding the lock");
         let mut stmt = conn.prepare(&sql)?;
-        let refs: Vec<&dyn rusqlite::types::ToSql> =
-            params.iter().map(|p| p.as_ref()).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(rusqlite::params_from_iter(refs.iter().copied()), |row| {
             Ok(MemoryEntry {
@@ -255,11 +254,7 @@ impl SqliteMemoryStore {
             .lock()
             .expect("memory store mutex poisoned: another thread panicked while holding the lock");
 
-        let total: usize = conn.query_row(
-            "SELECT COUNT(*) FROM memories",
-            [],
-            |row| row.get(0),
-        )?;
+        let total: usize = conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?;
 
         let mut stmt = conn.prepare(
             "SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC",
@@ -295,11 +290,7 @@ impl SqliteMemoryStore {
     /// Scores each memory by: term frequency in key/value,
     /// importance weight, and recency decay. Returns results
     /// sorted by composite score (highest first).
-    pub fn semantic_search(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> anyhow::Result<Vec<ScoredMemory>> {
+    pub fn semantic_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<ScoredMemory>> {
         // Fetch candidate memories (broad match)
         let all = self.search(None, None, None, None, 100)?;
         if all.is_empty() {
@@ -349,7 +340,9 @@ impl SqliteMemoryStore {
                 let imp_weight = m.importance as f64 / 10.0;
 
                 // Recency decay: older memories score slightly less
-                let recency = if let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&m.updated_at) {
+                let recency = if let Ok(updated) =
+                    chrono::DateTime::parse_from_rfc3339(&m.updated_at)
+                {
                     let age_hours = (Utc::now() - updated.with_timezone(&Utc)).num_hours() as f64;
                     (1.0 / (1.0 + age_hours * 0.01)).min(1.0)
                 } else {
@@ -369,7 +362,11 @@ impl SqliteMemoryStore {
             })
             .collect();
 
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored.truncate(limit);
         Ok(scored)
     }
@@ -419,9 +416,7 @@ mod tests {
     #[test]
     fn test_update_preserves_created_at() {
         let store = temp_store();
-        let first = store
-            .store("note", "v1", "default", &[], 3)
-            .unwrap();
+        let first = store.store("note", "v1", "default", &[], 3).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
         store.store("note", "v2", "default", &[], 7).unwrap();
 
@@ -434,9 +429,15 @@ mod tests {
     #[test]
     fn test_search_by_namespace() {
         let store = temp_store();
-        store.store("a", "val_a", "ns1", &tags(&["tag1"]), 5).unwrap();
-        store.store("b", "val_b", "ns2", &tags(&["tag1"]), 8).unwrap();
-        store.store("c", "val_c", "ns1", &tags(&["tag2"]), 3).unwrap();
+        store
+            .store("a", "val_a", "ns1", &tags(&["tag1"]), 5)
+            .unwrap();
+        store
+            .store("b", "val_b", "ns2", &tags(&["tag1"]), 8)
+            .unwrap();
+        store
+            .store("c", "val_c", "ns1", &tags(&["tag2"]), 3)
+            .unwrap();
 
         let results = store.search(Some("ns1"), None, None, None, 10).unwrap();
         assert_eq!(results.len(), 2);
@@ -445,10 +446,16 @@ mod tests {
     #[test]
     fn test_search_by_tag() {
         let store = temp_store();
-        store.store("a", "val_a", "ns1", &tags(&["important", "work"]), 9).unwrap();
-        store.store("b", "val_b", "ns1", &tags(&["casual"]), 3).unwrap();
+        store
+            .store("a", "val_a", "ns1", &tags(&["important", "work"]), 9)
+            .unwrap();
+        store
+            .store("b", "val_b", "ns1", &tags(&["casual"]), 3)
+            .unwrap();
 
-        let results = store.search(None, Some("important"), None, None, 10).unwrap();
+        let results = store
+            .search(None, Some("important"), None, None, 10)
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].key, "a");
     }
@@ -457,7 +464,9 @@ mod tests {
     fn test_search_by_query() {
         let store = temp_store();
         store.store("user_name", "Alice", "users", &[], 5).unwrap();
-        store.store("user_email", "alice@example.com", "users", &[], 5).unwrap();
+        store
+            .store("user_email", "alice@example.com", "users", &[], 5)
+            .unwrap();
 
         let results = store.search(None, None, Some("alice"), None, 10).unwrap();
         assert_eq!(results.len(), 2);
@@ -511,9 +520,27 @@ mod tests {
     #[test]
     fn test_semantic_search_basic() {
         let store = temp_store();
-        store.store("rust_ownership", "Rust uses ownership and borrowing for memory safety", "rust", &[], 8).unwrap();
-        store.store("python_gc", "Python uses reference counting with cycle detection GC", "python", &[], 5).unwrap();
-        store.store("hello", "Hi there", "greeting", &[], 1).unwrap();
+        store
+            .store(
+                "rust_ownership",
+                "Rust uses ownership and borrowing for memory safety",
+                "rust",
+                &[],
+                8,
+            )
+            .unwrap();
+        store
+            .store(
+                "python_gc",
+                "Python uses reference counting with cycle detection GC",
+                "python",
+                &[],
+                5,
+            )
+            .unwrap();
+        store
+            .store("hello", "Hi there", "greeting", &[], 1)
+            .unwrap();
 
         let results = store.semantic_search("rust memory safety", 5).unwrap();
         assert!(!results.is_empty());

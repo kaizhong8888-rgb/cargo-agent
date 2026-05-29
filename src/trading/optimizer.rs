@@ -2,8 +2,8 @@ use crate::trading::backtest::BacktestEngine;
 use crate::trading::data::Candle;
 use crate::trading::report::BacktestResult;
 use crate::trading::strategy::Strategy;
-use serde::{Deserialize, Serialize};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 /// 参数范围定义
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,11 @@ impl ParamRange {
     pub fn random_value(&self) -> f64 {
         let mut rng = rand::thread_rng();
         let v = rng.gen_range(self.min..=self.max);
-        if self.is_integer { v.round() } else { v }
+        if self.is_integer {
+            v.round()
+        } else {
+            v
+        }
     }
 }
 
@@ -350,9 +354,14 @@ impl GeneticOptimizer {
                 if best_results.is_empty()
                     || result.composite_score > best_results[0].composite_score
                 {
-                    println!("  GA 第{}代: 评分={:.4}, 收益率={:+.2}%, 夏普={:.2}, 回撤={:.2}%",
-                        gen + 1, result.composite_score, result.total_return_pct,
-                        result.sharpe_ratio, result.max_drawdown_pct);
+                    println!(
+                        "  GA 第{}代: 评分={:.4}, 收益率={:+.2}%, 夏普={:.2}, 回撤={:.2}%",
+                        gen + 1,
+                        result.composite_score,
+                        result.total_return_pct,
+                        result.sharpe_ratio,
+                        result.max_drawdown_pct
+                    );
                     best_results.insert(0, result);
                 }
             }
@@ -549,10 +558,7 @@ mod tests {
 
     #[test]
     fn test_param_set_get() {
-        let ps = ParamSet::new(vec![
-            ("a".to_string(), 1.0),
-            ("b".to_string(), 2.0),
-        ]);
+        let ps = ParamSet::new(vec![("a".to_string(), 1.0), ("b".to_string(), 2.0)]);
         assert!((ps.get("a").unwrap() - 1.0).abs() < 1e-10);
         assert!((ps.get("b").unwrap() - 2.0).abs() < 1e-10);
         assert!(ps.get("c").is_none());

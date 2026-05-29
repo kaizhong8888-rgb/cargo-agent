@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use futures::Stream;
 use serde_json::Value;
 use std::pin::Pin;
@@ -91,7 +91,9 @@ impl ModelClient {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Chat request failed after {} retries", MAX_RETRIES)))
+        Err(last_err.unwrap_or_else(|| {
+            anyhow::anyhow!("Chat request failed after {} retries", MAX_RETRIES)
+        }))
     }
 
     /// Single attempt at the chat API call (no retry logic).
@@ -110,7 +112,10 @@ impl ModelClient {
         }
 
         // DeepSeek reasoning models: pass reasoning_content back
-        let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
         let response = self
             .client
             .post(&url)
@@ -140,9 +145,7 @@ impl ModelClient {
             .as_str()
             .map(|s| s.to_string());
 
-        let content = message_data["content"]
-            .as_str()
-            .map(|s| s.to_string());
+        let content = message_data["content"].as_str().map(|s| s.to_string());
 
         let tool_calls = message_data["tool_calls"].as_array().map(|calls| {
             calls
@@ -296,7 +299,10 @@ mod tests {
             completion_tokens: 30,
             total_tokens: 130,
         };
-        assert_eq!(usage.total_tokens, usage.prompt_tokens + usage.completion_tokens);
+        assert_eq!(
+            usage.total_tokens,
+            usage.prompt_tokens + usage.completion_tokens
+        );
     }
 
     #[test]
@@ -411,6 +417,9 @@ mod tests {
 
         let response = ModelClient::parse_response(data).unwrap();
         assert_eq!(response.content.as_deref(), Some("Final answer"));
-        assert_eq!(response.reasoning.as_deref(), Some("Let me think about this..."));
+        assert_eq!(
+            response.reasoning.as_deref(),
+            Some("Let me think about this...")
+        );
     }
 }

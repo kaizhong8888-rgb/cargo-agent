@@ -102,8 +102,16 @@ impl BacktestResult {
         let total_pnl = engine.total_equity() - engine.initial_capital;
 
         let (avg_win, avg_loss, profit_factor) = if total_trades > 0 {
-            let wins: Vec<f64> = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl).collect();
-            let losses: Vec<f64> = trades.iter().filter(|t| t.pnl <= 0.0).map(|t| t.pnl).collect();
+            let wins: Vec<f64> = trades
+                .iter()
+                .filter(|t| t.pnl > 0.0)
+                .map(|t| t.pnl)
+                .collect();
+            let losses: Vec<f64> = trades
+                .iter()
+                .filter(|t| t.pnl <= 0.0)
+                .map(|t| t.pnl)
+                .collect();
             let avg_w = if !wins.is_empty() {
                 wins.iter().sum::<f64>() / wins.len() as f64
             } else {
@@ -136,11 +144,8 @@ impl BacktestResult {
                 .collect();
             if !returns.is_empty() {
                 let mean = returns.iter().sum::<f64>() / returns.len() as f64;
-                let variance = returns
-                    .iter()
-                    .map(|r| (r - mean).powi(2))
-                    .sum::<f64>()
-                    / returns.len() as f64;
+                let variance =
+                    returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
                 let std = variance.sqrt();
 
                 // 下行标准差 (仅负收益)
@@ -240,10 +245,22 @@ impl BacktestResult {
         let min_bars_held = trades.iter().map(|t| t.bars_held).min().unwrap_or(0);
 
         // === 多空统计 ===
-        let long_trades = trades.iter().filter(|t| matches!(t.side, TradeSide::Long)).count();
-        let short_trades = trades.iter().filter(|t| matches!(t.side, TradeSide::Short)).count();
-        let long_wins = trades.iter().filter(|t| matches!(t.side, TradeSide::Long) && t.pnl > 0.0).count();
-        let short_wins = trades.iter().filter(|t| matches!(t.side, TradeSide::Short) && t.pnl > 0.0).count();
+        let long_trades = trades
+            .iter()
+            .filter(|t| matches!(t.side, TradeSide::Long))
+            .count();
+        let short_trades = trades
+            .iter()
+            .filter(|t| matches!(t.side, TradeSide::Short))
+            .count();
+        let long_wins = trades
+            .iter()
+            .filter(|t| matches!(t.side, TradeSide::Long) && t.pnl > 0.0)
+            .count();
+        let short_wins = trades
+            .iter()
+            .filter(|t| matches!(t.side, TradeSide::Short) && t.pnl > 0.0)
+            .count();
 
         let long_win_rate = if long_trades > 0 {
             long_wins as f64 / long_trades as f64 * 100.0
@@ -304,7 +321,11 @@ impl BacktestResult {
     /// 打印完整报告
     pub fn print_summary(&self) {
         let r = &self.engine;
-        let medal = if r.total_return_pct > 0.0 { "✅" } else { "❌" };
+        let medal = if r.total_return_pct > 0.0 {
+            "✅"
+        } else {
+            "❌"
+        };
         let medal_str = format!("{} {:<4}", medal, "");
         println!("\n═══════════════════════════════════════════");
         println!("  📊 回测绩效报告");
@@ -316,22 +337,47 @@ impl BacktestResult {
         println!("  📉 Sortino比率: {:.4}", r.sortino_ratio);
         println!("  🎯 Calmar比率: {:.4}", r.calmar_ratio);
         println!("  🔄 恢复因子: {:.4}", r.recovery_factor);
-        println!("  ⚡ 最大回撤: ${:.2} ({:.2}%)", r.max_drawdown, r.max_drawdown_pct);
+        println!(
+            "  ⚡ 最大回撤: ${:.2} ({:.2}%)",
+            r.max_drawdown, r.max_drawdown_pct
+        );
         println!("  ───────────────────────────────────────");
         println!("  总交易: {}笔 | 胜率: {:.1}%", r.total_trades, r.win_rate);
-        println!("  盈利: {}笔 | 亏损: {}笔", r.winning_trades, r.losing_trades);
-        println!("  多头: {}笔 (胜率{:.1}%) | 空头: {}笔 (胜率{:.1}%)",
-            r.long_trades, r.long_win_rate,
-            r.short_trades, r.short_win_rate);
-        println!("  平均盈利: ${:.2} | 平均亏损: ${:.2}", r.avg_win, r.avg_loss);
-        println!("  盈亏比: {:.2} | 利润因子: {:.2}", 
-            if r.avg_loss.abs() > 0.0 { r.avg_win / r.avg_loss.abs() } else { 0.0 },
-            r.profit_factor);
+        println!(
+            "  盈利: {}笔 | 亏损: {}笔",
+            r.winning_trades, r.losing_trades
+        );
+        println!(
+            "  多头: {}笔 (胜率{:.1}%) | 空头: {}笔 (胜率{:.1}%)",
+            r.long_trades, r.long_win_rate, r.short_trades, r.short_win_rate
+        );
+        println!(
+            "  平均盈利: ${:.2} | 平均亏损: ${:.2}",
+            r.avg_win, r.avg_loss
+        );
+        println!(
+            "  盈亏比: {:.2} | 利润因子: {:.2}",
+            if r.avg_loss.abs() > 0.0 {
+                r.avg_win / r.avg_loss.abs()
+            } else {
+                0.0
+            },
+            r.profit_factor
+        );
         println!("  期望值: ${:.4}", r.expectancy);
         println!("  ───────────────────────────────────────");
-        println!("  最长连胜: {} | 最长连败: {}", r.max_consecutive_wins, r.max_consecutive_losses);
-        println!("  持仓周期: {:.1}bar (范围: {}-{})", r.avg_bars_held, r.min_bars_held, r.max_bars_held);
-        println!("  收益标准差: {:.6} | 下行标准差: {:.6}", r.return_std, r.downside_std);
+        println!(
+            "  最长连胜: {} | 最长连败: {}",
+            r.max_consecutive_wins, r.max_consecutive_losses
+        );
+        println!(
+            "  持仓周期: {:.1}bar (范围: {}-{})",
+            r.avg_bars_held, r.min_bars_held, r.max_bars_held
+        );
+        println!(
+            "  收益标准差: {:.6} | 下行标准差: {:.6}",
+            r.return_std, r.downside_std
+        );
         println!("═══════════════════════════════════════════");
 
         // 月度收益
@@ -351,8 +397,14 @@ impl BacktestResult {
         // 盈亏分布
         let d = &self.trade_pnl_distribution;
         println!("\n  💰 盈亏分布:");
-        println!("    最大盈利: ${:.2} | 最大亏损: ${:.2}", d.max_win, d.max_loss);
-        println!("    平均盈利: ${:.2} | 平均亏损: ${:.2}", d.avg_win, d.avg_loss);
+        println!(
+            "    最大盈利: ${:.2} | 最大亏损: ${:.2}",
+            d.max_win, d.max_loss
+        );
+        println!(
+            "    平均盈利: ${:.2} | 平均亏损: ${:.2}",
+            d.avg_win, d.avg_loss
+        );
         println!("    盈亏比: {:.2}", d.win_loss_ratio);
     }
 }
@@ -385,8 +437,16 @@ fn compute_monthly_returns(equity_curve: &[f64], candles: &[Candle]) -> HashMap<
 
 /// 计算交易盈亏分布
 fn compute_trade_distribution(trades: &[Trade]) -> TradePnlDistribution {
-    let wins: Vec<f64> = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl).collect();
-    let losses: Vec<f64> = trades.iter().filter(|t| t.pnl <= 0.0).map(|t| t.pnl).collect();
+    let wins: Vec<f64> = trades
+        .iter()
+        .filter(|t| t.pnl > 0.0)
+        .map(|t| t.pnl)
+        .collect();
+    let losses: Vec<f64> = trades
+        .iter()
+        .filter(|t| t.pnl <= 0.0)
+        .map(|t| t.pnl)
+        .collect();
 
     let max_win = wins.iter().cloned().fold(0.0_f64, f64::max);
     let max_loss = losses.iter().cloned().fold(0.0_f64, f64::min);
