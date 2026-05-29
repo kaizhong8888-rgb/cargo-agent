@@ -7,6 +7,7 @@ pub mod health;
 pub mod mcp;
 pub mod memory;
 pub mod model;
+pub mod plugin;
 pub mod skills;
 pub mod tools;
 pub mod trading;

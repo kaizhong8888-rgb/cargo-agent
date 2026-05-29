@@ -28,3 +28,4 @@ pub mod notify;
 pub mod image_tool;
 pub mod data_processor;
 pub mod chart_generator;
+pub mod plugin_tool;
