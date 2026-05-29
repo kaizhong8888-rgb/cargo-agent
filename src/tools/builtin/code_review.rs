@@ -872,6 +872,7 @@ impl Severity {
     }
 }
 
+#[inline]
 fn severity_threshold(level: &str) -> Severity {
     match level {
         "error" => Severity::Error,
@@ -939,6 +940,7 @@ fn collect_rust_files(
 // ============================================================================
 
 /// Calculate the 1-based line number for a byte position in content.
+#[inline]
 fn line_at(content: &str, pos: usize) -> usize {
     content[..pos].matches('\n').count() + 1
 }
@@ -1794,6 +1796,7 @@ fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<Rev
 }
 
 /// Convert a snake_case name to CamelCase for suggestion purposes.
+#[inline]
 fn to_camel_case(name: &str) -> String {
     let mut result = String::new();
     let mut capitalize = true;
@@ -2294,6 +2297,7 @@ fn parse_ignore_directives(content: &str) -> Vec<(usize, String)> {
 }
 
 /// Check if an issue at a given line should be ignored.
+#[inline]
 fn is_ignored(ignores: &[(usize, String)], line: usize, check: &str) -> bool {
     ignores
         .iter()
@@ -2519,6 +2523,7 @@ fn generate_json_report(
 // ============================================================================
 
 /// Resolve the output format, auto-detecting CI environment if set to "auto".
+#[inline]
 fn resolve_format(requested: &str) -> String {
     match requested.trim().to_lowercase().as_str() {
         "auto" => {
@@ -2837,6 +2842,7 @@ fn analyze_file(
     })
 }
 
+#[inline]
 fn shorten_path(path: &str) -> &str {
     // Show just the filename
     if let Some(pos) = path.rfind('/') {
@@ -2846,6 +2852,7 @@ fn shorten_path(path: &str) -> &str {
     }
 }
 
+#[inline]
 fn plural(count: u64, word: &str) -> String {
     if count == 1 {
         format!("{count} {word}")

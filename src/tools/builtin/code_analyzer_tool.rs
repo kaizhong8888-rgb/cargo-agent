@@ -271,6 +271,7 @@ fn collect_rust_files(
 }
 
 /// Read a file's content.
+#[inline]
 fn read_file_content(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))
 }

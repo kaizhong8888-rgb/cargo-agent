@@ -224,6 +224,7 @@ fn extract_data_from_json(
 }
 
 /// Get title from params.
+#[inline]
 fn get_title(params: &HashMap<String, Value>) -> String {
     params
         .get("title")
@@ -715,6 +716,7 @@ fn cmd_histogram(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 /// Format a JSON value for display in table cells.
+#[inline]
 fn format_value(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),

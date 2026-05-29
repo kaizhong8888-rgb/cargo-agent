@@ -337,6 +337,7 @@ fn parse_json(content: &str) -> Result<(Vec<HashMap<String, Value>>, String), St
 }
 
 /// Try to parse a string value as a number, otherwise keep as string.
+#[inline]
 fn parse_value(s: &str) -> Value {
     if s.is_empty() {
         return Value::Null;
@@ -373,6 +374,7 @@ fn rows_to_json(rows: &[HashMap<String, Value>]) -> Value {
 }
 
 /// Get a column value as a numeric f64 for computation.
+#[inline]
 fn get_numeric(row: &HashMap<String, Value>, column: &str) -> Option<f64> {
     row.get(column).and_then(|v| match v {
         Value::Number(n) => n.as_f64(),
@@ -382,6 +384,7 @@ fn get_numeric(row: &HashMap<String, Value>, column: &str) -> Option<f64> {
 }
 
 /// Get a column value as a string for comparison.
+#[inline]
 fn get_string(row: &HashMap<String, Value>, column: &str) -> String {
     row.get(column)
         .map(|v| match v {
@@ -677,6 +680,7 @@ fn cmd_stats(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 /// Compute percentile from sorted array.
+#[inline]
 fn percentile(sorted: &[f64], p: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;

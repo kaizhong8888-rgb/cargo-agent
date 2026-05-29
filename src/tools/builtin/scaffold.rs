@@ -494,6 +494,7 @@ fn walk_dir(dir: &Path, depth: usize, out: &mut Vec<Value>) -> std::io::Result<(
     Ok(())
 }
 
+#[inline]
 fn to_camel_case(name: &str) -> String {
     name.split(&['_', '-', '.'])
         .map(|word| {

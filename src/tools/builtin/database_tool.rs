@@ -184,6 +184,7 @@ fn open_conn(db_path: &str) -> Result<Connection, String> {
 // Helper: SQLite value → JSON
 // ============================================================================
 
+#[inline]
 fn sqlite_value_to_json(val: &rusqlite::types::Value) -> Value {
     match val {
         rusqlite::types::Value::Null => Value::Null,
@@ -198,6 +199,7 @@ fn sqlite_value_to_json(val: &rusqlite::types::Value) -> Value {
 // Helper: Quote an identifier safely
 // ============================================================================
 
+#[inline]
 fn quote_id(id: &str) -> String {
     format!("\"{}\"", id.replace('\"', "\"\""))
 }
@@ -309,6 +311,7 @@ async fn execute_query(db_path: &str, params: &HashMap<String, Value>) -> Result
     }))
 }
 
+#[inline]
 fn json_to_rusqlite_value(val: &Value) -> Box<dyn rusqlite::types::ToSql> {
     match val {
         Value::Null => Box::new(rusqlite::types::Null),
@@ -1422,6 +1425,7 @@ async fn create_migration(params: &HashMap<String, Value>) -> Result<Value, Stri
 // Helper: Simple hash for checksum
 // ============================================================================
 
+#[inline]
 fn content_hash(input: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
