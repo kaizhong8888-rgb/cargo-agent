@@ -25,6 +25,7 @@ pub mod crypto_tool;
 pub mod data_processor;
 pub mod database_tool;
 pub mod env_secret;
+pub mod github_tool;
 pub mod image_tool;
 pub mod notify;
 pub mod plugin_tool;

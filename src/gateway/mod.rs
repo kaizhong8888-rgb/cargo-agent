@@ -92,6 +92,9 @@ impl Gateway {
         // Chart Generation: visualize data with pie, bar, line, table, histogram charts
         crate::tools::builtin::chart_generator::register_all(&mut tool_registry);
 
+        // GitHub API: list PRs, issues, check CI status, get repo info
+        crate::tools::builtin::github_tool::register_all(&mut tool_registry);
+
         // Plugin Marketplace: browse, search, install, uninstall community plugins
         let plugins_dir = PathBuf::from(&*crate::constants::AGENT_DIR).join("plugins");
         std::fs::create_dir_all(&plugins_dir).ok();
