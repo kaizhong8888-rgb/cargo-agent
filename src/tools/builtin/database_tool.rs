@@ -827,13 +827,17 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
         ));
     }
 
+    // Determine headers and CSV reader mode
+    let headers: Vec<String>;
+    let mut rdr: csv::Reader<std::fs::File>;
+
     if has_header {
-        let mut rdr = csv::ReaderBuilder::new()
+        rdr = csv::ReaderBuilder::new()
             .has_headers(true)
             .from_path(csv_path)
             .map_err(|e| format!("Failed to read CSV file '{}': {}", csv_path, e))?;
 
-        let headers: Vec<String> = rdr
+        headers = rdr
             .headers()
             .map_err(|e| format!("Failed to read CSV headers: {}", e))?
             .iter()
@@ -844,65 +848,19 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
             return Err("CSV has no columns".to_string());
         }
 
-        let quoted_headers: Vec<String> = headers.iter().map(|h| quote_id(h)).collect();
-        let placeholders: Vec<String> = (0..headers.len()).map(|_| "?".to_string()).collect();
-        let insert_sql = format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            quote_id(table_name),
-            quoted_headers.join(", "),
-            placeholders.join(", ")
-        );
-
-        let mut stmt = conn
-            .prepare(&insert_sql)
-            .map_err(|e| format!("Failed to prepare INSERT: {}", e))?;
-
-        let mut csv_rdr = csv::ReaderBuilder::new()
+        // Re-open reader for data iteration (csv crate consumes headers)
+        rdr = csv::ReaderBuilder::new()
             .has_headers(true)
             .from_path(csv_path)
             .map_err(|e| format!("Failed to re-read CSV: {}", e))?;
-
-        let mut imported: usize = 0;
-        let mut errors: Vec<String> = Vec::new();
-
-        for (line_num, result) in csv_rdr.records().enumerate() {
-            match result {
-                Ok(record) => {
-                    let values: Vec<String> = record.iter().map(|v| v.to_string()).collect();
-                    let params_refs: Vec<&dyn rusqlite::types::ToSql> = values
-                        .iter()
-                        .map(|v| v as &dyn rusqlite::types::ToSql)
-                        .collect();
-                    if let Err(e) = stmt.execute(params_refs.as_slice()) {
-                        errors.push(format!("Line {}: {}", line_num + 2, e));
-                    } else {
-                        imported += 1;
-                    }
-                }
-                Err(e) => {
-                    errors.push(format!("Line {}: {}", line_num + 2, e));
-                }
-            }
-        }
-
-        Ok(json!({
-            "action": "import_csv",
-            "table": table_name,
-            "csv_file": csv_path,
-            "imported_rows": imported,
-            "has_header": true,
-            "errors": errors,
-            "error_count": errors.len(),
-        }))
     } else {
-        // No header
-        let mut rdr = csv::ReaderBuilder::new()
+        rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .from_path(csv_path)
             .map_err(|e| format!("Failed to read CSV: {}", e))?;
 
+        // Peek first record to determine column count
         let all_records: Vec<csv::StringRecord> = rdr.records().filter_map(|r| r.ok()).collect();
-
         if all_records.is_empty() {
             return Ok(json!({
                 "action": "import_csv",
@@ -914,52 +872,71 @@ async fn import_csv(db_path: &str, params: &HashMap<String, Value>) -> Result<Va
         }
 
         let col_count = all_records[0].len();
-        let placeholders: Vec<String> = (0..col_count).map(|_| "?".to_string()).collect();
-        let insert_sql = format!(
-            "INSERT INTO {} VALUES ({})",
-            quote_id(table_name),
-            placeholders.join(", ")
-        );
+        headers = (0..col_count).map(|i| format!("col{}", i)).collect();
 
-        let mut stmt = conn
-            .prepare(&insert_sql)
-            .map_err(|e| format!("Failed to prepare INSERT: {}", e))?;
+        // Re-open reader for data iteration
+        rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(csv_path)
+            .map_err(|e| format!("Failed to re-read CSV: {}", e))?;
+    }
 
-        let mut imported: usize = 0;
-        let mut errors: Vec<String> = Vec::new();
+    // Common INSERT logic (shared between both branches)
+    let quoted_headers: Vec<String> = headers.iter().map(|h| quote_id(h)).collect();
+    let placeholders: Vec<String> = (0..headers.len()).map(|_| "?".to_string()).collect();
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        quote_id(table_name),
+        quoted_headers.join(", "),
+        placeholders.join(", ")
+    );
 
-        for (line_num, record) in all_records.iter().enumerate() {
-            let values: Vec<String> = record.iter().map(|v| v.to_string()).collect();
-            if values.len() != col_count {
-                errors.push(format!(
-                    "Line {}: expected {} columns, got {}",
-                    line_num + 1,
-                    col_count,
-                    values.len()
-                ));
-                continue;
+    let mut stmt = conn
+        .prepare(&insert_sql)
+        .map_err(|e| format!("Failed to prepare INSERT: {}", e))?;
+
+    let mut imported: usize = 0;
+    let mut errors: Vec<String> = Vec::new();
+    let header_offset = if has_header { 2 } else { 1 };
+
+    for (line_num, result) in rdr.records().enumerate() {
+        match result {
+            Ok(record) => {
+                if record.len() != headers.len() {
+                    errors.push(format!(
+                        "Line {}: expected {} columns, got {}",
+                        line_num + header_offset,
+                        headers.len(),
+                        record.len()
+                    ));
+                    continue;
+                }
+                let values: Vec<String> = record.iter().map(|v| v.to_string()).collect();
+                let params_refs: Vec<&dyn rusqlite::types::ToSql> = values
+                    .iter()
+                    .map(|v| v as &dyn rusqlite::types::ToSql)
+                    .collect();
+                if let Err(e) = stmt.execute(params_refs.as_slice()) {
+                    errors.push(format!("Line {}: {}", line_num + header_offset, e));
+                } else {
+                    imported += 1;
+                }
             }
-            let params_refs: Vec<&dyn rusqlite::types::ToSql> = values
-                .iter()
-                .map(|v| v as &dyn rusqlite::types::ToSql)
-                .collect();
-            if let Err(e) = stmt.execute(params_refs.as_slice()) {
-                errors.push(format!("Line {}: {}", line_num + 1, e));
-            } else {
-                imported += 1;
+            Err(e) => {
+                errors.push(format!("Line {}: {}", line_num + header_offset, e));
             }
         }
-
-        Ok(json!({
-            "action": "import_csv",
-            "table": table_name,
-            "csv_file": csv_path,
-            "imported_rows": imported,
-            "has_header": false,
-            "errors": errors,
-            "error_count": errors.len(),
-        }))
     }
+
+    Ok(json!({
+        "action": "import_csv",
+        "table": table_name,
+        "csv_file": csv_path,
+        "imported_rows": imported,
+        "has_header": has_header,
+        "errors": errors,
+        "error_count": errors.len(),
+    }))
 }
 
 // ============================================================================
@@ -1185,13 +1162,7 @@ async fn run_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resul
     for (filename, full_path) in &migration_files {
         let version = filename.split('_').next().unwrap_or(filename).to_string();
 
-        let desc = filename
-            .strip_prefix(&format!("{}_", version))
-            .or_else(|| filename.strip_prefix(&version))
-            .unwrap_or("")
-            .strip_suffix(".sql")
-            .unwrap_or("")
-            .to_string();
+        let desc = parse_migration_desc(filename, &version);
 
         if applied.contains(&version) {
             continue;
@@ -1313,13 +1284,7 @@ async fn list_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resu
                     let version = file_name.split('_').next().unwrap_or(file_name).to_string();
                     let is_applied = applied_versions.contains(&version);
 
-                    let desc = file_name
-                        .strip_prefix(&format!("{}_", version))
-                        .or_else(|| file_name.strip_prefix(&version))
-                        .unwrap_or("")
-                        .strip_suffix(".sql")
-                        .unwrap_or("")
-                        .to_string();
+                    let desc = parse_migration_desc(file_name, &version);
 
                     available.push(json!({
                         "version": version,
@@ -1431,6 +1396,18 @@ fn content_hash(input: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     input.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+/// Extract migration description from filename (e.g. "20240101_create_posts.sql" → "create_posts")
+#[inline]
+fn parse_migration_desc(filename: &str, version: &str) -> String {
+    filename
+        .strip_prefix(&format!("{}_", version))
+        .or_else(|| filename.strip_prefix(version))
+        .unwrap_or("")
+        .strip_suffix(".sql")
+        .unwrap_or("")
+        .to_string()
 }
 
 // ============================================================================

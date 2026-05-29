@@ -48,6 +48,10 @@ base64 = "0.22"
 rand = "0.8"
 futures = "0.3"
 libc = "0.2"
+dirs-next = "2.0"
+lettre = { version = "0.11.22", default-features = false, features = ["builder", "tokio1-native-tls", "smtp-transport", "hostname"] }
+flate2 = "1.1.9"
+genpdf = "0.2.0"
 
 [profile.release]
 lto = "thin"

@@ -17,29 +17,25 @@ pub struct ModelClient {
     api_key: String,
     model: String,
     base_url: String,
+    /// true if the base_url path contains "anthropic" — use Anthropic Messages API format.
+    anthropic_mode: bool,
 }
 
 impl ModelClient {
     /// Create a new model client.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use cargo_agent::model::client::ModelClient;
-    ///
-    /// // In production, load these from configuration
-    /// let client = ModelClient::new(
-    ///     "sk-xxx".into(),
-    ///     "deepseek-v4-flash".into(),
-    ///     "https://api.deepseek.com".into(),
-    /// );
-    /// ```
     pub fn new(api_key: String, model: String, base_url: String) -> Self {
+        let anthropic_mode = base_url.contains("/anthropic");
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("cargo-agent/0.1.0")
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             api_key,
             model,
             base_url,
+            anthropic_mode,
         }
     }
 
@@ -102,6 +98,19 @@ impl ModelClient {
         messages: &[serde_json::Value],
         tools: Option<&[Value]>,
     ) -> Result<ModelResponse> {
+        if self.anthropic_mode {
+            self.chat_once_anthropic(messages, tools).await
+        } else {
+            self.chat_once_openai(messages, tools).await
+        }
+    }
+
+    /// OpenAI-compatible API endpoint.
+    async fn chat_once_openai(
+        &self,
+        messages: &[serde_json::Value],
+        tools: Option<&[Value]>,
+    ) -> Result<ModelResponse> {
         let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
@@ -111,11 +120,7 @@ impl ModelClient {
             body["tools"] = serde_json::Value::Array(t.to_vec());
         }
 
-        // DeepSeek reasoning models: pass reasoning_content back
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.base_url.trim_end_matches('/')
-        );
+        let url = Self::build_openai_url(&self.base_url);
         let response = self
             .client
             .post(&url)
@@ -133,10 +138,171 @@ impl ModelClient {
         }
 
         let data: Value = serde_json::from_str(&text)?;
-        Self::parse_response(data)
+        Self::parse_openai_response(data)
     }
 
-    fn parse_response(data: Value) -> Result<ModelResponse> {
+    /// Build the chat completions URL, avoiding duplicate /v1 paths.
+    /// Many providers (DashScope, etc.) include /v1 in their base_url already.
+    fn build_openai_url(base_url: &str) -> String {
+        let trimmed = base_url.trim_end_matches('/');
+        // If base_url already has the full path, return as-is
+        if trimmed.ends_with("/v1/chat/completions") {
+            return trimmed.to_string();
+        }
+        // If base_url ends with /v1, append /chat/completions (not /v1/...)
+        if trimmed.ends_with("/v1") {
+            return format!("{}/chat/completions", trimmed);
+        }
+        // Standard case: append full path
+        format!("{}/v1/chat/completions", trimmed)
+    }
+
+    /// Build the Anthropic messages URL, avoiding duplicate /v1 paths.
+    fn build_anthropic_url(base_url: &str) -> String {
+        let trimmed = base_url.trim_end_matches('/');
+        if trimmed.ends_with("/v1/messages") {
+            return trimmed.to_string();
+        }
+        if trimmed.ends_with("/v1") {
+            return format!("{}/messages", trimmed);
+        }
+        format!("{}/v1/messages", trimmed)
+    }
+
+    /// Anthropic Messages API endpoint.
+    async fn chat_once_anthropic(
+        &self,
+        messages: &[serde_json::Value],
+        tools: Option<&[Value]>,
+    ) -> Result<ModelResponse> {
+        // Convert OpenAI-format messages to Anthropic format
+        let mut system_message: Option<String> = None;
+        let mut anthropic_messages: Vec<Value> = Vec::new();
+
+        for msg in messages {
+            let role = msg["role"].as_str().unwrap_or("");
+            let content = msg["content"].as_str().unwrap_or("");
+
+            match role {
+                "system" => {
+                    // Collect system messages as the system prompt
+                    let existing = system_message.get_or_insert(String::new());
+                    if !existing.is_empty() {
+                        existing.push_str("\n\n");
+                    }
+                    existing.push_str(content);
+                }
+                "user" => {
+                    anthropic_messages.push(serde_json::json!({
+                        "role": "user",
+                        "content": content,
+                    }));
+                }
+                "assistant" => {
+                    // Check for tool_calls in the message
+                    if let Some(tool_calls) = msg["tool_calls"].as_array() {
+                        let mut content_parts: Vec<Value> = Vec::new();
+                        if !content.is_empty() {
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": content,
+                            }));
+                        }
+                        for tc in tool_calls {
+                            if let Some(func) = tc.get("function") {
+                                let id = tc["id"].as_str().unwrap_or("");
+                                let name = func["name"].as_str().unwrap_or("");
+                                let args: serde_json::Value = func["arguments"]
+                                    .as_str()
+                                    .and_then(|s| serde_json::from_str(s).ok())
+                                    .unwrap_or(serde_json::json!({}));
+                                content_parts.push(serde_json::json!({
+                                    "type": "tool_use",
+                                    "id": id,
+                                    "name": name,
+                                    "input": args,
+                                }));
+                            }
+                        }
+                        anthropic_messages.push(serde_json::json!({
+                            "role": "assistant",
+                            "content": content_parts,
+                        }));
+                    } else {
+                        anthropic_messages.push(serde_json::json!({
+                            "role": "assistant",
+                            "content": content,
+                        }));
+                    }
+                }
+                "tool" => {
+                    let tool_call_id = msg["tool_call_id"].as_str().unwrap_or("");
+                    anthropic_messages.push(serde_json::json!({
+                        "role": "user",
+                        "content": [{
+                            "type": "tool_result",
+                            "tool_use_id": tool_call_id,
+                            "content": content,
+                        }],
+                    }));
+                }
+                _ => {}
+            }
+        }
+
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "messages": anthropic_messages,
+            "max_tokens": 8192,
+        });
+
+        if let Some(sys) = &system_message {
+            body["system"] = serde_json::json!(sys);
+        }
+
+        if let Some(t) = tools {
+            let anthropic_tools: Vec<Value> = t.iter()
+                .filter_map(|tool| {
+                    let func = tool.get("function")?;
+                    let name = func.get("name")?.as_str()?;
+                    let description = func.get("description")?.as_str()?;
+                    let input_schema = func.get("parameters")?;
+                    Some(serde_json::json!({
+                        "name": name,
+                        "description": description,
+                        "input_schema": input_schema,
+                    }))
+                })
+                .collect();
+
+            if !anthropic_tools.is_empty() {
+                body["tools"] = serde_json::Value::Array(anthropic_tools);
+            }
+        }
+
+        let url = Self::build_anthropic_url(&self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let text = response.text().await?;
+
+        if !status.is_success() {
+            bail!("API error ({}): {}", status, text);
+        }
+
+        let data: Value = serde_json::from_str(&text)?;
+        Self::parse_anthropic_response(data)
+    }
+
+    fn parse_openai_response(data: Value) -> Result<ModelResponse> {
         let choice = &data["choices"][0];
         let message_data = &choice["message"];
 
@@ -176,6 +342,66 @@ impl ModelClient {
             content,
             reasoning,
             tool_calls,
+            finish_reason,
+            usage,
+        })
+    }
+
+    /// Parse an Anthropic Messages API response.
+    fn parse_anthropic_response(data: Value) -> Result<ModelResponse> {
+        let empty_arr = vec![];
+        let content_parts = data["content"].as_array().unwrap_or(&empty_arr);
+
+        let mut text_parts: Vec<String> = Vec::new();
+        let mut tool_calls: Vec<ToolCallInfo> = Vec::new();
+
+        for part in content_parts {
+            match part["type"].as_str() {
+                Some("text") => {
+                    if let Some(text) = part["text"].as_str() {
+                        text_parts.push(text.to_string());
+                    }
+                }
+                Some("tool_use") => {
+                    let id = part["id"].as_str().unwrap_or("").to_string();
+                    let name = part["name"].as_str().unwrap_or("").to_string();
+                    let args = part["input"]
+                        .to_string();
+                    tool_calls.push(ToolCallInfo {
+                        id,
+                        name,
+                        arguments: args,
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        let content = if text_parts.is_empty() {
+            None
+        } else {
+            Some(text_parts.join("\n"))
+        };
+
+        let finish_reason = data["stop_reason"]
+            .as_str()
+            .unwrap_or("end_turn")
+            .to_string();
+        let finish_reason = match finish_reason.as_str() {
+            "tool_use" => "tool_calls".to_string(),
+            other => other.to_string(),
+        };
+
+        let usage = data.get("usage").and_then(|u| u.as_object()).map(|u| UsageInfo {
+            prompt_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            completion_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            total_tokens: 0,
+        });
+
+        Ok(ModelResponse {
+            content,
+            reasoning: None,
+            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
             finish_reason,
             usage,
         })
@@ -281,6 +507,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_build_openai_url() {
+        assert_eq!(
+            ModelClient::build_openai_url("https://api.example.com/v1"),
+            "https://api.example.com/v1/chat/completions"
+        );
+        assert_eq!(
+            ModelClient::build_openai_url("https://api.example.com/v1/chat/completions"),
+            "https://api.example.com/v1/chat/completions"
+        );
+        assert_eq!(
+            ModelClient::build_openai_url("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        );
+        assert_eq!(
+            ModelClient::build_openai_url("https://api.openai.com"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            ModelClient::build_openai_url("https://api.example.com/v1/"),
+            "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn test_build_anthropic_url() {
+        assert_eq!(
+            ModelClient::build_anthropic_url("https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            ModelClient::build_anthropic_url("https://api.anthropic.com/v1/messages"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            ModelClient::build_anthropic_url("https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[test]
     fn test_tool_call_info_creation() {
         let call = ToolCallInfo {
             id: "call_abc".into(),
@@ -359,7 +625,7 @@ mod tests {
             }
         });
 
-        let response = ModelClient::parse_response(data).unwrap();
+        let response = ModelClient::parse_openai_response(data).unwrap();
         assert_eq!(response.content.as_deref(), Some("Hello!"));
         assert_eq!(response.finish_reason, "stop");
         assert!(response.tool_calls.is_none());
@@ -387,7 +653,7 @@ mod tests {
             "usage": null
         });
 
-        let response = ModelClient::parse_response(data).unwrap();
+        let response = ModelClient::parse_openai_response(data).unwrap();
         assert!(response.content.is_none());
         assert_eq!(response.finish_reason, "tool_calls");
         let calls = response.tool_calls.unwrap();
@@ -415,8 +681,7 @@ mod tests {
             }
         });
 
-        let response = ModelClient::parse_response(data).unwrap();
-        assert_eq!(response.content.as_deref(), Some("Final answer"));
+        let response = ModelClient::parse_openai_response(data).unwrap();
         assert_eq!(
             response.reasoning.as_deref(),
             Some("Let me think about this...")

@@ -1,0 +1,7 @@
+{
+  "llm_default_provider": "bailian",
+  "llm_default_model": "qwen-max",
+  "llm_bailian_key": "sk-sp-d1bffd9b70f540ceb478844b2c4f7001",
+  "llm_bailian_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "llm_temperature": 0.3
+}

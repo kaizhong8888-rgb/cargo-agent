@@ -16,7 +16,7 @@
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(DataProcessorTool));
@@ -398,18 +398,20 @@ fn get_string(row: &HashMap<String, Value>, column: &str) -> String {
 }
 
 /// Collect all column names across all rows (preserving order).
+/// Uses HashSet for O(1) membership checks instead of Vec::contains O(n).
 fn collect_columns(rows: &[HashMap<String, Value>]) -> Vec<String> {
-    let mut seen = Vec::with_capacity(
+    let mut seen: HashSet<String> = HashSet::with_capacity(
         rows.first().map(|r| r.len()).unwrap_or(0),
     );
+    let mut order = Vec::with_capacity(seen.capacity());
     for row in rows {
         for key in row.keys() {
-            if !seen.contains(key) {
-                seen.push(key.clone());
+            if seen.insert(key.clone()) {
+                order.push(key.clone());
             }
         }
     }
-    seen
+    order
 }
 
 // ---------------------------------------------------------------------------
@@ -782,11 +784,8 @@ fn cmd_merge(params: &HashMap<String, Value>) -> Result<Value, String> {
         lookup.entry(key).or_default().push(row);
     }
 
-    let _left_keys: std::collections::HashSet<String> =
-        rows2.iter().map(|r| get_string(r, on)).collect();
-
     let mut result = Vec::with_capacity(rows1.len());
-    let mut matched_right = std::collections::HashSet::new();
+    let mut matched_right: HashSet<String> = HashSet::new();
 
     for row1 in &rows1 {
         let key = get_string(row1, on);
@@ -804,7 +803,6 @@ fn cmd_merge(params: &HashMap<String, Value>) -> Result<Value, String> {
         } else if how == "left" || how == "outer" {
             // Left row with nulls for right side
             let mut merged = row1.clone();
-            // Add all columns from rows2 with null
             if let Some(first_row2) = rows2.first() {
                 for k in first_row2.keys() {
                     if k != on {
@@ -1193,6 +1191,54 @@ fn parse_factor(tokens: &[Token], pos: &mut usize, row: &HashMap<String, Value>)
     }
 }
 
+/// Column type inference from a single pass over rows.
+#[derive(Debug)]
+struct ColumnProfile {
+    non_null: usize,
+    null_count: usize,
+    numeric_count: usize,
+    string_count: usize,
+    bool_count: usize,
+    inferred_type: &'static str,
+}
+
+fn profile_column(rows: &[HashMap<String, Value>], col: &str) -> ColumnProfile {
+    let mut non_null = 0usize;
+    let mut numeric_count = 0usize;
+    let mut string_count = 0usize;
+    let mut bool_count = 0usize;
+
+    for row in rows {
+        if let Some(v) = row.get(col) {
+            non_null += 1;
+            match v {
+                Value::Number(_) => numeric_count += 1,
+                Value::String(_) => string_count += 1,
+                Value::Bool(_) => bool_count += 1,
+                _ => {}
+            }
+        }
+    }
+
+    let null_count = rows.len() - non_null;
+    let inferred_type = if numeric_count == non_null && non_null > 0 {
+        "numeric"
+    } else if bool_count == non_null && non_null > 0 {
+        "boolean"
+    } else {
+        "string"
+    };
+
+    ColumnProfile {
+        non_null,
+        null_count,
+        numeric_count,
+        string_count,
+        bool_count,
+        inferred_type,
+    }
+}
+
 /// Get dataset info (column names, types, row count).
 fn cmd_info(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (rows, format) = load_data(params)?;
@@ -1200,45 +1246,15 @@ fn cmd_info(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     let mut col_info: Vec<Value> = Vec::with_capacity(cols.len());
     for col in &cols {
-        let non_null = rows.iter().filter(|r| r.contains_key(col)).count();
-        let numeric_count = rows
-            .iter()
-            .filter(|r| get_numeric(r, col).is_some())
-            .count();
-        let string_count = rows
-            .iter()
-            .filter(|r| {
-                r.get(col)
-                    .map(|v| matches!(v, Value::String(_)))
-                    .unwrap_or(false)
-            })
-            .count();
-        let bool_count = rows
-            .iter()
-            .filter(|r| {
-                r.get(col)
-                    .map(|v| matches!(v, Value::Bool(_)))
-                    .unwrap_or(false)
-            })
-            .count();
-        let null_count = rows.len() - non_null;
-
-        let inferred_type = if numeric_count == non_null && non_null > 0 {
-            "numeric"
-        } else if bool_count == non_null && non_null > 0 {
-            "boolean"
-        } else {
-            "string"
-        };
-
+        let p = profile_column(&rows, col);
         col_info.push(json!({
             "name": col,
-            "non_null": non_null,
-            "null_count": null_count,
-            "numeric_count": numeric_count,
-            "string_count": string_count,
-            "bool_count": bool_count,
-            "inferred_type": inferred_type,
+            "non_null": p.non_null,
+            "null_count": p.null_count,
+            "numeric_count": p.numeric_count,
+            "string_count": p.string_count,
+            "bool_count": p.bool_count,
+            "inferred_type": p.inferred_type,
         }));
     }
 
@@ -1258,27 +1274,14 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     let mut descriptions = Vec::with_capacity(cols.len());
     for col in &cols {
-        let numeric_vals: Vec<f64> = rows.iter().filter_map(|r| get_numeric(r, col)).collect();
-        let string_vals: Vec<String> = rows
-            .iter()
-            .filter_map(|r| {
-                let s = get_string(r, col);
-                if s.is_empty() {
-                    None
-                } else {
-                    Some(s)
-                }
-            })
-            .collect();
+        let p = profile_column(&rows, col);
 
-        if !numeric_vals.is_empty() {
+        if p.numeric_count > 0 {
+            let numeric_vals: Vec<f64> = rows.iter().filter_map(|r| get_numeric(r, col)).collect();
             let sum: f64 = numeric_vals.iter().sum();
             let mean = sum / numeric_vals.len() as f64;
             let min = numeric_vals.iter().cloned().fold(f64::MAX, f64::min);
-            let max = numeric_vals
-                .iter()
-                .cloned()
-                .fold(f64::NEG_INFINITY, f64::max);
+            let max = numeric_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
             descriptions.push(json!({
                 "column": col,
@@ -1290,8 +1293,15 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
                 "max": max,
                 "sum": sum,
             }));
-        } else if !string_vals.is_empty() {
-            // Count distinct
+        } else if p.string_count > 0 {
+            let string_vals: Vec<String> = rows
+                .iter()
+                .filter_map(|r| {
+                    let s = get_string(r, col);
+                    if s.is_empty() { None } else { Some(s) }
+                })
+                .collect();
+
             let mut uniq: Vec<&str> = string_vals.iter().map(|s| s.as_str()).collect();
             uniq.sort();
             uniq.dedup();
@@ -1382,93 +1392,118 @@ fn build_preview(rows: &[HashMap<String, Value>], n: usize) -> Value {
     })
 }
 
+/// Filter operator parsed from a condition string.
+#[derive(Debug, Clone)]
+enum FilterOp {
+    Eq(String),
+    Ne(String),
+    GtNum(f64),
+    GtStr(String),
+    GeNum(f64),
+    GeStr(String),
+    LtNum(f64),
+    LtStr(String),
+    LeNum(f64),
+    LeStr(String),
+    Contains(String),
+    StartsWith(String),
+    EndsWith(String),
+}
+
+impl FilterOp {
+    /// Evaluate this filter against a row's column value.
+    fn matches(&self, row: &HashMap<String, Value>, column: &str) -> bool {
+        match self {
+            FilterOp::Eq(v) => get_string(row, column) == *v,
+            FilterOp::Ne(v) => get_string(row, column) != *v,
+            FilterOp::GtNum(v) => get_numeric(row, column) > Some(*v),
+            FilterOp::GtStr(v) => get_string(row, column).as_str() > v.as_str(),
+            FilterOp::GeNum(v) => get_numeric(row, column) >= Some(*v),
+            FilterOp::GeStr(v) => get_string(row, column).as_str() >= v.as_str(),
+            FilterOp::LtNum(v) => get_numeric(row, column) < Some(*v),
+            FilterOp::LtStr(v) => get_string(row, column).as_str() < v.as_str(),
+            FilterOp::LeNum(v) => get_numeric(row, column) <= Some(*v),
+            FilterOp::LeStr(v) => get_string(row, column).as_str() <= v.as_str(),
+            FilterOp::Contains(v) => {
+                let s = get_string(row, column).to_lowercase();
+                s.contains(&v.to_lowercase())
+            }
+            FilterOp::StartsWith(v) => {
+                let s = get_string(row, column).to_lowercase();
+                s.starts_with(&v.to_lowercase())
+            }
+            FilterOp::EndsWith(v) => {
+                let s = get_string(row, column).to_lowercase();
+                s.ends_with(&v.to_lowercase())
+            }
+        }
+    }
+}
+
+/// Build a FilterOp from a parsed operator string and value.
+fn build_filter_op(
+    op: &str,
+    value: &str,
+    rows: &[HashMap<String, Value>],
+    column: &str,
+) -> Result<FilterOp, String> {
+    let is_numeric = value.parse::<f64>().is_ok()
+        || rows.iter().any(|r| get_numeric(r, column).is_some());
+
+    Ok(match (op, is_numeric) {
+        ("==", _) => FilterOp::Eq(value.to_string()),
+        ("!=", _) => FilterOp::Ne(value.to_string()),
+        (">", true) => FilterOp::GtNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        (">", false) => FilterOp::GtStr(value.to_string()),
+        (">=", true) => FilterOp::GeNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        (">=", false) => FilterOp::GeStr(value.to_string()),
+        ("<", true) => FilterOp::LtNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        ("<", false) => FilterOp::LtStr(value.to_string()),
+        ("<=", true) => FilterOp::LeNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        ("<=", false) => FilterOp::LeStr(value.to_string()),
+        ("contains", _) => FilterOp::Contains(value.to_string()),
+        ("startswith", _) => FilterOp::StartsWith(value.to_string()),
+        ("endswith", _) => FilterOp::EndsWith(value.to_string()),
+        _ => FilterOp::Eq(value.to_string()),
+    })
+}
+
+/// Parse a condition string into a typed (column, FilterOp).
+fn parse_condition(
+    condition: &str,
+    rows: &[HashMap<String, Value>],
+) -> Result<(String, FilterOp), String> {
+    let condition = condition.trim();
+    // Try multi-char operators first (longer matches take priority)
+    let operators = [">=", "<=", "!=", "==", ">", "<", " contains ", " startswith ", " endswith "];
+
+    for op in &operators {
+        if let Some(pos) = condition.find(op) {
+            let column = condition[..pos].trim().to_string();
+            let value = condition[pos + op.len()..].trim();
+            let trimmed_op = op.trim();
+            let filter_op = build_filter_op(trimmed_op, value, rows, &column)?;
+            return Ok((column, filter_op));
+        }
+    }
+
+    Err(format!(
+        "Could not parse condition: '{condition}'. Use format: 'column op value' \
+         where op is one of: ==, !=, >, >=, <, <=, contains, startswith, endswith"
+    ))
+}
+
 /// Apply a filter condition to rows.
 fn filter_rows(
     rows: &[HashMap<String, Value>],
     condition: &str,
 ) -> Result<Vec<HashMap<String, Value>>, String> {
-    let condition = condition.trim();
-
-    // Parse condition: "column operator value"
-    let operators = [
-        ">=",
-        "<=",
-        "!=",
-        "==",
-        ">",
-        "<",
-        " contains ",
-        " startswith ",
-        " endswith ",
-    ];
-
-    let mut matched_op: Option<(&str, &str, &str)> = None;
-
-    for op in &operators {
-        if let Some(pos) = condition.find(op) {
-            let column = condition[..pos].trim();
-            let value = condition[pos + op.len()..].trim();
-            let trimmed_op = op.trim();
-            matched_op = Some((column, trimmed_op, value));
-            break;
-        }
-    }
-
-    let (column, op, value) = matched_op
-        .ok_or_else(|| format!("Could not parse condition: '{condition}'. Use format: 'column op value' \
-                                where op is one of: ==, !=, >, >=, <, <=, contains, startswith, endswith"))?;
-
-    let is_numeric_compare =
-        value.parse::<f64>().is_ok() || rows.iter().any(|r| get_numeric(r, column).is_some());
-    let cmp_value = value.parse::<f64>().ok();
-
+    let (column, op) = parse_condition(condition, rows)?;
     let filtered: Vec<HashMap<String, Value>> = rows
         .iter()
-        .filter(|row| match op {
-            "==" => get_string(row, column) == value,
-            "!=" => get_string(row, column) != value,
-            ">" => {
-                if is_numeric_compare {
-                    get_numeric(row, column) > cmp_value
-                } else {
-                    get_string(row, column).as_str() > value
-                }
-            }
-            ">=" => {
-                if is_numeric_compare {
-                    get_numeric(row, column) >= cmp_value
-                } else {
-                    get_string(row, column).as_str() >= value
-                }
-            }
-            "<" => {
-                if is_numeric_compare {
-                    get_numeric(row, column) < cmp_value
-                } else {
-                    get_string(row, column).as_str() < value
-                }
-            }
-            "<=" => {
-                if is_numeric_compare {
-                    get_numeric(row, column) <= cmp_value
-                } else {
-                    get_string(row, column).as_str() <= value
-                }
-            }
-            "contains" => get_string(row, column)
-                .to_lowercase()
-                .contains(&value.to_lowercase()),
-            "startswith" => get_string(row, column)
-                .to_lowercase()
-                .starts_with(&value.to_lowercase()),
-            "endswith" => get_string(row, column)
-                .to_lowercase()
-                .ends_with(&value.to_lowercase()),
-            _ => false,
-        })
+        .filter(|row| op.matches(row, &column))
         .cloned()
         .collect();
-
     Ok(filtered)
 }
 

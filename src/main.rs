@@ -5,7 +5,6 @@ use cargo_agent::cli_commands::{handle as handle_slash, parse as parse_slash, Sl
 use cargo_agent::config::CargoConfig;
 use cargo_agent::gateway::Gateway;
 use cargo_agent::ui;
-use crossterm::style::Stylize;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,10 +37,28 @@ async fn main() -> anyhow::Result<()> {
         ui::print_prompt(&prompt);
         println!();
 
+        let start = Instant::now();
         let mut gateway = Gateway::new(config);
-        match gateway.handle_message(&prompt).await {
+        let result = gateway.handle_message(&prompt).await;
+        let elapsed = start.elapsed();
+        let usage = gateway.agent().token_usage();
+
+        match &result {
             Ok(response) => {
-                ui::print_response(&response);
+                ui::print_response(response);
+                // Show status bar
+                let status_info = ui::StatusInfo {
+                    api_calls: usage.api_calls,
+                    prompt_tokens: usage.prompt_tokens,
+                    completion_tokens: usage.completion_tokens,
+                    total_tokens: usage.total_tokens,
+                    messages_count: gateway.agent().messages().len(),
+                    messages_max: 200,
+                    model_name: gateway.model_name().to_string(),
+                    elapsed_secs: elapsed.as_secs_f32(),
+                };
+                ui::print_status_bar(&status_info);
+                println!();
             }
             Err(e) => ui::print_error(&format!("{e}")),
         }
@@ -82,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
                         }
                         // /clear or /cls — already printed escape sequences
                         if input == "/clear" || input == "/cls" {
-                            gateway.reset_token_usage();
+                            gateway.clear_conversation();
                         }
                         continue;
                     }
@@ -115,6 +132,14 @@ async fn main() -> anyhow::Result<()> {
         ui::print_prompt(input);
         println!();
 
+        // Show routing info before processing
+        let model_info = gateway.model_routing_info(input);
+        let msg_count = gateway.agent().messages().len();
+        ui::print_thinking_status(&format!(
+            "{} | 💬 {} messages in context",
+            model_info, msg_count,
+        ));
+
         let mut spinner = ui::Spinner::new("Thinking...");
         spinner.start();
         let start = Instant::now();
@@ -124,13 +149,25 @@ async fn main() -> anyhow::Result<()> {
         spinner.stop();
 
         let elapsed = start.elapsed();
-        println!("  {}", format!("({:.2}s)", elapsed.as_secs_f32()).dim());
-        println!();
+        let usage = gateway.agent().token_usage();
 
-        match result {
-            Ok(response) => ui::print_response(&response),
+        match &result {
+            Ok(response) => ui::print_response(response),
             Err(e) => ui::print_error(&format!("{e}")),
         }
+
+        // Show compact status bar with token usage & context info
+        let status_info = ui::StatusInfo {
+            api_calls: usage.api_calls,
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            total_tokens: usage.total_tokens,
+            messages_count: gateway.agent().messages().len(),
+            messages_max: 200,
+            model_name: gateway.model_name().to_string(),
+            elapsed_secs: elapsed.as_secs_f32(),
+        };
+        ui::print_status_bar(&status_info);
 
         ui::separator();
     }

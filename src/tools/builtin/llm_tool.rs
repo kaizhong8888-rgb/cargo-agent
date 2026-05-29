@@ -1,18 +1,19 @@
 //! LLM Integration Tool
 //!
-//! Enables the agent to call Large Language Model APIs (OpenAI / Anthropic / Ollama)
+//! Enables the agent to call Large Language Model APIs
+//! (OpenAI / Anthropic / Ollama / 阿里百炼 Bailian)
 //! for code generation, code review, explanation, documentation, and general Q&A.
 //!
 //! # Providers
 //!
-//! - `openai`  → https://api.openai.com/v1/chat/completions
+//! - `openai`   → https://api.openai.com/v1/chat/completions (customizable via config `llm_openai_base_url`)
 //! - `anthropic` → https://api.anthropic.com/v1/messages
 //! - `ollama`   → http://localhost:11434/api/chat (local, no API key needed)
+//! - `bailian`  → https://dashscope.aliyuncs.com/compatible-mode/v1  (阿里百炼, OpenAI-compatible)
 //!
 //! # API Key Storage
 //!
 //! API keys are stored via the config system (`config set llm_openai_key sk-...`).
-//! They can also be passed directly as parameters.
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use serde_json::Value;
@@ -32,7 +33,7 @@ impl Tool for LlmChatTool {
     }
 
     fn description(&self) -> &str {
-        "Call LLM APIs (OpenAI GPT-4/3.5, Anthropic Claude, local Ollama) for code generation, code review, explanation, documentation, and general Q&A. API keys are stored via config system or passed directly."
+        "Call LLM APIs (OpenAI GPT-4/3.5, Anthropic Claude, local Ollama, 阿里百炼 Bailian) for code generation, code review, explanation, documentation, and general Q&A. API keys are stored via config system or passed directly."
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
@@ -51,13 +52,13 @@ impl Tool for LlmChatTool {
             },
             ToolParameter {
                 name: "provider".to_string(),
-                description: "LLM provider: 'openai' (default, needs OPENAI_API_KEY), 'anthropic' (needs ANTHROPIC_API_KEY), or 'ollama' (local, no key)".to_string(),
+                description: "LLM provider: 'openai' (default), 'anthropic', 'ollama' (local), 'bailian' (阿里百炼)".to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "model".to_string(),
-                description: "Model name. Defaults: openai→'gpt-4o', anthropic→'claude-3-5-sonnet-20241022', ollama→'llama3.2'".to_string(),
+                description: "Model name. Defaults: openai→'gpt-4o', anthropic→'claude-3-5-sonnet-20241022', ollama→'llama3.2', bailian→'qwen3.6-plus'".to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -86,6 +87,12 @@ impl Tool for LlmChatTool {
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
+                name: "base_url".to_string(),
+                description: "Custom API base URL for OpenAI-compatible endpoints (overrides config 'llm_openai_base_url')".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
                 name: "ollama_url".to_string(),
                 description: "Ollama server URL (default: http://localhost:11434)".to_string(),
                 required: false,
@@ -107,11 +114,17 @@ impl Tool for LlmChatTool {
             .ok_or("Missing required parameter: prompt")?;
 
         let system = params.get("system").and_then(|v| v.as_str()).unwrap_or("");
-        let provider = params
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("openai")
-            .to_lowercase();
+        let provider = {
+            let p = params
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let p = p.or_else(|| {
+                let default = load_config_key("llm_default_provider");
+                if !default.is_empty() { Some(default) } else { None }
+            });
+            p.as_deref().unwrap_or("openai").to_lowercase()
+        };
         let format = params
             .get("format")
             .and_then(|v| v.as_str())
@@ -149,6 +162,16 @@ impl Tool for LlmChatTool {
                     .get("model")
                     .and_then(|v| v.as_str())
                     .unwrap_or("gpt-4o");
+                // Determine base URL: param > config > default
+                let base_url = params
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        let cfg = load_config_key("llm_openai_base_url");
+                        if cfg.is_empty() { None } else { Some(cfg) }
+                    })
+                    .unwrap_or_else(|| "https://api.openai.com".to_string());
                 call_openai(
                     &key,
                     model,
@@ -158,6 +181,7 @@ impl Tool for LlmChatTool {
                     max_tokens,
                     &format,
                     timeout_secs,
+                    &base_url,
                 )
                 .await
             }
@@ -199,8 +223,41 @@ impl Tool for LlmChatTool {
                 )
                 .await
             }
+            "bailian" | "dashscope" | "ali" => {
+                let key = api_key.unwrap_or_else(|| load_config_key("llm_bailian_key"));
+                if key.is_empty() {
+                    return Err(
+                        "阿里百炼 API key not found. Set it via: config set llm_bailian_key <your-dashscope-api-key>\n".to_string()
+                    );
+                }
+                let model = params
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("qwen3.6-plus");
+                let base_url = params
+                    .get("base_url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        let cfg = load_config_key("llm_bailian_base_url");
+                        if cfg.is_empty() { None } else { Some(cfg) }
+                    })
+                    .unwrap_or_else(|| "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string());
+                call_openai(
+                    &key,
+                    model,
+                    prompt,
+                    system,
+                    temperature,
+                    max_tokens,
+                    &format,
+                    timeout_secs,
+                    &base_url,
+                )
+                .await
+            }
             other => Err(format!(
-                "Unsupported provider: '{other}'. Supported: 'openai', 'anthropic', 'ollama'"
+                "Unsupported provider: '{other}'. Supported: 'openai', 'anthropic', 'ollama', 'bailian'"
             )),
         }
     }
@@ -220,6 +277,7 @@ async fn call_openai(
     max_tokens: u32,
     format: &str,
     timeout_secs: u64,
+    base_url: &str,
 ) -> Result<Value, String> {
     if api_key.is_empty() {
         return Err(
@@ -257,8 +315,16 @@ async fn call_openai(
         body["response_format"] = json!({ "type": "json_object" });
     }
 
+    // Build the API URL from the base URL
+    let base_url = base_url.trim_end_matches('/');
+    let api_url = if base_url.ends_with("/chat/completions") || base_url.contains("v1") {
+        format!("{base_url}/chat/completions")
+    } else {
+        format!("{base_url}/v1/chat/completions")
+    };
+
     let response = client
-        .post("https://api.openai.com/v1/chat/completions")
+        .post(&api_url)
         .header("Authorization", format!("Bearer {api_key}"))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -574,6 +640,13 @@ mod tests {
         let provider_param = params.iter().find(|p| p.name == "provider").unwrap();
         assert!(!provider_param.required);
         let desc = &provider_param.description;
-        assert!(desc.contains("openai") || desc.contains("anthropic") || desc.contains("ollama"));
+        assert!(desc.contains("openai") || desc.contains("anthropic") || desc.contains("ollama") || desc.contains("bailian"));
+    }
+
+    #[test]
+    fn test_base_url_parameter_exists() {
+        let tool = LlmChatTool;
+        let params = tool.parameters();
+        assert!(params.iter().any(|p| p.name == "base_url"));
     }
 }

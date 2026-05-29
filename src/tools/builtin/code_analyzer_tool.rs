@@ -12,7 +12,7 @@
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -280,137 +280,87 @@ fn read_file_content(path: &str) -> Result<String, String> {
 // Structure Analysis
 // ============================================================================
 
+/// Extract named items from content using a regex pattern.
+/// Returns Vec<Value> where each Value is either a plain string (brief) or {"name": "..."} (full).
+fn extract_items(re: &Lazy<Regex>, content: &str, detail: &str, key: &str) -> Vec<Value> {
+    re.captures_iter(content)
+        .map(|c| {
+            let name = c.get(1).map(|m| m.as_str()).unwrap_or("");
+            if detail == "full" {
+                serde_json::json!({ key: name })
+            } else {
+                serde_json::json!(name)
+            }
+        })
+        .collect()
+}
+
 /// Analyze the structure of Rust files: functions, structs, enums, traits, impls, modules.
 fn analyze_structure(files: &[String], detail: &str) -> Result<Value, String> {
     let mut results = Vec::new();
     let mut total_counts: HashMap<String, usize> = HashMap::new();
 
+    let item_extractors: [(&Lazy<Regex>, &str, &str); 6] = [
+        (&RE_FN, "functions", "name"),
+        (&RE_STRUCT, "structs", "name"),
+        (&RE_ENUM, "enums", "name"),
+        (&RE_TRAIT, "traits", "name"),
+        (&RE_IMPL, "impls", "target"),
+        (&RE_MOD, "modules", "name"),
+    ];
+
+    let count_extractors: [(&Lazy<Regex>, &str); 4] = [
+        (&RE_TYPE, "types"),
+        (&RE_CONST, "consts"),
+        (&RE_STATIC, "statics"),
+        (&RE_MACRO, "macros"),
+    ];
+
     for file_path in files {
         let content = read_file_content(file_path)?;
         let relative_path = file_path.to_string();
 
-        // Extract items using pre-compiled regex statics
-        let functions: Vec<Value> = if detail == "full" {
-            RE_FN
-                .captures_iter(&content)
-                .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
-                .collect()
-        } else {
-            RE_FN
-                .captures_iter(&content)
-                .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
-                .collect()
-        };
+        let mut extracted: Vec<(String, Vec<Value>, usize)> = Vec::with_capacity(10);
 
-        let structs: Vec<Value> = if detail == "full" {
-            RE_STRUCT
-                .captures_iter(&content)
-                .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
-                .collect()
-        } else {
-            RE_STRUCT
-                .captures_iter(&content)
-                .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
-                .collect()
-        };
+        // Extract named items
+        for (re, label, key) in &item_extractors {
+            let items = extract_items(re, &content, detail, key);
+            extracted.push((label.to_string(), items, 0));
+        }
 
-        let enums: Vec<Value> = if detail == "full" {
-            RE_ENUM
-                .captures_iter(&content)
-                .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
-                .collect()
-        } else {
-            RE_ENUM
-                .captures_iter(&content)
-                .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
-                .collect()
-        };
+        // Extract counts
+        let mut counts: HashMap<String, usize> = HashMap::with_capacity(10);
+        for (re, label) in &count_extractors {
+            let count = re.captures_iter(&content).count();
+            counts.insert(label.to_string(), count);
+        }
 
-        let traits: Vec<Value> = if detail == "full" {
-            RE_TRAIT
-                .captures_iter(&content)
-                .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
-                .collect()
-        } else {
-            RE_TRAIT
-                .captures_iter(&content)
-                .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
-                .collect()
-        };
-
-        let impls: Vec<Value> = if detail == "full" {
-            RE_IMPL
-                .captures_iter(&content)
-                .map(
-                    |c| serde_json::json!({ "target": c.get(1).map(|m| m.as_str()).unwrap_or("") }),
-                )
-                .collect()
-        } else {
-            RE_IMPL
-                .captures_iter(&content)
-                .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
-                .collect()
-        };
-
-        let modules: Vec<Value> = if detail == "full" {
-            RE_MOD
-                .captures_iter(&content)
-                .map(|c| serde_json::json!({ "name": c.get(1).map(|m| m.as_str()).unwrap_or("") }))
-                .collect()
-        } else {
-            RE_MOD
-                .captures_iter(&content)
-                .map(|c| serde_json::json!(c.get(1).map(|m| m.as_str()).unwrap_or("")))
-                .collect()
-        };
-
-        let types = RE_TYPE.captures_iter(&content).count();
-        let consts = RE_CONST.captures_iter(&content).count();
-        let statics = RE_STATIC.captures_iter(&content).count();
-        let macros = RE_MACRO.captures_iter(&content).count();
-
-        // Update total counts
-        *total_counts.entry("functions".into()).or_insert(0) += functions.len();
-        *total_counts.entry("structs".into()).or_insert(0) += structs.len();
-        *total_counts.entry("enums".into()).or_insert(0) += enums.len();
-        *total_counts.entry("traits".into()).or_insert(0) += traits.len();
-        *total_counts.entry("impls".into()).or_insert(0) += impls.len();
-        *total_counts.entry("modules".into()).or_insert(0) += modules.len();
-        *total_counts.entry("types".into()).or_insert(0) += types;
-        *total_counts.entry("consts".into()).or_insert(0) += consts;
-        *total_counts.entry("statics".into()).or_insert(0) += statics;
-        *total_counts.entry("macros".into()).or_insert(0) += macros;
+        // Update total counts and build counts map
+        let mut counts_obj = serde_json::Map::new();
+        for (_i, (label, items, _)) in extracted.iter().enumerate() {
+            *total_counts.entry(label.clone()).or_insert(0) += items.len();
+            counts_obj.insert(label.clone(), json!(items.len()));
+        }
+        for (label, count) in &counts {
+            *total_counts.entry(label.clone()).or_insert(0) += count;
+            counts_obj.insert(label.clone(), json!(*count));
+        }
 
         if detail == "brief" {
-            results.push(serde_json::json!({
+            results.push(json!({
                 "file": relative_path,
-                "counts": {
-                    "functions": functions.len(),
-                    "structs": structs.len(),
-                    "enums": enums.len(),
-                    "traits": traits.len(),
-                    "impls": impls.len(),
-                    "modules": modules.len(),
-                    "types": types,
-                    "consts": consts,
-                    "statics": statics,
-                    "macros": macros,
-                },
+                "counts": counts_obj,
             }));
         } else {
-            results.push(serde_json::json!({
-                "file": relative_path,
-                "functions": functions,
-                "structs": structs,
-                "enums": enums,
-                "traits": traits,
-                "impls": impls,
-                "modules": modules,
-                "types": types,
-                "consts": consts,
-                "statics": statics,
-                "macros": macros,
-            }));
+            let mut file_obj = serde_json::Map::new();
+            file_obj.insert("file".to_string(), json!(relative_path));
+            for (label, items, _) in &extracted {
+                file_obj.insert(label.clone(), json!(items));
+            }
+            for (label, count) in &counts {
+                file_obj.insert(label.clone(), json!(count));
+            }
+            results.push(Value::Object(file_obj));
         }
     }
 

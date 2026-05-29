@@ -333,7 +333,74 @@ impl Tool for CodeReviewTool {
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        // ── Config persistence ──────────────────────────────────────────────
+        // ── Config persistence & parameter merging ───────────────────────────
+        let merged = self.merge_parameters(params)?;
+        // Config operations (list/delete) return a complete response with "status" field
+        if merged.get("status").is_some() && merged.get("message").is_some() {
+            return Ok(merged);
+        }
+        let merged_params: HashMap<String, Value> = merged
+            .as_object()
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+
+        // ── Parse & validate parameters ────────────────────────────────────
+        let (path, thresholds, active_checks, effective_format, output_path, show_progress, git_diff, parallel, recursive, max_results, min_severity) =
+            self.parse_parameters(&merged_params)?;
+
+        // ── File discovery ──────────────────────────────────────────────────
+        let files = self.collect_files(&path, &thresholds, &active_checks, max_results, git_diff, recursive)?;
+        if files.is_empty() {
+            return Ok(self.build_empty_result(git_diff));
+        }
+
+        // ── Analysis ─────────────────────────────────────────────────────
+        let (all_issues, file_summaries, total_errors, total_warnings, total_info) = 
+            self.analyze_batch(&files, &active_checks, &thresholds, &min_severity, parallel, show_progress).await?;
+
+        // ── Report generation ────────────────────────────────────────────
+        let mut result = self.generate_report(
+            &all_issues,
+            &file_summaries,
+            &files,
+            total_errors,
+            total_warnings,
+            total_info,
+            &active_checks,
+            &effective_format,
+        )?;
+
+        // ── Output handling ──────────────────────────────────────────────
+        if let Some(ref out_path) = output_path {
+            self.write_output(&mut result, &out_path, &effective_format)?;
+        }
+
+        // ── Metadata injection ───────────────────────────────────────────
+        if show_progress {
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("progress".to_string(), serde_json::json!({
+                    "mode": if parallel && files.len() > 1 { "parallel" } else { "sequential" },
+                    "total_files": files.len(),
+                }));
+            }
+        }
+        if git_diff {
+            if let Some(obj) = result.as_object_mut() {
+                obj.insert("git_diff".to_string(), Value::Bool(true));
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+// ── Helper methods for CodeReviewTool ──────────────────────────────────────
+
+impl CodeReviewTool {
+    /// Merge CLI params with loaded config profiles.
+    /// Returns a complete response for config operations (list/delete),
+    /// or merged parameters (as a JSON object) for normal analysis.
+    fn merge_parameters(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let save_config = params.get("save_config").and_then(|v| v.as_str());
         let load_config = params.get("load_config").and_then(|v| v.as_str());
         let list_configs = params
@@ -353,13 +420,13 @@ impl Tool for CodeReviewTool {
         }
 
         // Handle load_config: load saved params as defaults, then override with explicit params
-        let merged_params = if let Some(config_name) = load_config {
+        if let Some(config_name) = load_config {
             let store = ConfigStore::load();
             let key = format!("{CONFIG_NAMESPACE}{config_name}");
             match store.get(&key) {
                 Some(config_obj) => {
                     if let Some(obj) = config_obj.as_object() {
-                        let mut merged = HashMap::new();
+                        let mut merged = serde_json::Map::new();
                         for (k, v) in obj {
                             merged.insert(k.clone(), v.clone());
                         }
@@ -367,7 +434,7 @@ impl Tool for CodeReviewTool {
                         for (k, v) in params {
                             merged.insert(k.clone(), v.clone());
                         }
-                        merged
+                        return Ok(Value::Object(merged));
                     } else {
                         return Ok(serde_json::json!({
                             "status": "error",
@@ -382,13 +449,7 @@ impl Tool for CodeReviewTool {
                     }));
                 }
             }
-        } else {
-            let mut p = HashMap::new();
-            for (k, v) in params {
-                p.insert(k.clone(), v.clone());
-            }
-            p
-        };
+        }
 
         // Handle save_config: store merged parameters for later reuse
         if let Some(config_name) = save_config {
@@ -396,14 +457,35 @@ impl Tool for CodeReviewTool {
             let key = format!("{CONFIG_NAMESPACE}{config_name}");
             let mut config = serde_json::Map::new();
             for param_name in configurable_param_names() {
-                if let Some(val) = merged_params.get(*param_name) {
+                if let Some(val) = params.get(*param_name) {
                     config.insert(param_name.to_string(), val.clone());
                 }
             }
             store.set(&key, Value::Object(config));
         }
 
-        // ── Parse parameters (merged) ───────────────────────────────────────
+        // Return merged params as a JSON object (no "status" field, so execute continues)
+        let obj: serde_json::Map<String, Value> = params
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        Ok(Value::Object(obj))
+    }
+
+    /// Parse and validate all parameters into strongly-typed tuple.
+    fn parse_parameters(&self, merged_params: &HashMap<String, Value>) -> Result<(
+        String,
+        Thresholds,
+        ActiveChecks,
+        String,
+        Option<String>,
+        bool,
+        bool,
+        bool,
+        bool,
+        usize,
+        String,
+    ), String> {
         let path = merged_params
             .get("path")
             .and_then(|v| v.as_str())
@@ -491,34 +573,49 @@ impl Tool for CodeReviewTool {
             max_nesting,
             max_line_length,
         };
+        let active_checks = parse_checks(checks_str)?;
+
+        Ok((
+            path.to_string(),
+            thresholds,
+            active_checks,
+            effective_format,
+            output_path,
+            show_progress,
+            git_diff,
+            parallel,
+            recursive,
+            max_results,
+            min_severity.to_string(),
+        ))
+    }
+
+    /// Discover Rust files from path, applying filters.
+    fn collect_files(
+        &self,
+        path: &str,
+        _thresholds: &Thresholds,
+        _active_checks: &ActiveChecks,
+        max_results: usize,
+        git_diff: bool,
+        recursive: bool,
+    ) -> Result<Vec<String>, String> {
         let file_path = Path::new(path);
 
         if !file_path.exists() {
-            return Ok(serde_json::json!({
-                "status": "error",
-                "message": format!("Path does not exist: {path}"),
-            }));
+            return Err(format!("Path does not exist: {path}"));
         }
 
-        let active_checks = parse_checks(checks_str)?;
-
-        // Collect Rust files
         let mut files: Vec<String> = Vec::new();
         if file_path.is_file() {
             if !path.ends_with(".rs") {
-                return Ok(serde_json::json!({
-                    "status": "error",
-                    "message": format!("Not a Rust file: {path}"),
-                }));
+                return Err(format!("Not a Rust file: {path}"));
             }
             files.push(path.to_string());
         } else if file_path.is_dir() {
             collect_rust_files(file_path, &mut files, recursive, 0)?;
             if files.is_empty() {
-                return Ok(serde_json::json!({
-                    "status": "error",
-                    "message": format!("No Rust files found in: {path}"),
-                }));
+                return Err(format!("No Rust files found in: {path}"));
             }
         }
 
@@ -530,32 +627,50 @@ impl Tool for CodeReviewTool {
         if git_diff {
             let changed = get_git_diff_files()?;
             if changed.is_empty() {
-                return Ok(serde_json::json!({
-                    "status": "ok",
-                    "message": "No git changes detected. No files to review.",
-                    "git_diff": true,
-                    "summary": { "files": 0, "total_issues": 0, "errors": 0, "warnings": 0, "info": 0 },
-                }));
+                return Ok(vec![]);
             }
             let original_count = files.len();
             files.retain(|f| {
                 let normalized = f.strip_prefix("./").unwrap_or(f.as_str());
                 changed.iter().any(|c| c == normalized || f.ends_with(c))
             });
-            let filtered_total = original_count - files.len();
+            let _filtered_total = original_count - files.len();
             if files.is_empty() {
-                return Ok(serde_json::json!({
-                    "status": "ok",
-                    "message": "No git-changed Rust files found in the specified path.",
-                    "git_diff": true,
-                    "changed_files": changed.len(),
-                    "filtered_out": filtered_total,
-                    "summary": { "files": 0, "total_issues": 0, "errors": 0, "warnings": 0, "info": 0 },
-                }));
+                return Ok(vec![]);
             }
         }
 
-        // Run all checks — in parallel for speed
+        Ok(files)
+    }
+
+    /// Build empty result for early-exit cases (no files, git diff only, etc.)
+    fn build_empty_result(&self, git_diff: bool) -> Value {
+        if git_diff {
+            serde_json::json!({
+                "status": "ok",
+                "message": "No git changes detected. No files to review.",
+                "git_diff": true,
+                "summary": { "files": 0, "total_issues": 0, "errors": 0, "warnings": 0, "info": 0 },
+            })
+        } else {
+            serde_json::json!({
+                "status": "ok",
+                "message": "No files to review.",
+                "summary": { "files": 0, "total_issues": 0, "errors": 0, "warnings": 0, "info": 0 },
+            })
+        }
+    }
+
+    /// Run analysis across all files, either sequentially or in parallel.
+    async fn analyze_batch(
+        &self,
+        files: &[String],
+        active_checks: &ActiveChecks,
+        thresholds: &Thresholds,
+        min_severity: &str,
+        parallel: bool,
+        show_progress: bool,
+    ) -> Result<(Vec<ReviewIssue>, Vec<Value>, u32, u32, u32), String> {
         let mut all_issues: Vec<ReviewIssue> = Vec::new();
         let mut file_summaries: Vec<Value> = Vec::new();
         let mut total_errors = 0u32;
@@ -572,14 +687,10 @@ impl Tool for CodeReviewTool {
                 eprintln!("[PAR] Starting parallel analysis of {num_files} files...");
             }
 
-            for file in &files {
+            for file in files {
                 let file = file.clone();
                 let checks_clone = active_checks.clone();
-                let thresh_clone = Thresholds {
-                    max_fn_length: thresholds.max_fn_length,
-                    max_nesting: thresholds.max_nesting,
-                    max_line_length: thresholds.max_line_length,
-                };
+                let thresh_clone = thresholds.clone();
                 let min_sev = min_severity.to_string();
                 let completed_clone = completed.clone();
                 let show_prog = show_progress;
@@ -631,7 +742,7 @@ impl Tool for CodeReviewTool {
                 if show_progress {
                     eprintln!("[SEQ] [{}/{}] Analyzing: {}...", idx + 1, num_files, file);
                 }
-                if let Some(result) = analyze_file(file, &active_checks, &thresholds, min_severity)
+                if let Some(result) = analyze_file(file, active_checks, thresholds, min_severity)
                 {
                     let issue_count = result.issues.len();
                     total_errors += result.errors;
@@ -652,18 +763,24 @@ impl Tool for CodeReviewTool {
             }
         }
 
-        // Add progress summary to result
-        let progress_summary = if show_progress {
-            Some(serde_json::json!({
-                "mode": if parallel && files.len() > 1 { "parallel" } else { "sequential" },
-                "total_files": files.len(),
-            }))
-        } else {
-            None
-        };
+        Ok((all_issues, file_summaries, total_errors, total_warnings, total_info))
+    }
 
+    /// Generate final report based on format and results.
+    fn generate_report(
+        &self,
+        all_issues: &[ReviewIssue],
+        file_summaries: &[Value],
+        files: &[String],
+        total_errors: u32,
+        total_warnings: u32,
+        total_info: u32,
+        active_checks: &ActiveChecks,
+        effective_format: &str,
+    ) -> Result<Value, String> {
         // Sort: errors first, then by file name
-        all_issues.sort_by(|a, b| {
+        let mut sorted_issues = all_issues.to_vec();
+        sorted_issues.sort_by(|a, b| {
             let sev_cmp = (b.severity as u8).cmp(&(a.severity as u8));
             if sev_cmp != std::cmp::Ordering::Equal {
                 sev_cmp
@@ -672,83 +789,73 @@ impl Tool for CodeReviewTool {
             }
         });
 
-        let mut result = match effective_format.as_str() {
+        match effective_format {
             "json" => generate_json_report(
-                &all_issues,
-                &file_summaries,
-                &files,
+                &sorted_issues,
+                file_summaries,
+                files,
                 total_errors,
                 total_warnings,
                 total_info,
-                &active_checks,
+                active_checks,
             ),
             "github-actions" | "github_actions" => generate_github_actions_report(
-                &all_issues,
+                &sorted_issues,
                 total_errors,
                 total_warnings,
                 total_info,
             ),
             "gitlab-ci" | "gitlab_ci" => {
-                generate_gitlab_ci_report(&all_issues, total_errors, total_warnings, total_info)
+                generate_gitlab_ci_report(&sorted_issues, total_errors, total_warnings, total_info)
             }
             _ => generate_text_report(
-                &all_issues,
-                &file_summaries,
-                &files,
+                &sorted_issues,
+                file_summaries,
+                files,
                 total_errors,
                 total_warnings,
                 total_info,
             ),
-        }?;
+        }
+    }
 
-        // Write to output file if requested
-        if let Some(ref out_path) = output_path {
-            let report_content = if result.get("report").and_then(|v| v.as_str()).is_some() {
-                result["report"].as_str().unwrap_or_default().to_string()
-            } else if effective_format == "json" {
-                serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
-            } else if effective_format == "gitlab-ci" || effective_format == "gitlab_ci" {
-                serde_json::to_string_pretty(&result["report"]).unwrap_or_else(|_| "[]".to_string())
-            } else {
-                "No report content available".to_string()
-            };
+    /// Write report to file if requested.
+    fn write_output(
+        &self,
+        result: &mut Value,
+        out_path: &str,
+        effective_format: &str,
+    ) -> Result<(), String> {
+        let report_content = if result.get("report").and_then(|v| v.as_str()).is_some() {
+            result["report"].as_str().unwrap_or_default().to_string()
+        } else if effective_format == "json" {
+            serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+        } else if effective_format == "gitlab-ci" || effective_format == "gitlab_ci" {
+            serde_json::to_string_pretty(&result["report"]).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "No report content available".to_string()
+        };
 
-            match std::fs::write(out_path, &report_content) {
-                Ok(_) => {
-                    if let Some(obj) = result.as_object_mut() {
-                        obj.insert("output_file".to_string(), Value::String(out_path.clone()));
-                        obj.insert("output_saved".to_string(), Value::Bool(true));
-                    }
-                }
-                Err(e) => {
-                    if let Some(obj) = result.as_object_mut() {
-                        obj.insert(
-                            "output_error".to_string(),
-                            Value::String(format!(
-                                "Failed to write report to '{}': {}",
-                                out_path, e
-                            )),
-                        );
-                    }
+        match std::fs::write(out_path, &report_content) {
+            Ok(_) => {
+                if let Some(obj) = result.as_object_mut() {
+                    obj.insert("output_file".to_string(), Value::String(out_path.to_string()));
+                    obj.insert("output_saved".to_string(), Value::Bool(true));
                 }
             }
-        }
-
-        // Include progress summary in result
-        if let Some(progress) = progress_summary {
-            if let Some(obj) = result.as_object_mut() {
-                obj.insert("progress".to_string(), progress);
+            Err(e) => {
+                if let Some(obj) = result.as_object_mut() {
+                    obj.insert(
+                        "output_error".to_string(),
+                        Value::String(format!(
+                            "Failed to write report to '{}': {}",
+                            out_path, e
+                        )),
+                    );
+                }
             }
         }
-
-        // Include git_diff marker in result
-        if git_diff {
-            if let Some(obj) = result.as_object_mut() {
-                obj.insert("git_diff".to_string(), Value::Bool(true));
-            }
-        }
-
-        Ok(result)
+        Ok(())
     }
 }
 
@@ -757,6 +864,7 @@ impl Tool for CodeReviewTool {
 // ============================================================================
 
 /// User-configurable thresholds for style checks.
+#[derive(Clone)]
 struct Thresholds {
     max_fn_length: usize,
     max_nesting: usize,

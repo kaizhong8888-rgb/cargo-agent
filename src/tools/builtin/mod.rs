@@ -1,3 +1,4 @@
+pub mod archive_tool;
 pub mod evolution_tools;
 pub mod file_tools;
 pub mod fs_tools;
@@ -21,12 +22,18 @@ pub mod scheduler;
 pub mod task_planner;
 
 pub mod chart_generator;
+pub mod sysmonitor_tool;
+pub mod template_tool;
+pub mod text_processor;
+pub mod todo_manager;
 pub mod crypto_tool;
 pub mod data_processor;
 pub mod database_tool;
 pub mod env_secret;
 pub mod github_tool;
 pub mod image_tool;
+pub mod mail_tool;
 pub mod notify;
+pub mod pdf_tool;
 pub mod plugin_tool;
 pub mod quantitative_trading_tool;

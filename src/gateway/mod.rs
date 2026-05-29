@@ -85,12 +85,25 @@ impl Gateway {
 
         // Image: analyze and manipulate images (info, resize, thumbnail, convert)
         crate::tools::builtin::image_tool::register_all(&mut tool_registry);
+        crate::tools::builtin::mail_tool::register_all(&mut tool_registry);
+        crate::tools::builtin::archive_tool::register_all(&mut tool_registry);
+        crate::tools::builtin::pdf_tool::register_all(&mut tool_registry);
+        crate::tools::builtin::template_tool::register_all(&mut tool_registry);
+        crate::tools::builtin::sysmonitor_tool::register_all(&mut tool_registry);
 
         // Data Processing: parse, filter, sort, aggregate, stats, merge, convert CSV/JSON
         crate::tools::builtin::data_processor::register_all(&mut tool_registry);
 
         // Chart Generation: visualize data with pie, bar, line, table, histogram charts
         crate::tools::builtin::chart_generator::register_all(&mut tool_registry);
+
+        // Text Processing: case conversion, counting, base64/url/html encoding,
+        // UUID generation, regex, string padding/truncation, word wrapping, and more
+        crate::tools::builtin::text_processor::register_all(&mut tool_registry);
+
+        // Todo Manager: personal todo list with priorities, categories, tags,
+        // due dates, search/filter, and statistics
+        crate::tools::builtin::todo_manager::register_all(&mut tool_registry);
 
         // GitHub API: list PRs, issues, check CI status, get repo info
         crate::tools::builtin::github_tool::register_all(&mut tool_registry);
@@ -153,6 +166,16 @@ impl Gateway {
             stats (mean/median/std_dev), merge/join, head/tail, unique, rename, add_column. \
             Use chart_generator to visualize data: pie (pie chart), bar (horizontal bar), \
             line (line chart with sparkline), table (markdown table), histogram (from binned data). \
+            Use text_processor for advanced text manipulation: case conversion (snake/camel/pascal/kebab/title), \
+            count (chars/words/lines/bytes), truncate, base64 encode/decode, URL encode/decode, \
+            HTML escape/unescape, reverse, trim, pad, repeat, UUID generation (v4), random string generation, \
+            word wrap, indent, slugify, regex find/captures/replace/test/split, join/split arrays, \
+            string length, shuffle, substring, simple replace, char_at with Unicode info, \
+            escape/unescape special characters (\\n, \\t, \\uXXXX, etc.).
+            Use todo_manager for personal todo list management: add/list/get/update/delete \
+            todos with priorities (low/medium/high/urgent), categories, tags, due dates, \
+            search/filter, completion tracking with notes, statistics (overdue/due today/\
+            by status/priority/category), archive completed items, and purge archived items.
             Reflect on your growth with self_reflect, and record evolution events with record_evolution. \
             When you learn something important, store it as a memory. \
             When you improve yourself, record the evolution event. \
@@ -225,11 +248,17 @@ impl Gateway {
         }
     }
 
+    /// Clear conversation history and reset token usage (used by /clear command).
+    pub fn clear_conversation(&mut self) {
+        self.agent.clear_conversation();
+        self.reset_token_usage();
+    }
+
     // ── Tool commands ──────────────────────────────────────
 
     fn slash_tools(&self, _args: &str) -> String {
         let tools = self.agent.tool_registry.list_tools();
-        let mut out = String::new();
+        let mut out = String::with_capacity(2048);
         out.push_str(&format!(
             "  {}  {}\n\n",
             "🔧".bold(),
@@ -307,7 +336,7 @@ impl Gateway {
         }
         match self.agent.tool_registry.get(name) {
             Some(tool) => {
-                let mut out = String::new();
+                let mut out = String::with_capacity(1024);
                 out.push_str(&format!(
                     "  {}  {}\n\n",
                     "🔧".bold(),
@@ -364,7 +393,7 @@ impl Gateway {
                             .to_string();
                     }
                     let total: usize = ns_list.iter().map(|(_, c)| c).sum();
-                    let mut out = String::new();
+                    let mut out = String::with_capacity(512);
                     out.push_str(&format!(
                         "  {}  {}\n\n",
                         "🗂".bold(),
@@ -391,7 +420,7 @@ impl Gateway {
                         if results.is_empty() {
                             return format!("  🔍 No memories found for: `{subargs}`");
                         }
-                        let mut out = String::new();
+                        let mut out = String::with_capacity(1024);
                         out.push_str(&format!(
                             "  {}  {} results for \"{}\"\n\n",
                             "🔍".bold(),
@@ -418,7 +447,7 @@ impl Gateway {
             }
             "stats" | "" => match store.stats() {
                 Ok(stats) => {
-                    let mut out = String::new();
+                    let mut out = String::with_capacity(1024);
                     out.push_str(&format!(
                         "  {}  {}\n\n",
                         "🧠".bold(),
@@ -466,7 +495,7 @@ impl Gateway {
                 match output {
                     Ok(out) if out.status.success() => {
                         let log = String::from_utf8_lossy(&out.stdout);
-                        let mut formatted = String::new();
+                        let mut formatted = String::with_capacity(1024);
                         formatted.push_str(&format!(
                             "  {}  {}\n\n",
                             "📦".bold(),
@@ -495,7 +524,7 @@ impl Gateway {
                             return "  ✅ Working tree is clean, no uncommitted changes."
                                 .to_string();
                         }
-                        let mut formatted = String::new();
+                        let mut formatted = String::with_capacity(512);
                         formatted.push_str(&format!(
                             "  {}  {}\n\n",
                             "📝".bold(),
@@ -542,7 +571,7 @@ impl Gateway {
                 match output {
                     Ok(out) if out.status.success() => {
                         let branches = String::from_utf8_lossy(&out.stdout);
-                        let mut formatted = String::new();
+                        let mut formatted = String::with_capacity(512);
                         formatted.push_str(&format!(
                             "  {}  {}\n\n",
                             "🌿".bold(),
@@ -572,7 +601,7 @@ impl Gateway {
                 match output {
                     Ok(out) if out.status.success() => {
                         let status = String::from_utf8_lossy(&out.stdout);
-                        let mut formatted = String::new();
+                        let mut formatted = String::with_capacity(512);
 
                         // Get current branch
                         let branch_output = std::process::Command::new("git")
@@ -669,7 +698,7 @@ impl Gateway {
                             Err(e) => return format!("  ❌ Failed to read tasks: {e}"),
                         };
 
-                        let mut out = String::new();
+                        let mut out = String::with_capacity(512);
                         out.push_str(&format!(
                             "  {}  {}\n\n",
                             "📋".bold(),
@@ -729,7 +758,7 @@ impl Gateway {
                             )
                             .unwrap_or(0);
 
-                        let mut out = String::new();
+                        let mut out = String::with_capacity(256);
                         out.push_str(&format!(
                             "  {}  {}\n\n",
                             "📊".bold(),
@@ -777,7 +806,7 @@ impl Gateway {
         let skills = self.agent.skill_registry.list();
         let active_count = self.agent.skill_registry.active_skills().len();
 
-        let mut out = String::new();
+        let mut out = String::with_capacity(512);
         out.push_str(&format!(
             "  {}  {} ({})\n\n",
             "🎯".bold(),
@@ -843,7 +872,7 @@ impl Gateway {
         let usage = self.agent.token_usage();
         let msg_count = self.agent.messages().len();
 
-        let mut out = String::new();
+        let mut out = String::with_capacity(512);
         out.push_str(&format!(
             "  {}  {}\n\n",
             "📊".bold(),

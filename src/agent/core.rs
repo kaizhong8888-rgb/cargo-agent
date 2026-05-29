@@ -4,6 +4,7 @@ use crate::skills::SkillRegistry;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 /// Maximum number of conversation messages before truncation.
@@ -15,6 +16,42 @@ const TRUNCATE_KEEP: usize = 5;
 /// Maximum LLM tool-call turns per chat request.
 const MAX_TURNS: usize = 200;
 
+/// Agent runtime status for UI display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum AgentStatus {
+    Idle = 0,
+    SearchingMemories = 1,
+    CallingLLM = 2,
+    ExecutingTool = 3,
+    GeneratingResponse = 4,
+    TruncatingContext = 5,
+}
+
+impl AgentStatus {
+    pub fn emoji(&self) -> &'static str {
+        match self {
+            Self::Idle => "💤",
+            Self::SearchingMemories => "🔍",
+            Self::CallingLLM => "🤖",
+            Self::ExecutingTool => "⚙️",
+            Self::GeneratingResponse => "✍️",
+            Self::TruncatingContext => "📏",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Idle => "Idle",
+            Self::SearchingMemories => "Searching memories...",
+            Self::CallingLLM => "Calling LLM...",
+            Self::ExecutingTool => "Executing tool...",
+            Self::GeneratingResponse => "Generating response...",
+            Self::TruncatingContext => "Truncating context...",
+        }
+    }
+}
+
 pub struct AIAgent {
     pub tool_registry: ToolRegistry,
     pub skill_registry: Arc<SkillRegistry>,
@@ -24,6 +61,12 @@ pub struct AIAgent {
     memory_store: Option<Arc<SqliteMemoryStore>>,
     /// Cumulative token usage across the conversation.
     token_usage: TokenUsage,
+    /// Current runtime status (atomic for lock-free UI polling).
+    pub current_status: Arc<AtomicU8>,
+    /// Current tool being executed (for UI display).
+    pub current_tool: Arc<std::sync::Mutex<String>>,
+    /// Current model name being used.
+    pub current_model: Arc<std::sync::Mutex<String>>,
 }
 
 /// Tracks token consumption for cost monitoring and smart truncation.
@@ -49,6 +92,9 @@ impl AIAgent {
             max_turns: MAX_TURNS,
             memory_store: Self::try_init_memory_store(),
             token_usage: TokenUsage::default(),
+            current_status: Arc::new(AtomicU8::new(AgentStatus::Idle as u8)),
+            current_tool: Arc::new(std::sync::Mutex::new(String::new())),
+            current_model: Arc::new(std::sync::Mutex::new(String::new())),
         }
     }
 
@@ -80,6 +126,8 @@ impl AIAgent {
         let Some(store) = &self.memory_store else {
             return;
         };
+
+        self.set_status(AgentStatus::SearchingMemories);
 
         // Primary: TF-IDF semantic search
         let mut all_memories = store.semantic_search(user_message, 5).unwrap_or_default();
@@ -177,6 +225,7 @@ impl AIAgent {
         for _ in 0..self.max_turns {
             self.truncate_if_needed();
 
+            self.set_status(AgentStatus::CallingLLM);
             let response = self
                 .client
                 .chat(
@@ -197,9 +246,11 @@ impl AIAgent {
                 self.token_usage.api_calls += 1;
             }
 
+            self.set_status(AgentStatus::GeneratingResponse);
             self.messages.push(build_assistant_message(&response));
 
             if response.tool_calls.as_ref().is_none_or(|c| c.is_empty()) {
+                self.set_status(AgentStatus::Idle);
                 return Ok(response.content.unwrap_or_default());
             }
 
@@ -209,7 +260,13 @@ impl AIAgent {
             // Results are collected and appended to messages in call order.
             let futures: Vec<_> = calls
                 .iter()
-                .map(|call| self.execute_tool(&call.name, &call.arguments))
+                .map(|call| {
+                    self.set_status(AgentStatus::ExecutingTool);
+                    if let Ok(mut guard) = self.current_tool.lock() {
+                        *guard = call.name.clone();
+                    }
+                    self.execute_tool(&call.name, &call.arguments)
+                })
                 .collect();
             let results = futures::future::join_all(futures).await;
 
@@ -223,6 +280,7 @@ impl AIAgent {
         }
 
         // Build summary of tool calls for diagnostics
+        self.set_status(AgentStatus::Idle);
         let tool_call_count = self
             .messages
             .iter()
@@ -393,6 +451,64 @@ impl AIAgent {
     /// Reset token usage counters (e.g. after /clear).
     pub fn reset_token_usage(&mut self) {
         self.token_usage = TokenUsage::default();
+    }
+
+    /// Clear conversation history (used by /clear command).
+    /// Keeps the system prompt if set.
+    pub fn clear_conversation(&mut self) {
+        // Preserve system messages
+        let system_msgs: Vec<_> = self
+            .messages
+            .iter()
+            .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("system"))
+            .cloned()
+            .collect();
+        self.messages = system_msgs;
+    }
+
+    // ── Status tracking for UI ──
+
+    /// Set the current runtime status (atomic, lock-free for UI polling).
+    pub fn set_status(&self, status: AgentStatus) {
+        self.current_status.store(status as u8, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Get the current runtime status.
+    pub fn get_status(&self) -> AgentStatus {
+        match self.current_status.load(std::sync::atomic::Ordering::Acquire) {
+            1 => AgentStatus::SearchingMemories,
+            2 => AgentStatus::CallingLLM,
+            3 => AgentStatus::ExecutingTool,
+            4 => AgentStatus::GeneratingResponse,
+            5 => AgentStatus::TruncatingContext,
+            _ => AgentStatus::Idle,
+        }
+    }
+
+    /// Get a human-readable status label with emoji.
+    pub fn get_status_display(&self) -> String {
+        let status = self.get_status();
+        let tool_name = if let Ok(guard) = self.current_tool.lock() {
+            guard.clone()
+        } else {
+            String::new()
+        };
+        let model_name = if let Ok(guard) = self.current_model.lock() {
+            guard.clone()
+        } else {
+            String::new()
+        };
+        let mut display = format!("{} {}", status.emoji(), status.label());
+        match status {
+            AgentStatus::ExecutingTool if !tool_name.is_empty() => {
+                display = format!("⚙️  Executing `{}`...", tool_name);
+            }
+            AgentStatus::CallingLLM if !model_name.is_empty() => {
+                display = format!("🤖 Calling `{}`...", model_name);
+            }
+            _ => {}
+        }
+        display
     }
 
     /// Export conversation messages to a JSON file.

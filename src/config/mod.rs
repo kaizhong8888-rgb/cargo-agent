@@ -73,7 +73,75 @@ impl CargoConfig {
             let config: CargoConfig = serde_yaml::from_str(&expanded)?;
             return Ok(config);
         }
+
+        // Fallback 1: try loading from Hermes config
+        if let Ok(hermes_config) = Self::load_hermes_config() {
+            return Ok(hermes_config);
+        }
+
+        // Fallback 2: try ANTHROPIC_* env vars
+        if let Some(env_config) = Self::load_from_env_vars() {
+            return Ok(env_config);
+        }
+
         Ok(Self::default())
+    }
+
+    /// Load configuration from ANTHROPIC_* environment variables.
+    fn load_from_env_vars() -> Option<Self> {
+        let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
+            .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
+            .ok()
+            .filter(|s| !s.is_empty())?;
+
+        let model = std::env::var("ANTHROPIC_MODEL")
+            .ok()
+            .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
+
+        let base_url = std::env::var("ANTHROPIC_BASE_URL")
+            .ok()
+            .unwrap_or_default();
+
+        Some(Self {
+            name: "agent-cargo".to_string(),
+            version: "0.1.0".to_string(),
+            model: ModelConfig {
+                name: model,
+                base_url: if base_url.is_empty() { None } else { Some(base_url) },
+            },
+            api_key: Some(api_key),
+        })
+    }
+
+    /// Load model configuration from Hermes config file (~/.hermes/config.yaml).
+    /// Maps Hermes model settings to cargo-agent's OpenAI-compatible protocol.
+    fn load_hermes_config() -> Result<Self> {
+        let hermes_path = dirs_next::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?
+            .join(".hermes")
+            .join("config.yaml");
+
+        if !hermes_path.exists() {
+            return Err(anyhow::anyhow!("Hermes config not found"));
+        }
+
+        let content = std::fs::read_to_string(&hermes_path)?;
+        let hermes: HermesConfig = serde_yaml::from_str(&content)?;
+
+        // Hermes may use Anthropic Messages API format, but cargo-agent
+        // speaks OpenAI-compatible protocol. Extract the host from the
+        // base_url and map to an OpenAI-compatible endpoint.
+        let base_url = map_to_openai_compatible_url(&hermes.model);
+
+        Ok(Self {
+            name: "agent-cargo".to_string(),
+            version: "0.1.0".to_string(),
+            model: ModelConfig {
+                name: hermes.model.default.clone(),
+                base_url: Some(base_url),
+            },
+            api_key: Some(hermes.model.api_key.clone()),
+        })
     }
 
     pub fn agent_config(&self) -> AgentConfig {
@@ -87,7 +155,7 @@ impl CargoConfig {
             }
         }
         // Fall back to environment variables
-        for var in ["CARGO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"] {
+        for var in ["CARGO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
             if let Ok(key) = std::env::var(var) {
                 if !key.is_empty() {
                     return Some(key);
@@ -98,10 +166,19 @@ impl CargoConfig {
     }
 
     pub fn resolve_base_url(&self) -> String {
-        self.model
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://api.openai.com".to_string())
+        // Use config value if set
+        if let Some(url) = &self.model.base_url {
+            if !url.is_empty() {
+                return url.clone();
+            }
+        }
+        // Check for ANTHROPIC_BASE_URL env var
+        if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
+            if !url.is_empty() {
+                return url;
+            }
+        }
+        "https://api.openai.com".to_string()
     }
 
     /// Validate critical configuration fields at startup.
@@ -139,4 +216,56 @@ pub fn load_env_file() -> Result<()> {
 
 pub fn expand_env_vars(s: &str) -> String {
     env::expand_env_vars(s)
+}
+
+/// Minimal Hermes config structure for model settings.
+#[derive(Debug, Clone, Deserialize)]
+struct HermesConfig {
+    model: HermesModel,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HermesModel {
+    default: String,
+    base_url: String,
+    api_key: String,
+}
+
+/// Map a Hermes model config to an OpenAI-compatible base URL.
+///
+/// Hermes may use different API modes (anthropic_messages, openai, etc.).
+/// cargo-agent only speaks OpenAI-compatible protocol. This function extracts
+/// the host from the Hermes base_url and maps it to the correct OpenAI endpoint.
+fn map_to_openai_compatible_url(model: &HermesModel) -> String {
+    let url = model.base_url.as_str();
+
+    // Extract scheme and host (strip any path segments)
+    let host = if let Some(after_scheme) = url.find("://") {
+        let rest = &url[after_scheme + 3..];
+        rest.split('/').next().unwrap_or(rest)
+    } else {
+        url.split('/').next().unwrap_or(url)
+    };
+
+    let scheme = if url.starts_with("http://") {
+        "http"
+    } else {
+        "https"
+    };
+
+    // Known provider mappings
+    // Note: ModelClient appends /v1/chat/completions to the base_url,
+    // so we only return scheme + host here.
+    if host.contains("dashscope") || host.contains("aliyuncs.com") {
+        // DashScope: use same host; client will append /v1/chat/completions
+        return format!("{scheme}://{host}");
+    }
+
+    if host.contains("openai") {
+        return format!("{scheme}://{host}/v1");
+    }
+
+    // Fallback: use scheme + host only (strip any path that would
+    // conflict with the /v1/chat/completions suffix appended by the client)
+    format!("{scheme}://{host}")
 }

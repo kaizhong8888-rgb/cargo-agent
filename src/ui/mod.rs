@@ -263,3 +263,114 @@ impl Drop for Spinner {
         }
     }
 }
+
+// ============================================================================
+// Status bar — shows token usage, context length, model info after response
+// ============================================================================
+
+/// Information needed to render the status bar.
+#[derive(Debug, Clone, Default)]
+pub struct StatusInfo {
+    pub api_calls: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub messages_count: usize,
+    pub messages_max: usize,
+    pub model_name: String,
+    pub elapsed_secs: f32,
+}
+
+/// Print a compact status bar showing token usage and context info.
+///
+/// Renders something like:
+///   📊 1.2K tokens | 💬 12 msgs (6%) | 🤖 qwen3.6-plus | ⏱ 3.5s
+pub fn print_status_bar(info: &StatusInfo) {
+    let token_str = format_tokens(info.total_tokens);
+    let msg_pct = if info.messages_max > 0 {
+        (info.messages_count as f64 / info.messages_max as f64 * 100.0).round() as u16
+    } else {
+        0
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Token usage with spark indicator
+    if info.total_tokens > 0 {
+        let icon = if info.prompt_tokens > info.completion_tokens {
+            "📤"
+        } else {
+            "📊"
+        };
+        parts.push(format!(
+            "{} {} tokens",
+            icon,
+            token_str.bold()
+        ));
+    }
+
+    // Context usage
+    if info.messages_count > 0 {
+        parts.push(format!(
+            "💬 {} msgs ({}%)",
+            info.messages_count.to_string().bold(),
+            msg_pct
+        ));
+    }
+
+    // Model
+    if !info.model_name.is_empty() {
+        let model_short = info.model_name.split('/').last().unwrap_or(&info.model_name);
+        parts.push(format!("🤖 {}", model_short.dimmed()));
+    }
+
+    // Elapsed time
+    if info.elapsed_secs > 0.0 {
+        let color = if info.elapsed_secs > 10.0 {
+            "🔴"
+        } else if info.elapsed_secs > 5.0 {
+            "🟡"
+        } else {
+            "⚡"
+        };
+        parts.push(format!("{} {:.1}s", color, info.elapsed_secs));
+    }
+
+    // API calls
+    if info.api_calls > 1 {
+        parts.push(format!("🔄 {} calls", info.api_calls));
+    }
+
+    if parts.is_empty() {
+        return;
+    }
+
+    println!();
+    println!(
+        "  {}",
+        format!("  {}", parts.join("  │  ")).dimmed()
+    );
+}
+
+/// Format token count for display (e.g. 1234 → "1.2K", 1234567 → "1.2M")
+pub fn format_tokens(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1000 {
+        format!("{:.1}K", n as f64 / 1000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+/// Print a "now thinking" line with the current agent status.
+/// This is shown before the spinner starts.
+pub fn print_thinking_status(status_display: &str) {
+    println!("  ⏳ {} {}", "⟐".dimmed(), status_display.dimmed());
+}
+
+/// Print a status update during processing (replaces previous line).
+pub fn print_status_update(status_display: &str) {
+    print!("\r\x1b[K  ⏳ {} {}", "⟐".dimmed(), status_display.dimmed());
+    let _ = io::stdout().flush();
+}

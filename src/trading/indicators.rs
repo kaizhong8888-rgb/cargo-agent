@@ -52,6 +52,7 @@ pub struct KeltnerChannels {
 // ========================================================================
 // 简单移动平均线 (SMA)
 // ========================================================================
+#[inline]
 pub fn sma(data: &[f64], period: usize) -> Vec<f64> {
     if data.len() < period || period == 0 {
         return vec![f64::NAN; data.len()];
@@ -73,6 +74,7 @@ pub fn sma(data: &[f64], period: usize) -> Vec<f64> {
 // ========================================================================
 // 指数移动平均线 (EMA)
 // ========================================================================
+#[inline]
 pub fn ema(data: &[f64], period: usize) -> Vec<f64> {
     if data.len() < period || period == 0 {
         return vec![f64::NAN; data.len()];
@@ -96,6 +98,7 @@ pub fn ema(data: &[f64], period: usize) -> Vec<f64> {
 // ========================================================================
 // 加权移动平均线 (WMA - Weighted Moving Average)
 // ========================================================================
+#[inline]
 pub fn wma(data: &[f64], period: usize) -> Vec<f64> {
     if data.len() < period || period == 0 {
         return vec![f64::NAN; data.len()];
@@ -120,6 +123,7 @@ pub fn wma(data: &[f64], period: usize) -> Vec<f64> {
 // ========================================================================
 // 相对强弱指标 (RSI)
 // ========================================================================
+#[inline]
 pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
     if data.len() < period + 1 || period == 0 {
         return vec![f64::NAN; data.len()];
@@ -172,26 +176,26 @@ pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
 // ========================================================================
 // 平滑异同移动平均线 (MACD)
 // ========================================================================
+#[inline]
 pub fn macd(data: &[f64], fast: usize, slow: usize, signal: usize) -> MacdOutput {
     let ema_fast = ema(data, fast);
     let ema_slow = ema(data, slow);
+    let len = data.len();
 
     // MACD 线 = 快线EMA - 慢线EMA
-    let macd_line: Vec<f64> = ema_fast
-        .iter()
-        .zip(ema_slow.iter())
-        .map(|(f, s)| f - s)
-        .collect();
+    let mut macd_line = Vec::with_capacity(len);
+    for (f, s) in ema_fast.iter().zip(ema_slow.iter()) {
+        macd_line.push(f - s);
+    }
 
     // Signal 线 = MACD 的 EMA
     let signal_line = ema(&macd_line, signal);
 
     // 柱状图 = MACD 线 - Signal 线
-    let histogram: Vec<f64> = macd_line
-        .iter()
-        .zip(signal_line.iter())
-        .map(|(m, s)| m - s)
-        .collect();
+    let mut histogram = Vec::with_capacity(len);
+    for (m, s) in macd_line.iter().zip(signal_line.iter()) {
+        histogram.push(m - s);
+    }
 
     MacdOutput {
         macd_line,
@@ -203,6 +207,7 @@ pub fn macd(data: &[f64], fast: usize, slow: usize, signal: usize) -> MacdOutput
 // ========================================================================
 // 布林带 (Bollinger Bands)
 // ========================================================================
+#[inline]
 pub fn bollinger_bands(data: &[f64], period: usize, std_dev: f64) -> BollingerBands {
     if data.len() < period || period == 0 {
         return BollingerBands {
@@ -239,6 +244,7 @@ pub fn bollinger_bands(data: &[f64], period: usize, std_dev: f64) -> BollingerBa
 // ========================================================================
 // 真实波幅 (ATR - Average True Range)
 // ========================================================================
+#[inline]
 pub fn atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f64> {
     if highs.len() < 2 || period == 0 {
         return vec![f64::NAN; highs.len()];
@@ -265,6 +271,7 @@ pub fn atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f6
 //       %D = SMA(%K, 3)
 //       J  = 3 * %K - 2 * %D
 // ========================================================================
+#[inline]
 pub fn stochastic(
     highs: &[f64],
     lows: &[f64],
@@ -295,17 +302,14 @@ pub fn stochastic(
 
     let k = sma(&raw_k, d_period); // %K 通常使用 d_period=3 的平滑
     let d = sma(&k, d_period); // %D 是 %K 的移动平均
-    let j: Vec<f64> = k
-        .iter()
-        .zip(d.iter())
-        .map(|(kv, dv)| {
-            if kv.is_nan() || dv.is_nan() {
-                f64::NAN
-            } else {
-                3.0 * kv - 2.0 * dv
-            }
-        })
-        .collect();
+    let mut j = Vec::with_capacity(n);
+    for (kv, dv) in k.iter().zip(d.iter()) {
+        if kv.is_nan() || dv.is_nan() {
+            j.push(f64::NAN);
+        } else {
+            j.push(3.0 * kv - 2.0 * dv);
+        }
+    }
 
     StochasticOutput { k, d, j }
 }
@@ -315,6 +319,7 @@ pub fn stochastic(
 // 公式: %R = (high_n - close) / (high_n - low_n) * 100
 // 与随机指标方向相反 (值越低越超卖)
 // ========================================================================
+#[inline]
 pub fn williams_r(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f64> {
     let n = closes.len();
     if n < period || period == 0 {
@@ -347,6 +352,7 @@ pub fn williams_r(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) ->
 // ========================================================================
 // 能量潮 (OBV - On Balance Volume)
 // ========================================================================
+#[inline]
 pub fn obv(closes: &[f64], volumes: &[f64]) -> Vec<f64> {
     let n = closes.len();
     if n < 2 {
@@ -372,6 +378,7 @@ pub fn obv(closes: &[f64], volumes: &[f64]) -> Vec<f64> {
 // ========================================================================
 // 一目均衡表 (Ichimoku Cloud)
 // ========================================================================
+#[inline]
 pub fn ichimoku(highs: &[f64], lows: &[f64], closes: &[f64]) -> IchimokuOutput {
     let n = closes.len();
 
@@ -415,6 +422,7 @@ pub fn ichimoku(highs: &[f64], lows: &[f64], closes: &[f64]) -> IchimokuOutput {
     }
 }
 
+#[inline]
 fn ichimoku_line(highs: &[f64], lows: &[f64], period: usize, n: usize) -> Vec<f64> {
     if n < period || period == 0 {
         return vec![f64::NAN; n];
@@ -438,6 +446,7 @@ fn ichimoku_line(highs: &[f64], lows: &[f64], period: usize, n: usize) -> Vec<f6
 // ========================================================================
 // SuperTrend 指标
 // ========================================================================
+#[inline]
 pub fn supertrend(
     highs: &[f64],
     lows: &[f64],
@@ -508,6 +517,7 @@ pub fn supertrend(
 // ========================================================================
 // Keltner Channels (凯尔特纳通道)
 // ========================================================================
+#[inline]
 pub fn keltner_channels(
     highs: &[f64],
     lows: &[f64],
@@ -540,6 +550,7 @@ pub fn keltner_channels(
 // ========================================================================
 // 抛物线转向 (Parabolic SAR)
 // ========================================================================
+#[inline]
 pub fn parabolic_sar(
     highs: &[f64],
     lows: &[f64],
