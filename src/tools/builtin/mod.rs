@@ -48,5 +48,6 @@ pub mod regex_tool;
 pub mod diff_tool;
 pub mod log_analyzer;
 pub mod markdown_tool;
+pub mod openapi_tool;
 pub mod smart_refactor;
 pub mod test_generator;

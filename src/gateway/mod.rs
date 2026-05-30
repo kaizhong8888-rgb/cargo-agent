@@ -152,6 +152,9 @@ impl Gateway {
         // Markdown Processor: convert to HTML/text, generate TOC, lint, stats, transform, validate links
         crate::tools::builtin::markdown_tool::register_all(&mut tool_registry);
 
+        // OpenAPI/Swagger: generate, validate, and analyze OpenAPI specs from Rust web projects
+        crate::tools::builtin::openapi_tool::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
