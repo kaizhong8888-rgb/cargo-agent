@@ -44,5 +44,7 @@ pub mod git_workflow_tool;
 pub mod doc_generator;
 pub mod benchmark_tool;
 pub mod clippy_lint_tool;
+pub mod regex_tool;
+pub mod diff_tool;
 pub mod smart_refactor;
 pub mod test_generator;

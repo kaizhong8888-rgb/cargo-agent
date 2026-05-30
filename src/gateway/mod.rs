@@ -140,6 +140,12 @@ impl Gateway {
         // Clippy Lint: run clippy, categorize lints, suggest fixes, quality scoring, auto-fix
         crate::tools::builtin::clippy_lint_tool::register_all(&mut tool_registry);
 
+        // Regex: advanced regex testing, validation, replacement, and Rust code generation
+        crate::tools::builtin::regex_tool::register_all(&mut tool_registry);
+
+        // Diff: compare text/code, unified diff, side-by-side view, patch generation/application
+        crate::tools::builtin::diff_tool::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
@@ -173,6 +179,7 @@ impl Gateway {
             Use test_generate to analyze Rust source code and generate unit tests, integration tests, and property tests with edge cases, error handling, and boundary conditions. \
             Use benchmark to run performance micro-benchmarks, compare implementations, generate criterion benchmark code, and detect performance hotspots. \
             Use clippy_lint to run cargo clippy with structured output: categorize lints, suggest fixes, score code quality (A+-F grade), and auto-fix common patterns. \
+            Use regex_tool for advanced regex testing: test/find_all/replace patterns, validate syntax, explain components, and generate Rust regex code. \
             Use code_quality for code quality scoring (0-100), duplicate detection, and dependency visualization. \
             Use security_scan for code security patterns, dependency audits, and hardcoded secrets detection. \
             Use ci_cd for CI/CD integration (generate configs, run tests/builds, coverage, audit, pre-release checks). \
