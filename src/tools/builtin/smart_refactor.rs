@@ -354,7 +354,6 @@ fn check_boolean_simplification(
 
     for file_path in files {
         let content = read_file(file_path)?;
-        let lines: Vec<&str> = content.lines().collect();
 
         // if cond { true } else { false } -> cond
         for cap in RE_IF_ELSE_BOOL.captures_iter(&content) {
@@ -644,7 +643,7 @@ fn check_idiomatic(files: &[String]) -> Result<Vec<RefactorSuggestion>, String> 
         for cap in RE_UNNECESSARY_RETURN.captures_iter(&content) {
             let line_num = content[..cap.get(0).unwrap().start()].lines().count() + 1;
             // Only suggest if it's the last statement in a block
-            let matched = cap.get(0).unwrap().as_str();
+            let _matched = cap.get(0).unwrap().as_str();
             suggestions.push(RefactorSuggestion {
                 category: "Idiomatic".to_string(),
                 severity: "low".to_string(),
