@@ -134,6 +134,9 @@ impl Gateway {
         // Test Generator: analyze Rust source and generate unit/integration/property tests
         crate::tools::builtin::test_generator::register_all(&mut tool_registry);
 
+        // Benchmark: performance analysis, micro-benchmarks, criterion code generation, hotspot detection
+        crate::tools::builtin::benchmark_tool::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
@@ -165,6 +168,7 @@ impl Gateway {
             The create_tool action lets you generate new tools: provide tool_name (PascalCase) and tool_spec (full Rust source implementing the Tool trait). \
             Use code_analyze to understand Rust code structure (functions, structs, enums, traits, dependencies, complexity). \
             Use test_generate to analyze Rust source code and generate unit tests, integration tests, and property tests with edge cases, error handling, and boundary conditions. \
+            Use benchmark to run performance micro-benchmarks, compare implementations, generate criterion benchmark code, and detect performance hotspots. \
             Use code_quality for code quality scoring (0-100), duplicate detection, and dependency visualization. \
             Use security_scan for code security patterns, dependency audits, and hardcoded secrets detection. \
             Use ci_cd for CI/CD integration (generate configs, run tests/builds, coverage, audit, pre-release checks). \
@@ -309,7 +313,7 @@ impl Gateway {
             let cat = match name {
                 "code_analyze" | "code_analyzer" | "code_transform" | "code_review"
                 | "code_execute" | "scaffold" | "dep_manager" | "self_modify"
-                | "test_generate" => 0,
+                | "test_generate" | "benchmark" => 0,
                 "git_status" | "git_diff" | "git_log" | "git_clone" | "git_commit" | "git_push" => {
                     1
                 }

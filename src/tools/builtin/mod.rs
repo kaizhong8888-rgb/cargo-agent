@@ -42,5 +42,6 @@ pub mod ci_cd_tool;
 pub mod security_scanner;
 pub mod git_workflow_tool;
 pub mod doc_generator;
+pub mod benchmark_tool;
 pub mod smart_refactor;
 pub mod test_generator;
