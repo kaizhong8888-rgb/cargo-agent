@@ -146,6 +146,9 @@ impl Gateway {
         // Diff: compare text/code, unified diff, side-by-side view, patch generation/application
         crate::tools::builtin::diff_tool::register_all(&mut tool_registry);
 
+        // Log Analyzer: parse, filter, analyze, and visualize log files
+        crate::tools::builtin::log_analyzer::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
