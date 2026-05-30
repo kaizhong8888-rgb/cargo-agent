@@ -404,11 +404,13 @@ dependencies = [
  "genpdf",
  "glob",
  "heck",
+ "hex",
  "image",
  "jsonwebtoken",
  "lazy_static",
  "lettre",
  "libc",
+ "md-5",
  "mime_guess",
  "minijinja",
  "once_cell",
@@ -422,6 +424,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha1 0.11.0",
  "sha2 0.11.0",
  "sysinfo",
  "tar",
@@ -1441,6 +1444,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hmac"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2025,6 +2034,16 @@ checksum = "8ea1f30cedd69f0a2954655f7188c6a834246d2bcf1e315e2ac40c4b24dc9519"
 dependencies = [
  "cfg-if",
  "rayon",
+]
+
+[[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.3",
 ]
 
 [[package]]

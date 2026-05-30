@@ -155,6 +155,12 @@ impl Gateway {
         // OpenAPI/Swagger: generate, validate, and analyze OpenAPI specs from Rust web projects
         crate::tools::builtin::openapi_tool::register_all(&mut tool_registry);
 
+        // Hash Tool: compute file and string checksums (MD5, SHA-1, SHA-256, SHA-512, BLAKE3)
+        crate::tools::builtin::hash_tool::register_all(&mut tool_registry);
+
+        // EnvFile Tool: parse, validate, generate, merge .env files
+        crate::tools::builtin::env_file_tool::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(

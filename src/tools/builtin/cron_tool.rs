@@ -1,0 +1,316 @@
+//! Cron Tool: parse, validate, and compute next execution times for cron expressions.
+//!
+//! Actions: parse (parse and validate a cron expression), next (compute next N run times),
+//! validate (check if expression is valid), describe (human-readable description).
+
+use chrono::{Datelike, Timelike};
+use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
+use serde_json::Value;
+use std::collections::HashMap;
+
+pub fn register_all(registry: &mut ToolRegistry) {
+    registry.register(Box::new(CronTool));
+}
+
+struct CronTool;
+
+#[async_trait::async_trait]
+impl Tool for CronTool {
+    fn name(&self) -> &str {
+        "cron"
+    }
+
+    fn description(&self) -> &str {
+        "Parse, validate, and compute next execution times for cron expressions. \
+         Actions: parse (parse and validate), next (compute next N run times), \
+         validate (check validity), describe (human-readable description)."
+    }
+
+    fn parameters(&self) -> Vec<ToolParameter> {
+        vec![
+            ToolParameter {
+                name: "action".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Action: parse, next, validate, describe".to_string(),
+                required: true,
+            },
+            ToolParameter {
+                name: "expression".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Cron expression (e.g. '*/5 * * * *')".to_string(),
+                required: true,
+            },
+            ToolParameter {
+                name: "count".to_string(),
+                parameter_type: "number".to_string(),
+                description: "Number of next run times to compute (default: 5, max: 20)".to_string(),
+                required: false,
+            },
+        ]
+    }
+
+    async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
+        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
+
+        match action {
+            "parse" | "validate" => validate_cron(params),
+            "next" => next_run_times(params),
+            "describe" => describe_cron(params),
+            _ => Err(format!("Unknown action: {action}. Valid: parse, next, validate, describe")),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CronField {
+    values: Vec<u32>,
+    original: String,
+}
+
+fn validate_cron(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let expression = params
+        .get("expression")
+        .and_then(|v| v.as_str())
+        .ok_or("'expression' is required")?;
+
+    match parse_cron_expression(expression) {
+        Ok(fields) => {
+            Ok(serde_json::json!({
+                "expression": expression,
+                "valid": true,
+                "fields": {
+                    "minute": fields[0].original,
+                    "hour": fields[1].original,
+                    "day_of_month": fields[2].original,
+                    "month": fields[3].original,
+                    "day_of_week": fields[4].original,
+                },
+                "field_count": 5,
+            }))
+        }
+        Err(e) => {
+            Ok(serde_json::json!({
+                "expression": expression,
+                "valid": false,
+                "error": e,
+            }))
+        }
+    }
+}
+
+fn next_run_times(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let expression = params
+        .get("expression")
+        .and_then(|v| v.as_str())
+        .ok_or("'expression' is required")?;
+
+    let count = params
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5)
+        .min(20) as usize;
+
+    let fields = parse_cron_expression(expression)?;
+    let now = chrono::Local::now();
+    let mut times = Vec::with_capacity(count);
+    let mut current = now + chrono::Duration::minutes(1);
+    current = current.with_second(0).unwrap();
+
+    while times.len() < count {
+        if matches_cron(&fields, &current) {
+            times.push(current.format("%Y-%m-%d %H:%M:%S %Z").to_string());
+        }
+        current += chrono::Duration::minutes(1);
+        // Safety limit to prevent infinite loops
+        if times.is_empty() && (current - now) > chrono::Duration::days(366) {
+            return Err("Could not find next run time within 1 year".to_string());
+        }
+        if times.len() >= count {
+            break;
+        }
+    }
+
+    Ok(serde_json::json!({
+        "expression": expression,
+        "count": times.len(),
+        "next_runs": times,
+        "computed_from": now.format("%Y-%m-%d %H:%M:%S %Z").to_string(),
+    }))
+}
+
+fn describe_cron(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let expression = params
+        .get("expression")
+        .and_then(|v| v.as_str())
+        .ok_or("'expression' is required")?;
+
+    let fields = parse_cron_expression(expression)?;
+
+    let minute_desc = describe_field(&fields[0], "minute");
+    let hour_desc = describe_field(&fields[1], "hour");
+    let dom_desc = describe_field(&fields[2], "day of month");
+    let month_desc = describe_field(&fields[3], "month");
+    let dow_desc = describe_field(&fields[4], "day of week");
+
+    let description = format!(
+        "At {} past hour {}, on {} of {}, {}",
+        minute_desc, hour_desc, dom_desc, month_desc, dow_desc
+    );
+
+    // Handle common patterns
+    let friendly = if expression == "* * * * *" {
+        "Every minute".to_string()
+    } else if expression.starts_with("*/") && expression.ends_with(" * * * *") {
+        let n = &expression[..2];
+        format!("Every {n} minutes")
+    } else if expression == "0 * * * *" {
+        "Every hour at minute 0".to_string()
+    } else if expression == "0 0 * * *" {
+        "Every day at midnight".to_string()
+    } else if expression == "0 0 * * 0" || expression == "0 0 * * 7" {
+        "Every Sunday at midnight".to_string()
+    } else if expression == "0 0 * * 1-5" {
+        "Every weekday (Mon-Fri) at midnight".to_string()
+    } else if expression.starts_with("0 0 1 ") && expression.ends_with(" *") {
+        "On the first day of every month at midnight".to_string()
+    } else if expression.starts_with("0 ") && !expression.contains(',') && !expression.contains('/') {
+        format!("At minute 0 past hour {}, {}", &fields[1].original, description)
+    } else {
+        description
+    };
+
+    Ok(serde_json::json!({
+        "expression": expression,
+        "description": friendly,
+        "fields": {
+            "minute": { "pattern": fields[0].original.clone(), "values": fields[0].values },
+            "hour": { "pattern": fields[1].original.clone(), "values": fields[1].values },
+            "day_of_month": { "pattern": fields[2].original.clone(), "values": fields[2].values },
+            "month": { "pattern": fields[3].original.clone(), "values": fields[3].values },
+            "day_of_week": { "pattern": fields[4].original.clone(), "values": fields[4].values },
+        },
+    }))
+}
+
+fn parse_cron_expression(expr: &str) -> Result<Vec<CronField>, String> {
+    let parts: Vec<&str> = expr.trim().split_whitespace().collect();
+    if parts.len() != 5 {
+        return Err(format!("Expected 5 fields, got {}. Format: 'minute hour day_of_month month day_of_week'", parts.len()));
+    }
+
+    let ranges = [
+        (0, 59),  // minute
+        (0, 23),  // hour
+        (1, 31),  // day of month
+        (1, 12),  // month
+        (0, 7),   // day of week (0 and 7 both mean Sunday)
+    ];
+
+    let mut fields = Vec::with_capacity(5);
+
+    for (i, part) in parts.iter().enumerate() {
+        let (min, max) = ranges[i];
+        let values = parse_cron_field(part, min, max)?;
+        fields.push(CronField { values, original: part.to_string() });
+    }
+
+    Ok(fields)
+}
+
+fn parse_cron_field(field: &str, min: u32, max: u32) -> Result<Vec<u32>, String> {
+    let mut values = Vec::new();
+
+    for part in field.split(',') {
+        let part = part.trim();
+        if part == "*" {
+            for v in min..=max {
+                values.push(v);
+            }
+        } else if let Some(star_pos) = part.find("*/") {
+            let step: u32 = part[star_pos + 2..]
+                .parse()
+                .map_err(|_| format!("Invalid step value in '{part}'"))?;
+            if step == 0 || step > max {
+                return Err(format!("Step {step} out of range [{min}-{max}] in '{part}'"));
+            }
+            let mut v = min;
+            while v <= max {
+                values.push(v);
+                v += step;
+            }
+        } else if part.contains('-') {
+            let parts: Vec<&str> = part.splitn(2, '-').collect();
+            let start: u32 = parts[0]
+                .parse()
+                .map_err(|_| format!("Invalid start value in '{part}'"))?;
+            let end: u32 = parts[1]
+                .parse()
+                .map_err(|_| format!("Invalid end value in '{part}'"))?;
+            if start > end {
+                return Err(format!("Start {start} > end {end} in '{part}'"));
+            }
+            if start < min || end > max {
+                return Err(format!("Value out of range [{min}-{max}] in '{part}'"));
+            }
+            for v in start..=end {
+                values.push(v);
+            }
+        } else if let Some(slash_pos) = part.find('/') {
+            let base = &part[..slash_pos];
+            let step: u32 = part[slash_pos + 1..]
+                .parse()
+                .map_err(|_| format!("Invalid step value in '{part}'"))?;
+            let start: u32 = base
+                .parse()
+                .map_err(|_| format!("Invalid start value in '{part}'"))?;
+            if step == 0 {
+                return Err(format!("Step cannot be 0 in '{part}'"));
+            }
+            let mut v = start;
+            while v <= max {
+                values.push(v);
+                v += step;
+            }
+        } else {
+            let v: u32 = part
+                .parse()
+                .map_err(|_| format!("Invalid value '{part}'"))?;
+            if v < min || v > max {
+                return Err(format!("Value {v} out of range [{min}-{max}]"));
+            }
+            values.push(v);
+        }
+    }
+
+    values.sort();
+    values.dedup();
+    Ok(values)
+}
+
+fn matches_cron(fields: &[CronField], dt: &chrono::DateTime<chrono::Local>) -> bool {
+    let minute = dt.minute();
+    let hour = dt.hour();
+    let dom = dt.day();
+    let month = dt.month();
+    let dow = dt.weekday().num_days_from_sunday();
+
+    fields[0].values.contains(&minute)
+        && fields[1].values.contains(&hour)
+        && fields[2].values.contains(&dom)
+        && fields[3].values.contains(&month)
+        && (fields[4].values.contains(&dow) || fields[4].values.contains(&(dow + 7)))
+}
+
+fn describe_field(field: &CronField, unit: &str) -> String {
+    if field.values.len() == 60 || field.values.len() == 24 || field.values.len() == 31 || field.values.len() == 12 || field.values.len() == 8 {
+        return format!("every {unit}");
+    }
+    if field.values.is_empty() {
+        return unit.to_string();
+    }
+    if field.values.len() <= 5 {
+        field.values.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ")
+    } else {
+        format!("{} values", field.values.len())
+    }
+}
