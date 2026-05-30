@@ -137,6 +137,9 @@ impl Gateway {
         // Benchmark: performance analysis, micro-benchmarks, criterion code generation, hotspot detection
         crate::tools::builtin::benchmark_tool::register_all(&mut tool_registry);
 
+        // Clippy Lint: run clippy, categorize lints, suggest fixes, quality scoring, auto-fix
+        crate::tools::builtin::clippy_lint_tool::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
@@ -169,6 +172,7 @@ impl Gateway {
             Use code_analyze to understand Rust code structure (functions, structs, enums, traits, dependencies, complexity). \
             Use test_generate to analyze Rust source code and generate unit tests, integration tests, and property tests with edge cases, error handling, and boundary conditions. \
             Use benchmark to run performance micro-benchmarks, compare implementations, generate criterion benchmark code, and detect performance hotspots. \
+            Use clippy_lint to run cargo clippy with structured output: categorize lints, suggest fixes, score code quality (A+-F grade), and auto-fix common patterns. \
             Use code_quality for code quality scoring (0-100), duplicate detection, and dependency visualization. \
             Use security_scan for code security patterns, dependency audits, and hardcoded secrets detection. \
             Use ci_cd for CI/CD integration (generate configs, run tests/builds, coverage, audit, pre-release checks). \
