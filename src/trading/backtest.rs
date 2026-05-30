@@ -56,6 +56,7 @@ pub struct BacktestEngine {
     pub position: f64, // 正数=多头数量, 负数=空头数量
     pub position_value: f64,
     pub avg_entry_price: f64,
+    pub entry_candle_idx: usize, // 入场蜡烛索引（用于计算 bars_held）
     pub commission_rate: f64,
     pub slippage: f64,
     pub total_long_trades: usize,
@@ -85,6 +86,7 @@ impl BacktestEngine {
             position: 0.0,
             position_value: 0.0,
             avg_entry_price: 0.0,
+            entry_candle_idx: 0,
             commission_rate,
             slippage,
             total_long_trades: 0,
@@ -334,7 +336,7 @@ impl BacktestEngine {
     }
 
     /// 开仓
-    fn open_position(&mut self, _i: usize, price: f64, side: TradeSide, _candles: &[Candle]) {
+    fn open_position(&mut self, i: usize, price: f64, side: TradeSide, _candles: &[Candle]) {
         let qty = self.calculate_position_size(price, side);
         if qty <= 0.0 {
             return;
@@ -365,6 +367,7 @@ impl BacktestEngine {
 
         self.avg_entry_price = exec_price;
         self.position_value = position_value;
+        self.entry_candle_idx = i;
         self.trailing_stop_activated = false;
         self.trailing_stop_price = 0.0;
     }
@@ -388,10 +391,8 @@ impl BacktestEngine {
         let commission = revenue * self.commission_rate;
 
         let pnl = if is_long {
-            // 多头平仓：revenue - 买入成本
             revenue - commission - self.position_value
         } else {
-            // 空头平仓：初始收入 - 平仓成本
             self.position_value - revenue - commission
         };
 
@@ -409,7 +410,6 @@ impl BacktestEngine {
         if is_long {
             self.current_capital += revenue - commission;
         } else {
-            // 空头：释放保证金 + 盈亏
             let margin = self.position_value * self.short_margin_requirement;
             self.current_capital += margin + revenue - commission;
         }
@@ -420,36 +420,21 @@ impl BacktestEngine {
             self.losing_trades += 1;
         }
 
-        // 查找入场时间
-        let entry_time_str = if is_long {
-            // 查看最近的做多入场...简化处理，用第一个蜡烛
-            if let Some(last_trade) = self.trades.last() {
-                last_trade.exit_time.clone()
-            } else {
-                candles[0].timestamp.to_rfc3339()
-            }
-        } else {
-            if let Some(last_trade) = self.trades.last() {
-                last_trade.exit_time.clone()
-            } else {
-                candles[0].timestamp.to_rfc3339()
-            }
-        };
+        let bars_held = i.saturating_sub(self.entry_candle_idx);
+        let entry_time = candles[self.entry_candle_idx.min(candles.len().saturating_sub(1))]
+            .timestamp
+            .to_rfc3339();
 
         self.trades.push(Trade {
-            entry_time: entry_time_str,
+            entry_time,
             exit_time: candles[i].timestamp.to_rfc3339(),
-            side: if is_long {
-                TradeSide::Long
-            } else {
-                TradeSide::Short
-            },
+            side: if is_long { TradeSide::Long } else { TradeSide::Short },
             entry_price,
             exit_price: exec_price,
             quantity: qty,
             pnl,
             pnl_percent: pnl_pct,
-            bars_held: 1,
+            bars_held,
             exit_reason: reason.to_string(),
         });
 
@@ -481,7 +466,7 @@ impl BacktestEngine {
 
     /// 获取总权益
     pub fn total_equity(&self) -> f64 {
-        *self.equity_curve.last().unwrap_or(&self.initial_capital)
+        self.equity_curve.last().copied().unwrap_or(self.initial_capital)
     }
 
     /// 获取收益率
@@ -505,7 +490,7 @@ mod tests {
         let candles = DataSource::generate_mock(200, 100.0);
         let strategy = SmaCrossover::new(5, 20);
         let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001);
-        let trades = engine.run(&candles, &strategy).unwrap();
+        let _trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
 
@@ -515,7 +500,7 @@ mod tests {
         let strategy = SmaCrossover::new(5, 20);
         let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001)
             .with_position_sizing(PositionSizing::FixedFractional(0.5));
-        let trades = engine.run(&candles, &strategy).unwrap();
+        let _trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
 
@@ -525,7 +510,7 @@ mod tests {
         let strategy = SmaCrossover::new(5, 20);
         let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001)
             .with_stop_loss(StopLoss::FixedPercent(0.05));
-        let trades = engine.run(&candles, &strategy).unwrap();
+        let _trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
 
@@ -535,7 +520,7 @@ mod tests {
         let strategy = SmaCrossover::new(5, 20);
         let mut engine =
             BacktestEngine::new(10_000.0, 0.001, 0.001).with_stop_loss(StopLoss::AtrTrailing(3.0));
-        let trades = engine.run(&candles, &strategy).unwrap();
+        let _trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
 
@@ -544,7 +529,7 @@ mod tests {
         let candles = DataSource::generate_mock(200, 100.0);
         let strategy = SmaCrossover::new(5, 20);
         let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001).with_max_drawdown_stop(15.0);
-        let trades = engine.run(&candles, &strategy).unwrap();
+        let _trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
 
@@ -554,7 +539,7 @@ mod tests {
         let strategy = SmaCrossover::new(5, 20);
         let mut engine = BacktestEngine::new(10_000.0, 0.001, 0.001)
             .with_position_sizing(PositionSizing::Kelly(0.25));
-        let trades = engine.run(&candles, &strategy).unwrap();
+        let _trades = engine.run(&candles, &strategy).unwrap();
         assert!(engine.total_equity() > 0.0);
     }
 

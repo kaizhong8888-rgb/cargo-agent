@@ -121,7 +121,7 @@ pub fn wma(data: &[f64], period: usize) -> Vec<f64> {
 }
 
 // ========================================================================
-// 相对强弱指标 (RSI)
+// 相对强弱指标 (RSI) — 零分配版本
 // ========================================================================
 #[inline]
 pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
@@ -130,43 +130,36 @@ pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
     }
 
     let mut result = vec![f64::NAN; period]; // 前 period 个无法计算
-    let mut gains = Vec::with_capacity(data.len());
-    let mut losses = Vec::with_capacity(data.len());
 
-    // 计算涨跌
-    for i in 1..data.len() {
+    // 直接计算涨跌，不分配额外 Vec
+    let mut avg_gain: f64 = 0.0;
+    let mut avg_loss: f64 = 0.0;
+    for i in 1..=period {
         let diff = data[i] - data[i - 1];
         if diff > 0.0 {
-            gains.push(diff);
-            losses.push(0.0);
+            avg_gain += diff;
         } else {
-            gains.push(0.0);
-            losses.push(-diff);
+            avg_loss -= diff;
         }
     }
-
-    // 初始平均涨跌幅 (SMA)
-    let mut avg_gain: f64 = gains[..period].iter().sum::<f64>() / period as f64;
-    let mut avg_loss: f64 = losses[..period].iter().sum::<f64>() / period as f64;
+    avg_gain /= period as f64;
+    avg_loss /= period as f64;
 
     // 第一个 RSI
-    let rs = if avg_loss == 0.0 {
-        100.0
-    } else {
-        avg_gain / avg_loss
-    };
+    let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
     result.push(100.0 - (100.0 / (1.0 + rs)));
 
-    // 后续使用平滑计算
-    for i in period..gains.len() {
-        avg_gain = (avg_gain * (period as f64 - 1.0) + gains[i]) / period as f64;
-        avg_loss = (avg_loss * (period as f64 - 1.0) + losses[i]) / period as f64;
+    // 后续使用平滑计算 (Wilder's smoothing)
+    let period_f64 = period as f64;
+    for i in (period + 1)..data.len() {
+        let diff = data[i] - data[i - 1];
+        let gain = if diff > 0.0 { diff } else { 0.0 };
+        let loss = if diff < 0.0 { -diff } else { 0.0 };
 
-        let rs = if avg_loss == 0.0 {
-            100.0
-        } else {
-            avg_gain / avg_loss
-        };
+        avg_gain = (avg_gain * (period_f64 - 1.0) + gain) / period_f64;
+        avg_loss = (avg_loss * (period_f64 - 1.0) + loss) / period_f64;
+
+        let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
         result.push(100.0 - (100.0 / (1.0 + rs)));
     }
 
@@ -205,40 +198,47 @@ pub fn macd(data: &[f64], fast: usize, slow: usize, signal: usize) -> MacdOutput
 }
 
 // ========================================================================
-// 布林带 (Bollinger Bands)
+// 布林带 (Bollinger Bands) — O(n) 滑动窗口方差
 // ========================================================================
 #[inline]
 pub fn bollinger_bands(data: &[f64], period: usize, std_dev: f64) -> BollingerBands {
-    if data.len() < period || period == 0 {
-        return BollingerBands {
-            middle: vec![f64::NAN; data.len()],
-            upper: vec![f64::NAN; data.len()],
-            lower: vec![f64::NAN; data.len()],
-        };
+    let len = data.len();
+    let mut middle = vec![f64::NAN; len];
+    let mut upper = vec![f64::NAN; len];
+    let mut lower = vec![f64::NAN; len];
+
+    if len < period || period == 0 {
+        return BollingerBands { middle, upper, lower };
     }
-    let middle = sma(data, period);
-    let mut upper = vec![f64::NAN; data.len()];
-    let mut lower = vec![f64::NAN; data.len()];
 
-    for i in (period.saturating_sub(1))..data.len() {
-        let mean = middle[i];
-        let start_idx = i.saturating_sub(period).saturating_add(1);
-        let variance: f64 = data[start_idx..=i]
-            .iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f64>()
-            / period as f64;
-        let std = variance.sqrt();
+    // 使用滑动窗口同时计算均值和方差: O(n)
+    let mut sum: f64 = data[..period].iter().sum();
+    let mut sum_sq: f64 = data[..period].iter().map(|v| v * v).sum();
 
+    let mean = sum / period as f64;
+    let variance = sum_sq / period as f64 - mean * mean;
+    let std = variance.max(0.0).sqrt();
+
+    let start_idx = period - 1;
+    middle[start_idx] = mean;
+    upper[start_idx] = mean + std_dev * std;
+    lower[start_idx] = mean - std_dev * std;
+
+    for i in period..len {
+        // 滑动窗口更新
+        sum += data[i] - data[i - period];
+        sum_sq += data[i] * data[i] - data[i - period] * data[i - period];
+
+        let mean = sum / period as f64;
+        let variance = sum_sq / period as f64 - mean * mean;
+        let std = variance.max(0.0).sqrt();
+
+        middle[i] = mean;
         upper[i] = mean + std_dev * std;
         lower[i] = mean - std_dev * std;
     }
 
-    BollingerBands {
-        middle,
-        upper,
-        lower,
-    }
+    BollingerBands { middle, upper, lower }
 }
 
 // ========================================================================
@@ -266,7 +266,7 @@ pub fn atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f6
 }
 
 // ========================================================================
-// 随机指标 (KDJ / Stochastic Oscillator)
+// 随机指标 (KDJ / Stochastic Oscillator) — 零分配优化
 // 公式: %K = (close - low_n) / (high_n - low_n) * 100
 //       %D = SMA(%K, 3)
 //       J  = 3 * %K - 2 * %D
@@ -284,38 +284,33 @@ pub fn stochastic(
 
     for i in (k_period - 1)..n {
         let start = i + 1 - k_period;
-        let high_max = highs[start..=i]
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let low_min = lows[start..=i]
-            .iter()
-            .cloned()
-            .fold(f64::INFINITY, f64::min);
-
-        if (high_max - low_min).abs() > f64::EPSILON {
-            raw_k[i] = (closes[i] - low_min) / (high_max - low_min) * 100.0;
-        } else {
-            raw_k[i] = 50.0; // 价格无波动时居中
+        let mut h_max = f64::NEG_INFINITY;
+        let mut l_min = f64::INFINITY;
+        for j in start..=i {
+            if highs[j] > h_max { h_max = highs[j]; }
+            if lows[j] < l_min { l_min = lows[j]; }
         }
+
+        let range = h_max - l_min;
+        raw_k[i] = if range > f64::EPSILON {
+            (closes[i] - l_min) / range * 100.0
+        } else {
+            50.0
+        };
     }
 
-    let k = sma(&raw_k, d_period); // %K 通常使用 d_period=3 的平滑
-    let d = sma(&k, d_period); // %D 是 %K 的移动平均
+    let k = sma(&raw_k, d_period);
+    let d = sma(&k, d_period);
     let mut j = Vec::with_capacity(n);
     for (kv, dv) in k.iter().zip(d.iter()) {
-        if kv.is_nan() || dv.is_nan() {
-            j.push(f64::NAN);
-        } else {
-            j.push(3.0 * kv - 2.0 * dv);
-        }
+        j.push(if kv.is_nan() || dv.is_nan() { f64::NAN } else { 3.0 * kv - 2.0 * dv });
     }
 
     StochasticOutput { k, d, j }
 }
 
 // ========================================================================
-// 威廉指标 (Williams %R)
+// 威廉指标 (Williams %R) — 零分配优化
 // 公式: %R = (high_n - close) / (high_n - low_n) * 100
 // 与随机指标方向相反 (值越低越超卖)
 // ========================================================================
@@ -326,24 +321,23 @@ pub fn williams_r(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) ->
         return vec![f64::NAN; n];
     }
 
-    let mut result = vec![f64::NAN; period - 1];
+    let mut result = vec![f64::NAN; n];
 
     for i in (period - 1)..n {
         let start = i + 1 - period;
-        let high_max = highs[start..=i]
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let low_min = lows[start..=i]
-            .iter()
-            .cloned()
-            .fold(f64::INFINITY, f64::min);
-
-        if (high_max - low_min).abs() > f64::EPSILON {
-            result.push((closes[i] - high_max) / (high_max - low_min) * 100.0);
-        } else {
-            result.push(-50.0);
+        let mut h_max = f64::NEG_INFINITY;
+        let mut l_min = f64::INFINITY;
+        for j in start..=i {
+            if highs[j] > h_max { h_max = highs[j]; }
+            if lows[j] < l_min { l_min = lows[j]; }
         }
+
+        let range = h_max - l_min;
+        result[i] = if range > f64::EPSILON {
+            (closes[i] - h_max) / range * 100.0
+        } else {
+            -50.0
+        };
     }
 
     result
@@ -376,38 +370,31 @@ pub fn obv(closes: &[f64], volumes: &[f64]) -> Vec<f64> {
 }
 
 // ========================================================================
-// 一目均衡表 (Ichimoku Cloud)
+// 一目均衡表 (Ichimoku Cloud) — 简化逻辑
 // ========================================================================
 #[inline]
 pub fn ichimoku(highs: &[f64], lows: &[f64], closes: &[f64]) -> IchimokuOutput {
     let n = closes.len();
 
-    // 转换线 (Tenkan-sen) = (9日内最高+最低)/2
     let tenkan_sen = ichimoku_line(highs, lows, 9, n);
-
-    // 基准线 (Kijun-sen) = (26日内最高+最低)/2
     let kijun_sen = ichimoku_line(highs, lows, 26, n);
-
-    // 先行带 A (Senkou Span A) = (转换线 + 基准线) / 2，向前平移26
-    let mut senkou_span_a = vec![f64::NAN; n];
-    for i in 0..n {
-        if i + 26 < n && !tenkan_sen[i].is_nan() && !kijun_sen[i].is_nan() {
-            senkou_span_a[i + 26] = (tenkan_sen[i] + kijun_sen[i]) / 2.0;
-        }
-    }
-
-    // 先行带 B (Senkou Span B) = (52日内最高+最低)/2，向前平移26
     let span_b = ichimoku_line(highs, lows, 52, n);
-    let mut senkou_span_b = vec![f64::NAN; n];
-    for i in 0..n {
-        if i + 26 < n && !span_b[i].is_nan() {
-            senkou_span_b[i + 26] = span_b[i];
-        }
-    }
 
-    // 迟行带 (Chikou Span) = 当前收盘价，向后平移26
+    let mut senkou_span_a = vec![f64::NAN; n];
+    let mut senkou_span_b = vec![f64::NAN; n];
     let mut chikou_span = vec![f64::NAN; n];
+
     for i in 0..n {
+        // 先行带 A/B 向前平移 26
+        if i + 26 < n {
+            if !tenkan_sen[i].is_nan() && !kijun_sen[i].is_nan() {
+                senkou_span_a[i + 26] = (tenkan_sen[i] + kijun_sen[i]) * 0.5;
+            }
+            if !span_b[i].is_nan() {
+                senkou_span_b[i + 26] = span_b[i];
+            }
+        }
+        // 迟行带向后平移 26
         if i >= 26 {
             chikou_span[i - 26] = closes[i];
         }
@@ -427,24 +414,22 @@ fn ichimoku_line(highs: &[f64], lows: &[f64], period: usize, n: usize) -> Vec<f6
     if n < period || period == 0 {
         return vec![f64::NAN; n];
     }
-    let mut result = vec![f64::NAN; period - 1];
+    let mut result = vec![f64::NAN; n];
     for i in (period - 1)..n {
         let start = i + 1 - period;
-        let h_max = highs[start..=i]
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
-        let l_min = lows[start..=i]
-            .iter()
-            .cloned()
-            .fold(f64::INFINITY, f64::min);
-        result.push((h_max + l_min) / 2.0);
+        let mut h_max = f64::NEG_INFINITY;
+        let mut l_min = f64::INFINITY;
+        for j in start..=i {
+            if highs[j] > h_max { h_max = highs[j]; }
+            if lows[j] < l_min { l_min = lows[j]; }
+        }
+        result[i] = (h_max + l_min) * 0.5;
     }
     result
 }
 
 // ========================================================================
-// SuperTrend 指标
+// SuperTrend 指标 — 简化嵌套逻辑
 // ========================================================================
 #[inline]
 pub fn supertrend(
@@ -464,7 +449,7 @@ pub fn supertrend(
         return SuperTrendOutput { trend, direction };
     }
 
-    // 计算基础上下轨
+    // 预计算所有 HL2 ± ATR 轨道
     let mut upper_band = vec![f64::NAN; n];
     let mut lower_band = vec![f64::NAN; n];
 
@@ -472,41 +457,50 @@ pub fn supertrend(
         if atr_values[i].is_nan() {
             continue;
         }
-        let hl2 = (highs[i] + lows[i]) / 2.0;
-        let atr_val = atr_values[i];
-        upper_band[i] = hl2 + multiplier * atr_val;
-        lower_band[i] = hl2 - multiplier * atr_val;
+        let hl2 = (highs[i] + lows[i]) * 0.5;
+        let atr_val = atr_values[i] * multiplier;
+        upper_band[i] = hl2 + atr_val;
+        lower_band[i] = hl2 - atr_val;
     }
 
-    // 确定初始方向
-    if n > atr_period {
-        direction[atr_period] = 1; // 默认多头
-        trend[atr_period] = lower_band[atr_period];
+    // 初始化
+    if n <= atr_period {
+        return SuperTrendOutput { trend, direction };
     }
 
-    // 逐根计算 SuperTrend
+    direction[atr_period] = 1;
+    trend[atr_period] = lower_band[atr_period];
+
+    // 主循环: 逐根计算 SuperTrend
     for i in (atr_period + 1)..n {
         if upper_band[i].is_nan() || lower_band[i].is_nan() {
             continue;
         }
 
-        if direction[i - 1] == 1 {
-            // 之前是多头
+        let prev_dir = direction[i - 1];
+        let prev_trend = trend[i - 1];
+
+        if prev_dir == 1 {
+            // 多头趋势
             if closes[i] <= lower_band[i] {
+                // 反转为空头
                 direction[i] = -1;
                 trend[i] = upper_band[i];
             } else {
+                // 保持多头，下轨上移
                 direction[i] = 1;
-                trend[i] = lower_band[i].min(trend[i - 1]); // 上移下轨
+                trend[i] = lower_band[i].min(prev_trend);
             }
         } else {
-            // 之前是空头
+            // 空头趋势
             if closes[i] >= upper_band[i] {
+                // 反转为多头
                 direction[i] = 1;
                 trend[i] = lower_band[i];
             } else {
+                // 保持空头，上轨下移
                 direction[i] = -1;
-                trend[i] = upper_band[i].max(trend[i - 1]); // 下移上轨
+                trend[i] = upper_band[i].max(prev_trend);
             }
         }
     }
@@ -548,7 +542,7 @@ pub fn keltner_channels(
 }
 
 // ========================================================================
-// 抛物线转向 (Parabolic SAR)
+// 抛物线转向 (Parabolic SAR) — 简化嵌套逻辑
 // ========================================================================
 #[inline]
 pub fn parabolic_sar(
@@ -559,8 +553,6 @@ pub fn parabolic_sar(
 ) -> Vec<f64> {
     let n = highs.len();
     let mut sar = vec![f64::NAN; n];
-    let mut ep = vec![0.0; n]; // 极点价格
-    let mut af = acceleration; // 加速因子
 
     if n < 2 {
         return sar;
@@ -568,57 +560,44 @@ pub fn parabolic_sar(
 
     // 初始化趋势方向
     let mut trend: i8 = if highs[1] > highs[0] { 1 } else { -1 };
-    if trend == 1 {
-        sar[0] = lows[0];
-        ep[0] = highs[0];
-    } else {
-        sar[0] = highs[0];
-        ep[0] = lows[0];
-    }
+    let mut ep = if trend == 1 { highs[0] } else { lows[0] };
+    sar[0] = if trend == 1 { lows[0] } else { highs[0] };
+    let mut af = acceleration;
 
     for i in 1..n {
-        sar[i] = sar[i - 1] + af * (ep[i - 1] - sar[i - 1]);
+        let prev_sar = sar[i - 1];
+        let sar_candidate = prev_sar + af * (ep - prev_sar);
 
-        // 确保 SAR 不会穿越价格
-        if trend == 1 {
-            if sar[i] > lows[i].min(lows[i - 1]) {
-                sar[i] = lows[i].min(lows[i - 1]);
-            }
+        // SAR 不能穿越价格
+        let sar_clamped = if trend == 1 {
+            sar_candidate.min(lows[i].min(lows[i - 1]))
         } else {
-            if sar[i] < highs[i].max(highs[i - 1]) {
-                sar[i] = highs[i].max(highs[i - 1]);
-            }
-        }
+            sar_candidate.max(highs[i].max(highs[i - 1]))
+        };
+        sar[i] = sar_clamped;
 
         // 检测趋势反转
-        if trend == 1 && lows[i] < sar[i] {
-            // 多头→空头
-            trend = -1;
-            sar[i] = ep[i - 1];
+        let reversed = (trend == 1 && lows[i] < sar_clamped)
+            || (trend == -1 && highs[i] > sar_clamped);
+
+        if reversed {
+            // 反转: SAR = 前极点，重置 AF
+            sar[i] = ep;
             af = acceleration;
-            ep[i] = lows[i];
-        } else if trend == -1 && highs[i] > sar[i] {
-            // 空头→多头
-            trend = 1;
-            sar[i] = ep[i - 1];
-            af = acceleration;
-            ep[i] = highs[i];
+            trend = -trend;
+            ep = if trend == 1 { highs[i] } else { lows[i] };
         } else {
-            // 更新极点价格和加速因子
-            if trend == 1 {
-                if highs[i] > ep[i - 1] {
-                    ep[i] = highs[i];
-                    af = (af + acceleration).min(max_acceleration);
-                } else {
-                    ep[i] = ep[i - 1];
-                }
+            // 延续趋势: 更新极点和加速因子
+            let new_high = highs[i];
+            let new_low = lows[i];
+            let broke_extreme = if trend == 1 {
+                new_high > ep
             } else {
-                if lows[i] < ep[i - 1] {
-                    ep[i] = lows[i];
-                    af = (af + acceleration).min(max_acceleration);
-                } else {
-                    ep[i] = ep[i - 1];
-                }
+                new_low < ep
+            };
+            if broke_extreme {
+                ep = if trend == 1 { new_high } else { new_low };
+                af = (af + acceleration).min(max_acceleration);
             }
         }
     }
