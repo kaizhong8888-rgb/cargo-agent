@@ -256,34 +256,26 @@ impl MacdStrategy {
         }
         let start = i - lookback;
 
-        let price_low_idx = start
-            + closes[start..=i]
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
+        // 手动扫描价格最低点和 MACD 最低点，避免 iterator 分配
+        let mut price_low_idx = start;
+        let mut macd_low_idx = start;
+        let mut price_min = closes[start];
+        let mut macd_min = macd_line[start];
 
-        let macd_low_idx = start
-            + macd_line[start..=i]
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
+        for j in (start + 1)..=i {
+            if closes[j] < price_min {
+                price_min = closes[j];
+                price_low_idx = j;
+            }
+            if macd_line[j] < macd_min {
+                macd_min = macd_line[j];
+                macd_low_idx = j;
+            }
+        }
 
         if price_low_idx > 0 && macd_low_idx > 0 {
-            let prev_price_low = closes[price_low_idx - 1..=price_low_idx]
-                .iter()
-                .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .copied()
-                .unwrap_or(closes[price_low_idx]);
-
-            let prev_macd_low = macd_line[macd_low_idx - 1..=macd_low_idx]
-                .iter()
-                .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .copied()
-                .unwrap_or(macd_line[macd_low_idx]);
+            let prev_price_low = closes[price_low_idx - 1].min(closes[price_low_idx]);
+            let prev_macd_low = macd_line[macd_low_idx - 1].min(macd_line[macd_low_idx]);
 
             closes[price_low_idx] < prev_price_low && macd_line[macd_low_idx] > prev_macd_low
         } else {
@@ -298,34 +290,26 @@ impl MacdStrategy {
         }
         let start = i - lookback;
 
-        let price_high_idx = start
-            + closes[start..=i]
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
+        // 手动扫描价格最高点和 MACD 最高点
+        let mut price_high_idx = start;
+        let mut macd_high_idx = start;
+        let mut price_max = closes[start];
+        let mut macd_max = macd_line[start];
 
-        let macd_high_idx = start
-            + macd_line[start..=i]
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
+        for j in (start + 1)..=i {
+            if closes[j] > price_max {
+                price_max = closes[j];
+                price_high_idx = j;
+            }
+            if macd_line[j] > macd_max {
+                macd_max = macd_line[j];
+                macd_high_idx = j;
+            }
+        }
 
         if price_high_idx > 0 && macd_high_idx > 0 {
-            let prev_price_high = closes[price_high_idx - 1..=price_high_idx]
-                .iter()
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .copied()
-                .unwrap_or(closes[price_high_idx]);
-
-            let prev_macd_high = macd_line[macd_high_idx - 1..=macd_high_idx]
-                .iter()
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .copied()
-                .unwrap_or(macd_line[macd_high_idx]);
+            let prev_price_high = closes[price_high_idx - 1].max(closes[price_high_idx]);
+            let prev_macd_high = macd_line[macd_high_idx - 1].max(macd_line[macd_high_idx]);
 
             closes[price_high_idx] > prev_price_high && macd_line[macd_high_idx] < prev_macd_high
         } else {
@@ -356,9 +340,10 @@ impl Strategy for MacdStrategy {
         let histogram = &macd_out.histogram;
 
         let mut signals = vec![Signal::Hold; candles.len()];
+        let warmup = self.slow_period + self.signal_period;
 
         for i in 1..candles.len() {
-            if i < self.slow_period + self.signal_period {
+            if i < warmup {
                 continue;
             }
 
@@ -369,53 +354,37 @@ impl Strategy for MacdStrategy {
             let curr_hist = histogram[i];
             let prev_hist = histogram[i - 1];
 
-            if prev_macd.is_nan()
-                || curr_macd.is_nan()
-                || prev_signal.is_nan()
-                || curr_signal.is_nan()
-            {
+            if prev_macd.is_nan() || curr_macd.is_nan() || prev_signal.is_nan() || curr_signal.is_nan() {
                 continue;
             }
 
+            let gold_cross = prev_macd <= prev_signal && curr_macd > curr_signal;
+            let death_cross = prev_macd >= prev_signal && curr_macd < curr_signal;
+
             match self.mode {
                 MacdMode::Crossover => {
-                    if prev_macd <= prev_signal && curr_macd > curr_signal {
+                    if gold_cross {
                         signals[i] = Signal::Buy;
-                    } else if prev_macd >= prev_signal && curr_macd < curr_signal {
+                    } else if death_cross {
                         signals[i] = Signal::Sell;
                     }
                 }
                 MacdMode::CrossoverWithHistogram => {
-                    if prev_macd <= prev_signal
-                        && curr_macd > curr_signal
-                        && prev_hist <= 0.0
-                        && curr_hist > 0.0
-                    {
+                    let hist_buy = prev_hist <= 0.0 && curr_hist > 0.0;
+                    let hist_sell = prev_hist >= 0.0 && curr_hist < 0.0;
+                    if gold_cross && hist_buy {
                         signals[i] = Signal::Buy;
-                    } else if prev_macd >= prev_signal
-                        && curr_macd < curr_signal
-                        && prev_hist >= 0.0
-                        && curr_hist < 0.0
-                    {
+                    } else if death_cross && hist_sell {
                         signals[i] = Signal::Sell;
                     }
                 }
                 MacdMode::CrossoverWithDivergence => {
-                    let gold_cross = prev_macd <= prev_signal && curr_macd > curr_signal;
                     let bullish_div = self.detect_bullish_divergence(&closes, macd_line, i);
-                    let death_cross = prev_macd >= prev_signal && curr_macd < curr_signal;
                     let bearish_div = self.detect_bearish_divergence(&closes, macd_line, i);
 
                     if gold_cross || bullish_div {
                         signals[i] = Signal::Buy;
-                    }
-                    if death_cross || bearish_div {
-                        signals[i] = Signal::Sell;
-                    }
-                    if gold_cross && bearish_div {
-                        signals[i] = Signal::Buy;
-                    }
-                    if death_cross && bullish_div {
+                    } else if death_cross || bearish_div {
                         signals[i] = Signal::Sell;
                     }
                 }
@@ -453,31 +422,53 @@ impl TurtleTradingStrategy {
     }
 
     fn donchian_channel_high(prices: &[f64], period: usize) -> Vec<f64> {
-        if prices.len() < period || period == 0 {
-            return vec![f64::NAN; prices.len()];
+        let len = prices.len();
+        if len < period || period == 0 {
+            return vec![f64::NAN; len];
         }
-        let mut result = vec![f64::NAN; period - 1];
-        for i in (period - 1)..prices.len() {
-            let max_val = prices[i + 1 - period..=i]
-                .iter()
-                .cloned()
-                .fold(f64::NEG_INFINITY, f64::max);
-            result.push(max_val);
+        let mut result = vec![f64::NAN; len];
+        // 滑动窗口最大值: 直接扫描 (period通常较小 10-55)
+        let mut max_val = f64::NEG_INFINITY;
+        for i in 0..period {
+            if prices[i] > max_val { max_val = prices[i]; }
+        }
+        result[period - 1] = max_val;
+        for i in period..len {
+            if prices[i] > max_val {
+                max_val = prices[i];
+            } else {
+                // 最大值被滑出窗口，需要重新扫描
+                max_val = f64::NEG_INFINITY;
+                for j in (i + 1 - period)..=i {
+                    if prices[j] > max_val { max_val = prices[j]; }
+                }
+            }
+            result[i] = max_val;
         }
         result
     }
 
     fn donchian_channel_low(prices: &[f64], period: usize) -> Vec<f64> {
-        if prices.len() < period || period == 0 {
-            return vec![f64::NAN; prices.len()];
+        let len = prices.len();
+        if len < period || period == 0 {
+            return vec![f64::NAN; len];
         }
-        let mut result = vec![f64::NAN; period - 1];
-        for i in (period - 1)..prices.len() {
-            let min_val = prices[i + 1 - period..=i]
-                .iter()
-                .cloned()
-                .fold(f64::INFINITY, f64::min);
-            result.push(min_val);
+        let mut result = vec![f64::NAN; len];
+        let mut min_val = f64::INFINITY;
+        for i in 0..period {
+            if prices[i] < min_val { min_val = prices[i]; }
+        }
+        result[period - 1] = min_val;
+        for i in period..len {
+            if prices[i] < min_val {
+                min_val = prices[i];
+            } else {
+                min_val = f64::INFINITY;
+                for j in (i + 1 - period)..=i {
+                    if prices[j] < min_val { min_val = prices[j]; }
+                }
+            }
+            result[i] = min_val;
         }
         result
     }
@@ -565,19 +556,18 @@ impl BollingerBandsStrategy {
         }
     }
 
+    #[inline]
     fn compute_bandwidth(bb: &indicators::BollingerBands) -> Vec<f64> {
-        bb.upper
-            .iter()
-            .zip(bb.lower.iter())
-            .zip(bb.middle.iter())
-            .map(|((u, l), m)| {
-                if *m > 0.0 && !u.is_nan() && !l.is_nan() {
-                    (u - l) / m
-                } else {
-                    f64::NAN
-                }
-            })
-            .collect()
+        let n = bb.middle.len();
+        let mut bw = Vec::with_capacity(n);
+        for ((u, l), m) in bb.upper.iter().zip(bb.lower.iter()).zip(bb.middle.iter()) {
+            bw.push(if *m > 0.0 && !u.is_nan() && !l.is_nan() {
+                (u - l) / m
+            } else {
+                f64::NAN
+            });
+        }
+        bw
     }
 }
 
@@ -739,19 +729,19 @@ impl VwapRsiStrategy {
         }
     }
 
+    #[inline]
     fn compute_vwap(candles: &[Candle]) -> Vec<f64> {
-        let mut vwap = vec![f64::NAN; candles.len()];
+        let n = candles.len();
+        let mut vwap = Vec::with_capacity(n);
         let mut cum_pv = 0.0;
         let mut cum_vol = 0.0;
 
-        for (i, c) in candles.iter().enumerate() {
+        for c in candles.iter() {
             let typical_price = (c.high + c.low + c.close) / 3.0;
             cum_pv += typical_price * c.volume;
             cum_vol += c.volume;
 
-            if cum_vol > 0.0 {
-                vwap[i] = cum_pv / cum_vol;
-            }
+            vwap.push(if cum_vol > 0.0 { cum_pv / cum_vol } else { f64::NAN });
         }
 
         vwap
@@ -1053,37 +1043,30 @@ impl Strategy for EnsembleStrategy {
     }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
-        let n_strats = self.strategies.len();
         let n_candles = candles.len();
+        let mut buy_votes = vec![0usize; n_candles];
+        let mut sell_votes = vec![0usize; n_candles];
 
-        let mut all_signals: Vec<Vec<Signal>> = Vec::with_capacity(n_strats);
         for strat in &self.strategies {
-            all_signals.push(strat.generate(candles));
+            let signals = strat.generate(candles);
+            let limit = n_candles.min(signals.len());
+            for i in 0..limit {
+                match signals[i] {
+                    Signal::Buy => buy_votes[i] += 1,
+                    Signal::Sell => sell_votes[i] += 1,
+                    Signal::Hold => {}
+                }
+            }
         }
 
         let mut result = vec![Signal::Hold; n_candles];
-
         for i in 0..n_candles {
-            let mut buy_votes = 0;
-            let mut sell_votes = 0;
-
-            for signals in &all_signals {
-                if i < signals.len() {
-                    match signals[i] {
-                        Signal::Buy => buy_votes += 1,
-                        Signal::Sell => sell_votes += 1,
-                        Signal::Hold => {}
-                    }
-                }
-            }
-
-            if buy_votes >= self.buy_threshold && buy_votes > sell_votes {
+            if buy_votes[i] >= self.buy_threshold && buy_votes[i] > sell_votes[i] {
                 result[i] = Signal::Buy;
-            } else if sell_votes >= self.sell_threshold && sell_votes > buy_votes {
+            } else if sell_votes[i] >= self.sell_threshold && sell_votes[i] > buy_votes[i] {
                 result[i] = Signal::Sell;
             }
         }
-
         result
     }
 }
