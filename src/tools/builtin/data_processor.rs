@@ -201,6 +201,7 @@ impl Tool for DataProcessorTool {
 // ---------------------------------------------------------------------------
 
 /// Load data from params — either from a `file` or inline `data` parameter.
+#[inline]
 fn load_data(
     params: &HashMap<String, Value>,
 ) -> Result<(Vec<HashMap<String, Value>>, String), String> {
@@ -228,6 +229,7 @@ fn load_data(
 }
 
 /// Detect data format from file extension or content.
+#[inline]
 fn detect_format_from_path(path: &str, _content: &str) -> String {
     let lower = path.to_lowercase();
     if lower.ends_with(".csv") {
@@ -240,6 +242,7 @@ fn detect_format_from_path(path: &str, _content: &str) -> String {
 }
 
 /// Detect format from content inspection.
+#[inline]
 fn detect_format(_name: &str, content: &str) -> String {
     let trimmed = content.trim();
     if trimmed.starts_with('{') || trimmed.starts_with('[') {
@@ -252,6 +255,7 @@ fn detect_format(_name: &str, content: &str) -> String {
 }
 
 /// Parse content string into rows of key-value maps.
+#[inline]
 fn parse_content(
     content: &str,
     format: &str,
@@ -361,6 +365,7 @@ fn parse_value(s: &str) -> Value {
 }
 
 /// Convert rows back to JSON array value.
+#[inline]
 fn rows_to_json(rows: &[HashMap<String, Value>]) -> Value {
     Value::Array(
         rows.iter()
@@ -399,6 +404,7 @@ fn get_string(row: &HashMap<String, Value>, column: &str) -> String {
 
 /// Collect all column names across all rows (preserving order).
 /// Uses HashSet for O(1) membership checks instead of Vec::contains O(n).
+#[inline]
 fn collect_columns(rows: &[HashMap<String, Value>]) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::with_capacity(
         rows.first().map(|r| r.len()).unwrap_or(0),
@@ -1027,6 +1033,7 @@ fn cmd_add_column(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 /// Simple arithmetic expression evaluator. Supports: +, -, *, /, () on numeric column references.
+#[inline]
 fn eval_expression(row: &HashMap<String, Value>, expr: &str) -> Value {
     let trimmed = expr.trim();
 
@@ -1058,6 +1065,7 @@ enum Token {
     RParen,
 }
 
+#[inline]
 fn tokenize(input: &str) -> Vec<Token> {
     let mut tokens = Vec::with_capacity(input.len() / 2 + 1);
     let mut chars = input.chars().peekable();
@@ -1202,6 +1210,7 @@ struct ColumnProfile {
     inferred_type: &'static str,
 }
 
+#[inline]
 fn profile_column(rows: &[HashMap<String, Value>], col: &str) -> ColumnProfile {
     let mut non_null = 0usize;
     let mut numeric_count = 0usize;
@@ -1374,6 +1383,7 @@ fn save_data(rows: &[HashMap<String, Value>], path: &str, format: &str) -> Resul
 }
 
 /// Build a preview string showing first N rows.
+#[inline]
 fn build_preview(rows: &[HashMap<String, Value>], n: usize) -> Value {
     let preview_rows: Vec<Value> = rows
         .iter()

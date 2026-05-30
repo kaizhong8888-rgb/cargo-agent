@@ -47,6 +47,24 @@ impl Gateway {
         crate::tools::builtin::net_tools::register_all(&mut tool_registry);
         crate::tools::builtin::code_analyzer_tool::register_all(&mut tool_registry);
 
+        // Code Quality: quality scoring, duplicate detection, dependency visualization
+        crate::tools::builtin::code_quality_tool::register_all(&mut tool_registry);
+
+        // CI/CD Integration: generate CI configs, run tests/builds, coverage, audit, pre-release checks
+        crate::tools::builtin::ci_cd_tool::register_all(&mut tool_registry);
+
+        // Security Scanner: code security patterns, dependency audit, hardcoded secrets detection
+        crate::tools::builtin::security_scanner::register_all(&mut tool_registry);
+
+        // Git Workflow: branch management, changelog, release automation, merge, PR description
+        crate::tools::builtin::git_workflow_tool::register_all(&mut tool_registry);
+
+        // Documentation Generator: API docs, README, architecture docs, module documentation
+        crate::tools::builtin::doc_generator::register_all(&mut tool_registry);
+
+        // Smart Refactor: detect code smells and suggest idiomatic Rust improvements
+        crate::tools::builtin::smart_refactor::register_all(&mut tool_registry);
+
         // Tier 1: Git integration, code execution, full HTTP client
         crate::tools::builtin::git_tools::register_all(&mut tool_registry);
         crate::tools::builtin::code_executor::register_all(&mut tool_registry);
@@ -113,6 +131,9 @@ impl Gateway {
         std::fs::create_dir_all(&plugins_dir).ok();
         crate::tools::builtin::plugin_tool::register_all(&mut tool_registry, plugins_dir);
 
+        // Test Generator: analyze Rust source and generate unit/integration/property tests
+        crate::tools::builtin::test_generator::register_all(&mut tool_registry);
+
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
         let skill_registry = Arc::new(SkillRegistry::load_from_dir(&skills_dir).unwrap_or_else(
@@ -143,6 +164,13 @@ impl Gateway {
             You can modify your own source code using the self_modify tool (actions: read_file, write_file, create_file, delete_file, patch_file, create_tool, cargo_check, cargo_test). \
             The create_tool action lets you generate new tools: provide tool_name (PascalCase) and tool_spec (full Rust source implementing the Tool trait). \
             Use code_analyze to understand Rust code structure (functions, structs, enums, traits, dependencies, complexity). \
+            Use test_generate to analyze Rust source code and generate unit tests, integration tests, and property tests with edge cases, error handling, and boundary conditions. \
+            Use code_quality for code quality scoring (0-100), duplicate detection, and dependency visualization. \
+            Use security_scan for code security patterns, dependency audits, and hardcoded secrets detection. \
+            Use ci_cd for CI/CD integration (generate configs, run tests/builds, coverage, audit, pre-release checks). \
+            Use git_workflow for branch management, changelog generation, release automation, merge with conflict detection, PR description, file blame, and contributor stats. \
+            Use doc_gen for documentation generation: auto-generate API docs from Rust source, README.md, architecture docs with Mermaid diagrams, and module documentation. \
+            Use smart_refactor for intelligent code refactoring: detect code smells, boolean simplification, modernization, performance optimization, and idiomatic patterns. \
             Use task_planner to decompose complex requests into trackable tasks (actions: decompose, create, list, update, show, delete). \
             Use git_status, git_diff, git_log, git_clone, git_commit, git_push for full Git integration. \
             Use code_execute to compile and run Rust code in an isolated sandbox (supports cargo run/build/test/check/clippy). \
@@ -280,7 +308,8 @@ impl Gateway {
             let desc = tool.description();
             let cat = match name {
                 "code_analyze" | "code_analyzer" | "code_transform" | "code_review"
-                | "code_execute" | "scaffold" | "dep_manager" | "self_modify" => 0,
+                | "code_execute" | "scaffold" | "dep_manager" | "self_modify"
+                | "test_generate" => 0,
                 "git_status" | "git_diff" | "git_log" | "git_clone" | "git_commit" | "git_push" => {
                     1
                 }
