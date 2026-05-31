@@ -69,6 +69,9 @@ static RE_CHECKED_TODO: Lazy<Regex> =
 static RE_UNCHECKED_TODO: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?m)^\s*[-*+]\s+\[ \]"#).expect("valid regex"));
 
+static RE_BAD_HEADING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"^#{2,}[^\s#]"#).expect("valid regex"));
+
 // ============================================================================
 // MarkdownProcessorTool
 // ============================================================================
@@ -216,7 +219,7 @@ fn md_to_html(md: &str) -> String {
     for line in md.lines() {
         if in_code_block {
             if line.starts_with("```") {
-                html.push_str(&format!("</code></pre>\n"));
+                html.push_str("</code></pre>\n");
                 in_code_block = false;
                 code_content.clear();
             } else {
@@ -258,11 +261,9 @@ fn md_to_html(md: &str) -> String {
 
         // Unordered list
         if RE_LIST_ITEM.is_match(line) {
-            let text = line.trim_start_matches(|c| c == '-' || c == '*' || c == '+' || c == ' ');
+            let text = line.trim_start_matches(['-', '*', '+', ' ']);
             // Handle checkboxes
-            let text = if text.starts_with("[ ] ") {
-                &text[4..]
-            } else if text.starts_with("[x] ") || text.starts_with("[X] ") {
+            let text = if text.starts_with("[ ] ") || text.starts_with("[x] ") || text.starts_with("[X] ") {
                 &text[4..]
             } else {
                 text
@@ -484,7 +485,7 @@ fn lint_markdown(md: &str) -> Vec<Value> {
         }
 
         // Heading without space after #
-        if regex::Regex::new(r#"^#{2,}[^\s#]"#).ok().and_then(|r| r.captures(line)).is_some() {
+        if RE_BAD_HEADING.is_match(line) {
             issues.push(json!({
                 "line": line_num,
                 "rule": "heading_space",
@@ -506,7 +507,7 @@ fn lint_markdown(md: &str) -> Vec<Value> {
 
     // Check for unclosed code blocks
     let code_block_count = RE_CODE_BLOCK.find_iter(md).count();
-    if code_block_count % 2 != 0 {
+    if !code_block_count.is_multiple_of(2) {
         issues.push(json!({
             "line": 0,
             "rule": "unclosed_code_block",

@@ -1051,7 +1051,7 @@ pub(super) fn run_all_checks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::config::{ActiveChecks, Thresholds};
+    use super::super::config::Thresholds;
 
     #[test]
     fn test_line_at() {

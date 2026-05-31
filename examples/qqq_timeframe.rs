@@ -2,7 +2,7 @@
 use cargo_agent::trading::backtest::BacktestEngine;
 use cargo_agent::trading::data::Candle;
 use cargo_agent::trading::report::BacktestResult;
-use cargo_agent::trading::strategy::{Strategy, TripleEmaStrategy};
+use cargo_agent::trading::strategy::TripleEmaStrategy;
 use chrono::{Duration, Utc};
 use rand::Rng;
 

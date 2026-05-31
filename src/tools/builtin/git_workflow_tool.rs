@@ -580,7 +580,7 @@ fn handle_merge(params: &HashMap<String, Value>, repo: &str) -> Result<Value, St
 fn handle_pr_description(
     params: &HashMap<String, Value>,
     repo: &str,
-    format: &str,
+    _format: &str,
 ) -> Result<Value, String> {
     let source = params
         .get("source_branch")
@@ -675,27 +675,15 @@ fn handle_pr_description(
             .join("\n"),
     );
 
-    if format == "json" {
-        Ok(json!({
-            "status": "ok",
-            "action": "pr_description",
-            "source": source,
-            "target": target,
-            "commits": commits.len(),
-            "files_changed": changed_files.len(),
-            "pr_description": pr_description,
-        }))
-    } else {
-        Ok(json!({
-            "status": "ok",
-            "action": "pr_description",
-            "source": source,
-            "target": target,
-            "commits": commits.len(),
-            "files_changed": changed_files.len(),
-            "pr_description": pr_description,
-        }))
-    }
+    Ok(json!({
+        "status": "ok",
+        "action": "pr_description",
+        "source": source,
+        "target": target,
+        "commits": commits.len(),
+        "files_changed": changed_files.len(),
+        "pr_description": pr_description,
+    }))
 }
 
 // ============================================================================

@@ -65,6 +65,10 @@ static RE_LOG_LINE: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
+static RE_HOUR: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"\d{2}:\d{2}:\d{2}"#).expect("valid regex")
+});
+
 // Match timestamps for extraction
 static RE_TIMESTAMP: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#).expect("valid regex")
@@ -184,7 +188,7 @@ impl Tool for LogAnalyzerTool {
                 let regex_pat = params.get("regex").and_then(|v| v.as_str());
 
                 let filtered = filter_entries(&entries, level_filter, keyword, regex_pat)?;
-                let results: Vec<Value> = filtered.iter().take(limit).map(|e| entry_to_json(*e)).collect();
+                let results: Vec<Value> = filtered.iter().take(limit).map(|e| entry_to_json(e)).collect();
 
                 Ok(json!({
                     "status": "ok",
@@ -224,7 +228,7 @@ impl Tool for LogAnalyzerTool {
             "tail" => {
                 let level_filter = params.get("level").and_then(|v| v.as_str());
                 let filtered = filter_entries(&entries, level_filter, None, None)?;
-                let tail: Vec<Value> = filtered.iter().rev().take(limit).rev().map(|e| entry_to_json(*e)).collect();
+                let tail: Vec<Value> = filtered.iter().rev().take(limit).rev().map(|e| entry_to_json(e)).collect();
                 Ok(json!({
                     "status": "ok",
                     "action": "tail",
@@ -493,7 +497,7 @@ fn compute_hourly_distribution(entries: &[LogEntry]) -> Value {
     for entry in entries {
         if let Some(ref ts) = entry.timestamp {
             // Extract hour from timestamp
-            if let Some(hour_match) = regex::Regex::new(r#"\d{2}:\d{2}:\d{2}"#).ok().and_then(|re| re.find(ts)) {
+            if let Some(hour_match) = RE_HOUR.find(ts) {
                 let time_str = hour_match.as_str();
                 if let Some(hour) = time_str.split(':').next() {
                     *hourly.entry(format!("{}:00", hour)).or_insert(0) += 1;

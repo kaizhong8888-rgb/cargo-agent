@@ -599,3 +599,175 @@ fn check_prerelease(project_path: &str) -> Result<Value, String> {
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(CiCdTool));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_generate_ci_github() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("generate_ci"));
+        params.insert("platform".to_string(), json!("github"));
+        params.insert("project_path".to_string(), json!("."));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["platform"], "github");
+        assert_eq!(result["file_path"], ".github/workflows/ci.yml");
+        let config = result["config"].as_str().unwrap();
+        assert!(config.contains("name: Rust CI"));
+        assert!(config.contains("cargo check"));
+        assert!(config.contains("cargo test"));
+        assert!(config.contains("cargo clippy"));
+        assert!(config.contains("cargo fmt"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_ci_gitlab() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("generate_ci"));
+        params.insert("platform".to_string(), json!("gitlab"));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["platform"], "gitlab");
+        assert_eq!(result["file_path"], ".gitlab-ci.yml");
+        let config = result["config"].as_str().unwrap();
+        assert!(config.contains("stages:"));
+        assert!(config.contains("cargo check"));
+        assert!(config.contains("cargo clippy"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_ci_unknown_platform() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("generate_ci"));
+        params.insert("platform".to_string(), json!("jenkins"));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown platform"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = CiCdTool;
+        let params = HashMap::new();
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing required parameter: action"));
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("nonexistent"));
+        params.insert("project_path".to_string(), json!("."));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_coverage_info() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("coverage"));
+        params.insert("project_path".to_string(), json!("."));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert!(result["instructions"].as_str().unwrap().contains("cargo-tarpaulin"));
+        assert!(result["recommendation"].as_str().unwrap().contains("cargo-tarpaulin"));
+    }
+
+    #[tokio::test]
+    async fn test_audit_no_audit_installed() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("audit"));
+        params.insert("project_path".to_string(), json!("."));
+
+        let result = tool.execute(&params).await.unwrap();
+        // If cargo-audit is not installed, status is warning
+        let status = result["status"].as_str().unwrap();
+        assert!(status == "ok" || status == "warning");
+    }
+
+    #[tokio::test]
+    async fn test_run_tests_in_current_project() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("run_tests"));
+        params.insert("project_path".to_string(), json!("."));
+
+        let result = tool.execute(&params).await.unwrap();
+        let results = &result["results"];
+        // At least some tests should have run
+        let total = results["total"].as_u64().unwrap_or(0);
+        let passed = results["passed"].as_u64().unwrap_or(0);
+        assert!(total > 0, "Expected at least some tests to run, got total={}", total);
+        assert!(passed > 0, "Expected at least some tests to pass, got passed={}", passed);
+    }
+
+    #[tokio::test]
+    async fn test_run_build_in_current_project() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("run_build"));
+        params.insert("project_path".to_string(), json!("."));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["profile"], "dev");
+        let success = result["success"].as_bool().unwrap();
+        assert!(success, "Build should succeed in current project");
+    }
+
+    #[tokio::test]
+    async fn test_run_build_release_profile() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("run_build"));
+        params.insert("project_path".to_string(), json!("."));
+        params.insert("profile".to_string(), json!("release"));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["profile"], "release");
+        let success = result["success"].as_bool().unwrap();
+        assert!(success, "Release build should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_run_tests_with_pattern() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("run_tests"));
+        params.insert("project_path".to_string(), json!("."));
+        params.insert("test_pattern".to_string(), json!("test_format_duration"));
+
+        let result = tool.execute(&params).await.unwrap();
+        // The pattern filter may or may not match tests depending on current test suite
+        // Just verify it doesn't crash
+        let _total = result["results"]["total"].as_u64().unwrap_or(0);
+    }
+
+    #[tokio::test]
+    async fn test_run_build_bench_profile() {
+        let tool = CiCdTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("run_build"));
+        params.insert("project_path".to_string(), json!("."));
+        params.insert("profile".to_string(), json!("bench"));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["profile"], "bench");
+        let success = result["success"].as_bool().unwrap();
+        assert!(success, "Bench build should succeed");
+    }
+}

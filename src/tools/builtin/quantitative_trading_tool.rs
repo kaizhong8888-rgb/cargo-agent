@@ -1,10 +1,11 @@
 use crate::tools::registry::{Tool, ToolParameter};
 use crate::trading::backtest::BacktestEngine;
 use crate::trading::data::{Candle, DataSource};
+use crate::trading::ml::{self, FeatureConfig};
 use crate::trading::report::BacktestResult;
 use crate::trading::strategy::{
     self, BollingerBandsStrategy, KeltnerChannelsStrategy, KeltnerMode, MacdMode, MacdStrategy,
-    ParabolicSarStrategy, RsiMeanReversion, SmaCrossover, SmaCrossoverWithRsi, Strategy,
+    ParabolicSarStrategy, RsiMeanReversion, SmaCrossover, SmaCrossoverWithRsi, Signal, Strategy,
     SuperTrendStrategy, TripleEmaStrategy, TurtleTradingStrategy, VwapRsiStrategy,
 };
 use chrono::DateTime;
@@ -20,7 +21,7 @@ impl Tool for QuantitativeTradingTool {
     }
 
     fn description(&self) -> &str {
-        "量化交易功能：回测策略比较、技术指标计算、真实市场数据获取。支持9+种策略（SMA Crossover、MACD、RSI、布林带、海龟交易法则、三均线、VWAP+RSI、组合策略等）。操作: backtest（策略回测）、indicators（技术指标）、strategies（策略列表）、fetch_data（从API获取真实K线数据）、mock_data（模拟数据）。数据来源支持Binance API、CSV文件、模拟数据。"
+        "量化交易功能：回测策略比较、技术指标计算、真实市场数据获取。支持13+传统策略和4种机器学习策略（决策树、线性回归、KNN、ML组合）。操作: backtest（策略回测）、indicators（技术指标）、strategies（策略列表）、fetch_data（从API获取真实K线数据）、mock_data（模拟数据）。数据来源支持Binance API（加密货币）、腾讯财经API（A股/港股/美股）、CSV文件、模拟数据。"
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
@@ -38,8 +39,14 @@ impl Tool for QuantitativeTradingTool {
                 parameter_type: "string".into(),
             },
             ToolParameter {
+                name: "api_provider".into(),
+                description: "API提供商（仅data_source为API时有效）: 'binance'（加密货币）、'tencent'（腾讯财经A股/港股）（默认binance）".into(),
+                required: false,
+                parameter_type: "string".into(),
+            },
+            ToolParameter {
                 name: "symbol".into(),
-                description: "交易对/品种（仅data_source=binance时有效）。如: BTCUSDT, ETHUSDT, BNBUSDT".into(),
+                description: "交易对/品种。Binance: BTCUSDT, ETHUSDT；腾讯: sh000001(上证指数), sz000001(平安银行), hk00700(腾讯)".into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -57,7 +64,7 @@ impl Tool for QuantitativeTradingTool {
             },
             ToolParameter {
                 name: "strategy_names".into(),
-                description: "指定要回测的策略名称（逗号分隔）。默认全部。可选: SMA_Crossover, SMA_RSI, RSI_MeanRev, MACD_Crossover, MACD_Histogram, MACD_Divergence, Turtle_Trading, Triple_EMA, Bollinger_MeanRev, Bollinger_Squeeze, VWAP_RSI, Ensemble".into(),
+                description: "指定要回测的策略名称（逗号分隔）。默认全部。可选: SMA_Crossover, SMA_RSI, RSI_MeanRev, MACD_Crossover, MACD_Histogram, MACD_Divergence, Turtle_Trading, Triple_EMA, Bollinger_MeanRev, Bollinger_Squeeze, VWAP_RSI, Ensemble, ML_DecisionTree, ML_LinearRegression, ML_KNN, ML_Ensemble".into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -151,7 +158,7 @@ fn parse_str<'a>(params: &'a HashMap<String, Value>, key: &str, default: &'a str
 }
 
 // ============================================================
-// 数据加载（支持 binance API、CSV、mock）
+// 数据加载（支持 binance API、腾讯财经 API、CSV、mock）
 // ============================================================
 
 fn load_candles(params: &HashMap<String, Value>) -> Result<Vec<Candle>, String> {
@@ -163,17 +170,48 @@ fn load_candles(params: &HashMap<String, Value>) -> Result<Vec<Candle>, String> 
             let start_price = parse_f64(params, "mock_start_price", 100.0);
             Ok(DataSource::generate_mock(count, start_price))
         }
-        "binance" => {
-            // Use blocking reqwest to fetch from Binance API
-            fetch_binance_klines_blocking(params)
+        "binance" | "tencent" | "qq" => {
+            // Use API provider to fetch data
+            fetch_api_klines_blocking(params)
         }
         csv_path => DataSource::from_csv(csv_path).map_err(|e| format!("加载CSV失败: {}", e)),
     }
 }
 
 // ============================================================
-// Binance API 数据获取
+// API 数据获取（支持多个提供商）
 // ============================================================
+
+fn fetch_api_klines_blocking(params: &HashMap<String, Value>) -> Result<Vec<Candle>, String> {
+    let api_provider = parse_str(params, "api_provider", "binance");
+    
+    match api_provider {
+        "tencent" | "qq" => fetch_tencent_klines_blocking(params),
+        _ => fetch_binance_klines_blocking(params),
+    }
+}
+
+/// 腾讯财经 K 线数据获取
+fn fetch_tencent_klines_blocking(params: &HashMap<String, Value>) -> Result<Vec<Candle>, String> {
+    let symbol = parse_str(params, "symbol", "sh000001");
+    let interval = parse_str(params, "interval", "day");
+    let limit = parse_usize(params, "limit", 100);
+
+    let tencent_interval = match interval {
+        "day" | "d" | "1d" => crate::trading::tencent::TencentInterval::Day,
+        "week" | "w" | "1w" => crate::trading::tencent::TencentInterval::Week,
+        "month" | "M" | "1M" => crate::trading::tencent::TencentInterval::Month,
+        "1m" => crate::trading::tencent::TencentInterval::Min1,
+        "5m" => crate::trading::tencent::TencentInterval::Min5,
+        "15m" => crate::trading::tencent::TencentInterval::Min15,
+        "30m" => crate::trading::tencent::TencentInterval::Min30,
+        "60m" | "1h" => crate::trading::tencent::TencentInterval::Min60,
+        _ => crate::trading::tencent::TencentInterval::Day,
+    };
+
+    let normalized_symbol = crate::trading::tencent::normalize_symbol(symbol);
+    crate::trading::tencent::fetch_klines(&normalized_symbol, tencent_interval, limit)
+}
 
 /// Binance K线API: GET /api/v3/klines?symbol=BTCUSDT&interval=1d&limit=100
 /// 返回: [openTime, open, high, low, close, volume, ...]
@@ -289,7 +327,43 @@ fn get_strategy_by_name(name: &str) -> Option<Box<dyn Strategy>> {
         ))),
         "Parabolic_SAR" => Some(Box::new(ParabolicSarStrategy::new(0.02, 0.2))),
         "Ensemble" => Some(strategy::create_ensemble_strategy()),
+        // ML strategies
+        "ML_DecisionTree" => Some(create_ml_strategy_wrapper(MlStrategyType::DecisionTree)),
+        "ML_LinearRegression" => Some(create_ml_strategy_wrapper(MlStrategyType::LinearRegression)),
+        "ML_KNN" => Some(create_ml_strategy_wrapper(MlStrategyType::Knn)),
+        "ML_Ensemble" => Some(create_ml_strategy_wrapper(MlStrategyType::Ensemble)),
         _ => None,
+    }
+}
+
+/// ML strategy types for deferred creation (need candles to train)
+enum MlStrategyType {
+    DecisionTree,
+    LinearRegression,
+    Knn,
+    Ensemble,
+}
+
+fn create_ml_strategy_wrapper(ml_type: MlStrategyType) -> Box<dyn Strategy> {
+    // ML strategies need candles to train; this is a placeholder.
+    // The actual backtest handler will replace these with trained models.
+    Box::new(MlPlaceholderStrategy(ml_type))
+}
+
+/// Placeholder that gets replaced during backtest with a trained model
+struct MlPlaceholderStrategy(MlStrategyType);
+
+impl Strategy for MlPlaceholderStrategy {
+    fn name(&self) -> &str {
+        match self.0 {
+            MlStrategyType::DecisionTree => "Decision Tree",
+            MlStrategyType::LinearRegression => "Linear Regression",
+            MlStrategyType::Knn => "KNN",
+            MlStrategyType::Ensemble => "ML Ensemble",
+        }
+    }
+    fn generate(&self, _candles: &[Candle]) -> Vec<Signal> {
+        vec![]
     }
 }
 
@@ -330,6 +404,23 @@ fn handle_strategies() -> Result<Value, String> {
     list.push(serde_json::json!({
         "name": "Ensemble (3 strategies)",
         "key": "Ensemble",
+    }));
+    // ML strategies
+    list.push(serde_json::json!({
+        "name": "Decision Tree (ML)",
+        "key": "ML_DecisionTree",
+    }));
+    list.push(serde_json::json!({
+        "name": "Linear Regression (ML)",
+        "key": "ML_LinearRegression",
+    }));
+    list.push(serde_json::json!({
+        "name": "KNN (ML)",
+        "key": "ML_KNN",
+    }));
+    list.push(serde_json::json!({
+        "name": "ML Ensemble (Tree+LR+KNN)",
+        "key": "ML_Ensemble",
     }));
     Ok(serde_json::json!({
         "total": list.len(),
@@ -382,9 +473,43 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
         return Err("至少需要指定一个策略".into());
     }
 
+    // Separate ML placeholder strategies from regular strategies
+    let mut regular_strats: Vec<Box<dyn Strategy>> = Vec::new();
+    let mut has_ml_tree = false;
+    let mut has_ml_lr = false;
+    let mut has_ml_knn = false;
+    let mut has_ml_ensemble = false;
+
+    for strategy in strats {
+        match strategy.name() {
+            "Decision Tree" => has_ml_tree = true,
+            "Linear Regression" => has_ml_lr = true,
+            "KNN" => has_ml_knn = true,
+            "ML Ensemble" => has_ml_ensemble = true,
+            _ => regular_strats.push(strategy),
+        }
+    }
+
+    // If any ML strategies requested, train them
+    if has_ml_tree || has_ml_lr || has_ml_knn || has_ml_ensemble {
+        let config = FeatureConfig::default();
+        if has_ml_tree {
+            regular_strats.push(Box::new(ml::DecisionTreeStrategy::new(&candles, config.clone(), 5, 10)));
+        }
+        if has_ml_lr {
+            regular_strats.push(Box::new(ml::LinearRegressionStrategy::new(&candles, config.clone(), 0.001)));
+        }
+        if has_ml_knn {
+            regular_strats.push(Box::new(ml::KnnStrategy::new(&candles, config.clone(), 7)));
+        }
+        if has_ml_ensemble {
+            regular_strats.push(Box::new(ml::MlEnsembleStrategy::new(&candles, config)));
+        }
+    }
+
     // 运行全部策略回测
     let mut results: Vec<(String, serde_json::Value)> = Vec::new();
-    for strategy in &strats {
+    for strategy in &regular_strats {
         let mut engine = BacktestEngine::new(initial_capital, commission_rate, slippage);
         match engine.run(&candles, strategy.as_ref()) {
             Ok(trades) => {
@@ -438,7 +563,7 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
         "data_source": parse_str(params, "data_source", "mock"),
         "bars_count": candles.len(),
         "initial_capital": initial_capital,
-        "strategies_tested": strats.len(),
+        "strategies_tested": regular_strats.len(),
         "ranking": ranking,
         "winner": winner,
     });

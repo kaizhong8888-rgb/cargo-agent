@@ -228,7 +228,7 @@ async fn list_issues(owner: &str, repo: &str, state: &str, limit: usize) -> Resu
     // Filter out PRs (GitHub's /issues endpoint also returns PRs)
     let results: Vec<Value> = issues
         .iter()
-        .filter(|item| !item.get("pull_request").is_some())
+        .filter(|item| item.get("pull_request").is_none())
         .take(limit)
         .map(|issue| {
             json!({

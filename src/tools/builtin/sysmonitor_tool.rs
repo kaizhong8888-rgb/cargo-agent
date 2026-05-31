@@ -150,8 +150,8 @@ fn network_info() -> Value {
         })
     }).collect();
 
-    let (rx, tx) = (nets.iter().map(|(_, d)| d.total_received()).sum::<u64>(),
-                    nets.iter().map(|(_, d)| d.total_transmitted()).sum::<u64>());
+    let (rx, tx) = (nets.values().map(|d| d.total_received()).sum::<u64>(),
+                    nets.values().map(|d| d.total_transmitted()).sum::<u64>());
     serde_json::json!({
         "total_received_bytes": rx, "total_received_display": fmt_size(rx),
         "total_transmitted_bytes": tx, "total_transmitted_display": fmt_size(tx),

@@ -216,7 +216,7 @@ impl ClippyLintTool {
 
         let suggestions: Vec<Value> = lints
             .iter()
-            .filter_map(|lint| suggest_fix_for_lint(lint))
+            .filter_map(suggest_fix_for_lint)
             .collect();
 
         let auto_fixable = suggestions.iter().filter(|s| s["auto_fixable"].as_bool().unwrap_or(false)).count();
@@ -266,7 +266,7 @@ impl ClippyLintTool {
         // Calculate score (100 = perfect, 0 = terrible)
         let error_penalty = errors.len() as i32 * 15;
         let warning_penalty = warnings.len() as i32 * 3;
-        let note_penalty = notes.len() as i32 * 1;
+        let note_penalty = notes.len() as i32;
         let score = (100 - error_penalty - warning_penalty - note_penalty).max(0);
 
         let grade = if score >= 95 {
@@ -345,7 +345,7 @@ impl ClippyLintTool {
         // Generate suggestions for remaining non-auto-fixable issues
         let suggestions: Vec<Value> = remaining_lints
             .iter()
-            .filter_map(|lint| suggest_fix_for_lint(lint))
+            .filter_map(suggest_fix_for_lint)
             .collect();
 
         Ok(json!({
@@ -626,7 +626,7 @@ fn generate_recommendations(errors: &[Value], warnings: &[Value]) -> Vec<Value> 
         }));
     }
 
-    if errors.len() > 0 {
+    if !errors.is_empty() {
         recommendations.push(json!({
             "priority": "critical",
             "category": "correctness",

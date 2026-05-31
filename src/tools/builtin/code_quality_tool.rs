@@ -594,13 +594,12 @@ fn generate_dependency_viz(files: &[String], title: &str) -> Result<Value, Strin
     }
 
     // Add external dependencies
-    for ext in &external_crates {
+    if let Some(ext) = external_crates.iter().next() {
         let safe_ext = format!("ext_{ext}");
         for module in &modules {
             let safe_module = module.replace("::", "_");
             mermaid.push_str(&format!("    {safe_module} -.-> {safe_ext}\n"));
         }
-        break; // Just show one connection to avoid clutter
     }
 
     Ok(json!({

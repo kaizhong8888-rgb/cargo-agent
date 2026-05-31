@@ -64,7 +64,8 @@ static RE_MATCH_SINGLE_ARM: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_IF_LET_SOME: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)if\s+let\s+Some\((\w+)\)\s*=\s*\w+\s*\{\s*\n?\s*return\s+Some\(\1\)\s*;\s*\n?\s*\}").expect("valid regex")
+    Regex::new(r"(?m)if\s+let\s+Some\(\w+\)\s*=\s*\w+\s*\{\s*\n?\s*return\s+Some\(\w+\)\s*;\s*\n?\s*\}")
+        .expect("valid regex")
 });
 
 static RE_ITER_COLLECT: Lazy<Regex> = Lazy::new(|| {
@@ -661,11 +662,6 @@ fn check_idiomatic(files: &[String]) -> Result<Vec<RefactorSuggestion>, String> 
         for line in &lines {
             if line.contains(r#"== """#) || line.contains(r#"!= """#) {
                 let line_num = content[..content.find(line).unwrap_or(0)].lines().count() + 1;
-                let is_empty = if line.contains("==") {
-                    ".is_empty()"
-                } else {
-                    ".is_empty()"
-                };
                 suggestions.push(RefactorSuggestion {
                     category: "Idiomatic".to_string(),
                     severity: "low".to_string(),
@@ -673,7 +669,7 @@ fn check_idiomatic(files: &[String]) -> Result<Vec<RefactorSuggestion>, String> 
                     line: line_num,
                     description: "Use is_empty() instead of comparing to empty string".to_string(),
                     before: line.trim().to_string(),
-                    after: format!("string{is_empty}"),
+                    after: "string.is_empty()".to_string(),
                     explanation: "Using `.is_empty()` is more idiomatic and potentially faster than comparing to `\"\"`."
                         .to_string(),
                 });

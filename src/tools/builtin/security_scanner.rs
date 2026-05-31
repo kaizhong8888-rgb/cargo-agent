@@ -93,7 +93,8 @@ static RE_LOG_SENSITIVE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_UNSAFE_NO_SAFETY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?s)unsafe\s*\{(?!--- SAFETY).*?}"#).expect("valid regex")
+    // Detect unsafe blocks - manual review needed for SAFETY comments
+    Regex::new(r#"unsafe\s*\{"#).expect("valid regex")
 });
 
 // ============================================================================

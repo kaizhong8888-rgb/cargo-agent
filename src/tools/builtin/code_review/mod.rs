@@ -126,7 +126,6 @@ pub fn register_all(registry: &mut ToolRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::config::{ActiveChecks, Severity, Thresholds};
     use super::file_utils::get_git_diff_files;
 
     #[test]

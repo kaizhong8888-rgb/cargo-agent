@@ -337,7 +337,7 @@ fn analyze_structure(files: &[String], detail: &str) -> Result<Value, String> {
 
         // Update total counts and build counts map
         let mut counts_obj = serde_json::Map::new();
-        for (_i, (label, items, _)) in extracted.iter().enumerate() {
+        for (label, items, _) in extracted.iter() {
             *total_counts.entry(label.clone()).or_insert(0) += items.len();
             counts_obj.insert(label.clone(), json!(items.len()));
         }
@@ -700,7 +700,7 @@ fn analyze_summary(files: &[String]) -> Result<Value, String> {
     let mut total_code_lines = 0usize;
     let mut total_comment_lines = 0usize;
     let mut total_doc_lines = 0usize;
-    let total_blank_lines = 0usize;
+    let mut total_blank_lines = 0usize;
     let mut file_details = Vec::new();
 
     for file_path in files {
@@ -720,6 +720,7 @@ fn analyze_summary(files: &[String]) -> Result<Value, String> {
         total_code_lines += code_lines;
         total_comment_lines += comment_lines;
         total_doc_lines += doc_lines;
+        total_blank_lines += blank_lines;
 
         let fns = RE_FN_SUMMARY.find_iter(&content).count();
         let structs = RE_STRUCT_SUMMARY.find_iter(&content).count();

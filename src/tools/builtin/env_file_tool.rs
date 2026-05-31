@@ -155,7 +155,7 @@ fn diff_env_files(params: &HashMap<String, Value>) -> Result<Value, String> {
         "only_in_first": if only_in_first.is_empty() { Value::Null } else { serde_json::to_value(&only_in_first).unwrap() },
         "only_in_second": if only_in_second.is_empty() { Value::Null } else { serde_json::to_value(&only_in_second).unwrap() },
         "different_values": if different.is_empty() { Value::Null } else {
-            serde_json::to_value(&different.iter().map(|(k, (v1, v2))| (k, serde_json::json!({"old": v1, "new": v2}))).collect::<BTreeMap<_, _>>()).unwrap()
+            serde_json::to_value(different.iter().map(|(k, (v1, v2))| (k, serde_json::json!({"old": v1, "new": v2}))).collect::<BTreeMap<_, _>>()).unwrap()
         },
         "summary": {
             "only_in_first_count": only_in_first.len(),

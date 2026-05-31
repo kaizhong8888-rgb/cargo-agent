@@ -39,7 +39,7 @@ static RE_NESTED_LOOP: Lazy<Regex> =
 
 #[allow(dead_code)]
 static RE_RECURSIVE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)[^{]*\{[^}]*\1\s*\("#)
+    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#)
         .expect("valid regex")
 });
 
@@ -276,9 +276,7 @@ impl BenchmarkTool {
             bench_code.push_str(&format!(
                 "    c.bench_function(\"{module}::{fn_name}\", |b| b.iter(|| {{\n"
             ));
-            bench_code.push_str(&format!(
-                "        // TODO: set up input parameters\n"
-            ));
+            bench_code.push_str("        // TODO: set up input parameters\n");
             bench_code.push_str(&format!(
                 "        black_box({module}::{fn_name}()); // TODO: pass arguments\n"
             ));

@@ -98,7 +98,10 @@ fn describe_cron(params: &HashMap<String, Value>) -> Result<Value, String> {
     let friendly = if expression == "* * * * *" {
         "Every minute".to_string()
     } else if expression.starts_with("*/") && expression.ends_with(" * * * *") {
-        format!("Every {} minutes", &expression[..2])
+        let step_part = expression.split(' ').next().unwrap_or(expression);
+        // step_part is like "*/5" - extract the number after */
+        let step_num = step_part.trim_start_matches("*/");
+        format!("Every {} minutes", step_num)
     } else if expression == "0 * * * *" {
         "Every hour at minute 0".to_string()
     } else if expression == "0 0 * * *" {
@@ -128,7 +131,7 @@ fn describe_cron(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn parse_cron_expression(expr: &str) -> Result<Vec<CronField>, String> {
-    let parts: Vec<&str> = expr.trim().split_whitespace().collect();
+    let parts: Vec<&str> = expr.split_whitespace().collect();
     if parts.len() != 5 {
         return Err(format!("Expected 5 fields, got {}. Format: 'minute hour day_of_month month day_of_week'", parts.len()));
     }
@@ -153,6 +156,23 @@ fn parse_cron_field(field: &str, min: u32, max: u32) -> Result<Vec<u32>, String>
             if step == 0 || step > max { return Err(format!("Step {step} out of range [{min}-{max}]")); }
             let mut v = min;
             while v <= max { values.push(v); v += step; }
+        } else if let Some(slash_pos) = part.find('/') {
+            let step: u32 = part[slash_pos + 1..].parse().map_err(|_| format!("Invalid step in '{part}'"))?;
+            if step == 0 { return Err("Step cannot be 0".to_string()); }
+            let range_part = &part[..slash_pos];
+            if range_part.contains('-') {
+                let range_parts: Vec<&str> = range_part.splitn(2, '-').collect();
+                let start: u32 = range_parts[0].parse().map_err(|_| format!("Invalid start in '{part}'"))?;
+                let end: u32 = range_parts[1].parse().map_err(|_| format!("Invalid end in '{part}'"))?;
+                if start > end { return Err(format!("Start {start} > end {end}")); }
+                if start < min || end > max { return Err(format!("Value out of range [{min}-{max}]")); }
+                let mut v = start;
+                while v <= end { values.push(v); v += step; }
+            } else {
+                let start: u32 = range_part.parse().map_err(|_| format!("Invalid start in '{part}'"))?;
+                let mut v = start;
+                while v <= max { values.push(v); v += step; }
+            }
         } else if part.contains('-') {
             let parts: Vec<&str> = part.splitn(2, '-').collect();
             let start: u32 = parts[0].parse().map_err(|_| format!("Invalid start in '{part}'"))?;
@@ -160,12 +180,6 @@ fn parse_cron_field(field: &str, min: u32, max: u32) -> Result<Vec<u32>, String>
             if start > end { return Err(format!("Start {start} > end {end}")); }
             if start < min || end > max { return Err(format!("Value out of range [{min}-{max}]")); }
             for v in start..=end { values.push(v); }
-        } else if let Some(slash_pos) = part.find('/') {
-            let step: u32 = part[slash_pos + 1..].parse().map_err(|_| format!("Invalid step in '{part}'"))?;
-            let start: u32 = part[..slash_pos].parse().map_err(|_| format!("Invalid start in '{part}'"))?;
-            if step == 0 { return Err("Step cannot be 0".to_string()); }
-            let mut v = start;
-            while v <= max { values.push(v); v += step; }
         } else {
             let v: u32 = part.parse().map_err(|_| format!("Invalid value '{part}'"))?;
             if v < min || v > max { return Err(format!("Value {v} out of range [{min}-{max}]")); }
@@ -304,7 +318,7 @@ mod tests {
         let mut p = HashMap::new();
         p.insert("expression".to_string(), Value::String("*/5 * * * *".to_string()));
         let r = describe_cron(&p).unwrap();
-        assert_eq!(r["description"], "Every */5 minutes");
+        assert_eq!(r["description"], "Every 5 minutes");
     }
 
     #[test]

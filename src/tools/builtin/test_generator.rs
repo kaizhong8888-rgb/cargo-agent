@@ -337,21 +337,21 @@ fn generate_function_tests(
                 test.push_str(&format!(
                     "    // TODO: assert expected value for {test_name}\n"
                 ));
-                test.push_str(&format!("    // let expected = ...;\n"));
-                test.push_str(&format!("    // assert_eq!(result, expected);\n"));
+                test.push_str("    // let expected = ...;\n");
+                test.push_str("    // assert_eq!(result, expected);\n");
             } else {
                 test.push_str(&format!(
                     "    {fn_name}(...);\n"
                 ));
                 test.push_str("    // TODO: add assertions\n");
             }
-            test.push_str("}");
+            test.push('}');
 
             tests.push(test);
         }
 
         // Generate doc tests if requested
-        if include_doc_tests && RE_PUB_FN.is_match(&cap.get(0).unwrap().as_str()) {
+        if include_doc_tests && RE_PUB_FN.is_match(cap.get(0).unwrap().as_str()) {
             let doc_test = generate_doc_test_stub(&fn_info);
             if !doc_test.is_empty() {
                 tests.push(doc_test);
@@ -408,11 +408,9 @@ fn generate_struct_tests(
                 "fn test_{}_edge_cases() {{\n",
                 si.name.to_lowercase()
             ));
-            edge_test.push_str(&format!("    // Test with minimal/empty values\n"));
+            edge_test.push_str("    // Test with minimal/empty values\n");
             edge_test.push_str(&format!("    // let minimal = {} {{ ... }};\n", si.name));
-            edge_test.push_str(&format!(
-                "    // Test with boundary values\n"
-            ));
+            edge_test.push_str("    // Test with boundary values\n");
             edge_test.push_str(&format!("    // let boundary = {} {{ ... }};\n", si.name));
             edge_test.push_str("}\n");
             tests.push(edge_test);
@@ -477,7 +475,7 @@ fn generate_trait_impl_tests(
             "    let instance = {}::default(); // TODO: construct\n",
             for_type
         ));
-        test.push_str("\n");
+        test.push('\n');
 
         for method in methods {
             test.push_str(&format!(
@@ -739,9 +737,7 @@ fn generate_integration_test_stub(fn_info: &FunctionInfo) -> String {
 fn generate_property_test_stub(fn_info: &FunctionInfo) -> String {
     let mut body = String::new();
     body.push_str("proptest! {\n");
-    body.push_str(&format!(
-        "    #[test]\n"
-    ));
+    body.push_str("    #[test]\n");
     body.push_str(&format!(
         "    fn prop_{}(\n",
         fn_info.name
@@ -800,9 +796,7 @@ fn generate_prop_strategy(type_str: &str) -> String {
 /// Generate a doc test stub.
 fn generate_doc_test_stub(fn_info: &FunctionInfo) -> String {
     let mut doc = String::new();
-    doc.push_str(&format!(
-        "/// ```\n"
-    ));
+    doc.push_str("/// ```\n");
     doc.push_str(&format!(
         "/// use my_crate::{};\n",
         fn_info.name

@@ -261,7 +261,7 @@ fn create_zip(
     let file = std::fs::File::create(destination)
         .map_err(|e| format!("Failed to create zip file '{destination}': {e}"))?;
 
-    let level = compression_level.min(9).max(0);
+    let level = compression_level.min(9);
     let zip_level = match level {
         0 => zip::CompressionMethod::Stored,
         _ => zip::CompressionMethod::Deflated,

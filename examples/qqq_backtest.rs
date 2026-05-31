@@ -66,7 +66,7 @@ fn main() {
     );
 
     // 策略定义
-    let mut strategies: Vec<(String, Box<dyn Strategy>)> = vec![
+    let strategies: Vec<(String, Box<dyn Strategy>)> = vec![
         (
             "Triple EMA (3,8,21)  超短".into(),
             Box::new(TripleEmaStrategy::new(3, 8, 21)),

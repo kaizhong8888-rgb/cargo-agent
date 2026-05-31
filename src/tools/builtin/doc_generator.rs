@@ -150,7 +150,7 @@ impl Tool for DocGeneratorTool {
 
         // Write to file if output specified
         if let Some(out_path) = output {
-            std::fs::write(out_path, &result.to_string())
+            std::fs::write(out_path, result.to_string())
                 .map_err(|e| format!("Failed to write to {out_path}: {e}"))?;
             return Ok(json!({
                 "status": "ok",
@@ -333,7 +333,7 @@ fn parse_module(file_path: &str, content: &str) -> ModuleDoc {
     let module_name = file_path
         .trim_end_matches(".rs")
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(file_path)
         .to_string();
 
@@ -791,7 +791,7 @@ fn generate_architecture(path: &str, recursive: bool) -> Result<Value, String> {
         }
     }
 
-    desc.push_str(&format!("\n## Summary\n\n"));
+    desc.push_str("\n## Summary\n\n");
     desc.push_str(&format!("- Total modules: {}\n", modules.len()));
     desc.push_str(&format!("- Module dependencies: {}\n", module_deps.len()));
     desc.push_str(&format!("- External crates: {}\n", external_crates.len()));

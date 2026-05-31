@@ -320,7 +320,7 @@ pub fn print_status_bar(info: &StatusInfo) {
 
     // Model
     if !info.model_name.is_empty() {
-        let model_short = info.model_name.split('/').last().unwrap_or(&info.model_name);
+        let model_short = info.model_name.split('/').next_back().unwrap_or(&info.model_name);
         parts.push(format!("🤖 {}", model_short.dimmed()));
     }
 

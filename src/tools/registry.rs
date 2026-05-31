@@ -257,7 +257,7 @@ mod tests {
         registry.register(Box::new(ToolA));
         registry.register(Box::new(ToolB)); // overwrites A
 
-        let tool = registry.get("dup").unwrap();
+        let _tool = registry.get("dup").unwrap();
         // ToolB replaced ToolA since they share the same name
         assert_eq!(registry.list_tools().len(), 1);
     }

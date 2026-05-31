@@ -281,7 +281,7 @@ impl RegexTool {
             code.push_str("\"#).expect(\"valid regex\");\n");
         }
 
-        code.push_str("\n");
+        code.push('\n');
 
         if has_named_captures {
             code.push_str("    let mut results = Vec::new();\n");

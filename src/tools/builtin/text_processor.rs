@@ -285,7 +285,7 @@ fn action_count(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     // Count sentences (rough: . ! ? followed by space or end)
     let sentences = text
-        .split(|c: char| c == '.' || c == '!' || c == '?')
+        .split(['.', '!', '?'])
         .filter(|s| !s.trim().is_empty())
         .count();
 
@@ -355,7 +355,7 @@ fn action_base64(params: &HashMap<String, Value>) -> Result<Value, String> {
             )
             .map_err(|e| format!("Base64 decode error: {}", e))?;
             let result = String::from_utf8(decoded.clone())
-                .map_err(|_| format!("Decoded bytes are not valid UTF-8. Use 'bytes' field for binary data."))?;
+                .map_err(|_| "Decoded bytes are not valid UTF-8. Use 'bytes' field for binary data.".to_string())?;
             Ok(serde_json::json!({
                 "result": result,
                 "mode": "decode",
@@ -691,8 +691,6 @@ fn action_slugify(params: &HashMap<String, Value>) -> Result<Value, String> {
         .map(|c| {
             if c.is_alphanumeric() {
                 c
-            } else if c.is_whitespace() || c == '-' || c == '_' {
-                '-'
             } else {
                 '-'
             }

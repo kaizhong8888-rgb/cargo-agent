@@ -153,7 +153,7 @@ fn verify_hash(params: &HashMap<String, Value>) -> Result<Value, String> {
         return Err(format!("File not found: {file_path}"));
     }
 
-    let (actual_hash, _) = compute_file_hash(path, &algorithm)?;
+    let (actual_hash, _) = compute_file_hash(path, algorithm)?;
     let is_match = actual_hash.eq_ignore_ascii_case(expected);
 
     Ok(serde_json::json!({

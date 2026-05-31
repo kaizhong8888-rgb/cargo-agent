@@ -123,6 +123,9 @@ impl Gateway {
         // due dates, search/filter, and statistics
         crate::tools::builtin::todo_manager::register_all(&mut tool_registry);
 
+        // Date/Time: timezone conversions, date arithmetic, calendar operations, duration formatting
+        crate::tools::builtin::date_time_tool::register_all(&mut tool_registry);
+
         // GitHub API: list PRs, issues, check CI status, get repo info
         crate::tools::builtin::github_tool::register_all(&mut tool_registry);
 

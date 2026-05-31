@@ -246,6 +246,7 @@ pub(super) fn generate_gitlab_ci_report(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Generate the final report based on format.
 pub(super) fn generate_report(
     all_issues: &[ReviewIssue],

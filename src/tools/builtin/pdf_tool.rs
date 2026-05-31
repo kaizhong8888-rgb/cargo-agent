@@ -74,7 +74,7 @@ fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
             continue;
         }
 
-        if t.starts_with("### ") {
+        if let Some(stripped) = t.strip_prefix("### ") {
             if has_content {
                 let mut p = elements::Paragraph::new("");
                 std::mem::swap(&mut para, &mut p);
@@ -82,12 +82,12 @@ fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
                 has_content = false;
             }
             doc.push(elements::Break::new(0.15));
-            let mut h = elements::Paragraph::new(&t[4..]);
+            let mut h = elements::Paragraph::new(stripped);
             h.set_alignment(genpdf::Alignment::Left);
             doc.push(h);
             continue;
         }
-        if t.starts_with("## ") {
+        if let Some(stripped) = t.strip_prefix("## ") {
             if has_content {
                 let mut p = elements::Paragraph::new("");
                 std::mem::swap(&mut para, &mut p);
@@ -95,12 +95,12 @@ fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
                 has_content = false;
             }
             doc.push(elements::Break::new(0.15));
-            let mut h = elements::Paragraph::new(&t[3..]);
+            let mut h = elements::Paragraph::new(stripped);
             h.set_alignment(genpdf::Alignment::Left);
             doc.push(h);
             continue;
         }
-        if t.starts_with("# ") {
+        if let Some(stripped) = t.strip_prefix("# ") {
             if has_content {
                 let mut p = elements::Paragraph::new("");
                 std::mem::swap(&mut para, &mut p);
@@ -108,7 +108,7 @@ fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
                 has_content = false;
             }
             doc.push(elements::Break::new(0.2));
-            let mut h = elements::Paragraph::new(&t[2..]);
+            let mut h = elements::Paragraph::new(stripped);
             h.set_alignment(genpdf::Alignment::Left);
             doc.push(h);
             continue;

@@ -243,7 +243,7 @@ fn action_list(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Re
     let search_text = params.get("search").and_then(|v| v.as_str());
     let sort_by = get_str(params, "sort_by", "created_at");
     let sort_order = get_str(params, "sort_order", "desc");
-    let limit = get_int(params, "limit", 50).min(500).max(1) as i64;
+    let limit = get_int(params, "limit", 50).clamp(1, 500);
 
     // Build SQL query
     let (query, params_owned) = build_sql_query(
@@ -277,6 +277,7 @@ fn action_list(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Re
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Builds the final SQL query string and its parameter vector.
 fn build_sql_query(
     _db: &rusqlite::Connection,

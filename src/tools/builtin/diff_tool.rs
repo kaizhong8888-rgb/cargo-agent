@@ -465,8 +465,8 @@ fn generate_diffstat(old: &[String], new: &[String], old_label: &str, new_label:
     let bar = format!("{}{}", "+".repeat(bar_add), "-".repeat(bar_del));
 
     format!(
-        " {} | {} {}{}{}\n {} file{} changed, {} insertion{}(+), {} deletion{}(-)",
-        format!("{old_label} -> {new_label}"),
+        " {} -> {} | {} {}{}{}\n {} file{} changed, {} insertion{}(+), {} deletion{}(-)",
+        old_label, new_label,
         total,
         bar,
         if total > 0 { " " } else { "" },
@@ -532,8 +532,8 @@ fn apply_patch(target: &str, patch: &str) -> Result<String, String> {
 
                 while i < patch_lines.len() && !patch_lines[i].starts_with("@@") {
                     let hunk_line = patch_lines[i];
-                    if hunk_line.starts_with('+') {
-                        add_lines.push(hunk_line[1..].to_string());
+                    if let Some(stripped) = hunk_line.strip_prefix('+') {
+                        add_lines.push(stripped.to_string());
                     } else if hunk_line.starts_with('-') {
                         remove_count += 1;
                     } else if hunk_line.starts_with(' ') || hunk_line.is_empty() {
