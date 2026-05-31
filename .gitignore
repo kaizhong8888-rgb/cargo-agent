@@ -1,2 +1,5 @@
-/target
+# Rust build artifacts (all levels)
+target/
+**/target/
+# Config
 config/
