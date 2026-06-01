@@ -1,0 +1,222 @@
+[
+  [
+    "SMA Crossover",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 13275.303778993048,
+      "total_return_pct": 32.75303778993048,
+      "total_trades": 14,
+      "winning_trades": 7,
+      "losing_trades": 7,
+      "win_rate": 50.0,
+      "max_drawdown": 1081.996161748737,
+      "max_drawdown_pct": 9.181086875244421,
+      "total_pnl": 3275.3037789930477,
+      "avg_win": 616.2803530816358,
+      "avg_loss": -124.62352285942481,
+      "profit_factor": 4.945136671965207,
+      "sharpe_ratio": 1.1622137697705337,
+      "avg_bars_held": 20.285714285714285
+    }
+  ],
+  [
+    "SMA Crossover + RSI Filter",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 13275.303778993048,
+      "total_return_pct": 32.75303778993048,
+      "total_trades": 14,
+      "winning_trades": 7,
+      "losing_trades": 7,
+      "win_rate": 50.0,
+      "max_drawdown": 1081.996161748737,
+      "max_drawdown_pct": 9.181086875244421,
+      "total_pnl": 3275.3037789930477,
+      "avg_win": 616.2803530816358,
+      "avg_loss": -124.62352285942481,
+      "profit_factor": 4.945136671965207,
+      "sharpe_ratio": 1.1622137697705337,
+      "avg_bars_held": 20.285714285714285
+    }
+  ],
+  [
+    "RSI Mean Reversion",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 12567.43891165857,
+      "total_return_pct": 25.6743891165857,
+      "total_trades": 3,
+      "winning_trades": 3,
+      "losing_trades": 0,
+      "win_rate": 100.0,
+      "max_drawdown": 1304.3834246538809,
+      "max_drawdown_pct": 11.13273027396146,
+      "total_pnl": 2567.43891165857,
+      "avg_win": 866.6825599674333,
+      "avg_loss": 0.0,
+      "profit_factor": null,
+      "sharpe_ratio": 0.9627407456949932,
+      "avg_bars_held": 72.0
+    }
+  ],
+  [
+    "VWAP + RSI Reversion",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 11347.781822532399,
+      "total_return_pct": 13.47781822532399,
+      "total_trades": 2,
+      "winning_trades": 2,
+      "losing_trades": 0,
+      "win_rate": 100.0,
+      "max_drawdown": 879.0406717915066,
+      "max_drawdown_pct": 8.708337357788778,
+      "total_pnl": 1347.781822532399,
+      "avg_win": 683.9245214643379,
+      "avg_loss": 0.0,
+      "profit_factor": null,
+      "sharpe_ratio": 1.034857992298035,
+      "avg_bars_held": 64.0
+    }
+  ],
+  [
+    "Triple EMA Trend",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 11041.337582366805,
+      "total_return_pct": 10.413375823668048,
+      "total_trades": 5,
+      "winning_trades": 3,
+      "losing_trades": 2,
+      "win_rate": 60.0,
+      "max_drawdown": 1745.8587435554182,
+      "max_drawdown_pct": 15.477130456302287,
+      "total_pnl": 1041.3375823668048,
+      "avg_win": 632.4166634433374,
+      "avg_loss": -401.9564470168589,
+      "profit_factor": 2.3600193558413527,
+      "sharpe_ratio": 0.4270391432023675,
+      "avg_bars_held": 63.0
+    }
+  ],
+  [
+    "Bollinger Bands + Squeeze",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 10385.34363630974,
+      "total_return_pct": 3.8534363630974076,
+      "total_trades": 10,
+      "winning_trades": 6,
+      "losing_trades": 4,
+      "win_rate": 60.0,
+      "max_drawdown": 1157.8971253799446,
+      "max_drawdown_pct": 11.578971253799446,
+      "total_pnl": 385.34363630974076,
+      "avg_win": 269.5111566385276,
+      "avg_loss": -283.4620155310399,
+      "profit_factor": 1.4261760405549753,
+      "sharpe_ratio": 0.2805991849360414,
+      "avg_bars_held": 18.6
+    }
+  ],
+  [
+    "Bollinger Bands MeanRev",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 10330.830386821253,
+      "total_return_pct": 3.308303868212534,
+      "total_trades": 5,
+      "winning_trades": 3,
+      "losing_trades": 2,
+      "win_rate": 60.0,
+      "max_drawdown": 1153.3439860022518,
+      "max_drawdown_pct": 11.533439860022519,
+      "total_pnl": 330.83038682125334,
+      "avg_win": 321.51991448441913,
+      "avg_loss": -292.16038723150723,
+      "profit_factor": 1.650736693966904,
+      "sharpe_ratio": 0.241302588690161,
+      "avg_bars_held": 37.8
+    }
+  ],
+  [
+    "MACD Crossover",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 10000.0,
+      "total_return_pct": 0.0,
+      "total_trades": 0,
+      "winning_trades": 0,
+      "losing_trades": 0,
+      "win_rate": 0.0,
+      "max_drawdown": 0.0,
+      "max_drawdown_pct": 0.0,
+      "total_pnl": 0.0,
+      "avg_win": 0.0,
+      "avg_loss": 0.0,
+      "profit_factor": 0.0,
+      "sharpe_ratio": 0.0,
+      "avg_bars_held": 0.0
+    }
+  ],
+  [
+    "MACD + Histogram",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 10000.0,
+      "total_return_pct": 0.0,
+      "total_trades": 0,
+      "winning_trades": 0,
+      "losing_trades": 0,
+      "win_rate": 0.0,
+      "max_drawdown": 0.0,
+      "max_drawdown_pct": 0.0,
+      "total_pnl": 0.0,
+      "avg_win": 0.0,
+      "avg_loss": 0.0,
+      "profit_factor": 0.0,
+      "sharpe_ratio": 0.0,
+      "avg_bars_held": 0.0
+    }
+  ],
+  [
+    "MACD + Divergence",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 10000.0,
+      "total_return_pct": 0.0,
+      "total_trades": 0,
+      "winning_trades": 0,
+      "losing_trades": 0,
+      "win_rate": 0.0,
+      "max_drawdown": 0.0,
+      "max_drawdown_pct": 0.0,
+      "total_pnl": 0.0,
+      "avg_win": 0.0,
+      "avg_loss": 0.0,
+      "profit_factor": 0.0,
+      "sharpe_ratio": 0.0,
+      "avg_bars_held": 0.0
+    }
+  ],
+  [
+    "Turtle Trading (Donchian)",
+    {
+      "initial_capital": 10000.0,
+      "final_equity": 10000.0,
+      "total_return_pct": 0.0,
+      "total_trades": 0,
+      "winning_trades": 0,
+      "losing_trades": 0,
+      "win_rate": 0.0,
+      "max_drawdown": 0.0,
+      "max_drawdown_pct": 0.0,
+      "total_pnl": 0.0,
+      "avg_win": 0.0,
+      "avg_loss": 0.0,
+      "profit_factor": 0.0,
+      "sharpe_ratio": 0.0,
+      "avg_bars_held": 0.0
+    }
+  ]
+]

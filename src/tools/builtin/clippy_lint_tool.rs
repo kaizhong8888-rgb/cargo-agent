@@ -645,3 +645,348 @@ fn generate_recommendations(errors: &[Value], warnings: &[Value]) -> Vec<Value> 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(ClippyLintTool));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = ClippyLintTool;
+        let params = HashMap::new();
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing required parameter: action"));
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("nonexistent"));
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+    }
+
+    #[test]
+    fn test_classify_lints() {
+        let lints = vec![
+            json!({"level": "error", "message": {"0": "syntax error"}}),
+            json!({"level": "warning", "message": {"0": "unused variable"}}),
+            json!({"level": "warning", "message": {"0": "dead code"}}),
+            json!({"level": "note", "message": {"0": "consider using"}}),
+        ];
+
+        let (errors, warnings, notes) = classify_lints(&lints);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(warnings.len(), 2);
+        assert_eq!(notes.len(), 1);
+    }
+
+    #[test]
+    fn test_classify_lints_empty() {
+        let (errors, warnings, notes) = classify_lints(&[]);
+        assert!(errors.is_empty());
+        assert!(warnings.is_empty());
+        assert!(notes.is_empty());
+    }
+
+    #[test]
+    fn test_categorize_by_severity() {
+        let lints = vec![
+            json!({"level": "error"}),
+            json!({"level": "warning"}),
+            json!({"level": "warning"}),
+        ];
+        let result = categorize_by_severity(&lints);
+        assert_eq!(result["error"], 1);
+        assert_eq!(result["warning"], 2);
+    }
+
+    #[test]
+    fn test_categorize_by_type() {
+        let lints = vec![
+            json!({
+                "level": "warning",
+                "code": {"code": "clippy::unwrap_used"},
+                "message": {"0": "used unwrap"}
+            }),
+            json!({
+                "level": "warning",
+                "code": {"code": "clippy::clone_on_copy"},
+                "message": {"0": "clone on copy"}
+            }),
+            json!({
+                "level": "warning",
+                "code": {"code": "unknown_lint"},
+                "message": {"0": "unknown"}
+            }),
+        ];
+
+        let result = categorize_by_type(&lints);
+        // All should be categorized under "clippy" or "unknown_lint"
+        assert!(result.is_object());
+    }
+
+    #[test]
+    fn test_categorize_by_file() {
+        let lints = vec![
+            json!({
+                "spans": [{"file_name": "src/main.rs"}]
+            }),
+            json!({
+                "spans": [{"file_name": "src/main.rs"}]
+            }),
+            json!({
+                "spans": [{"file_name": "src/lib.rs"}]
+            }),
+        ];
+
+        let result = categorize_by_file(&lints);
+        let arr = result.as_array().unwrap();
+        // Should be sorted by count: main.rs(2) > lib.rs(1)
+        assert_eq!(arr[0][0], "src/main.rs");
+        assert_eq!(arr[0][1], 2);
+    }
+
+    #[test]
+    fn test_suggest_fix_unwrap_used() {
+        let lint = json!({
+            "code": {"code": "clippy::unwrap_used"},
+            "message": {"0": "called unwrap on a Result"},
+            "spans": [{"file_name": "src/main.rs", "line_start": 10}]
+        });
+
+        let suggestion = suggest_fix_for_lint(&lint).unwrap();
+        assert_eq!(suggestion["code"], "clippy::unwrap_used");
+        assert_eq!(suggestion["auto_fixable"], false);
+        assert!(suggestion["suggestion"].as_str().unwrap().contains("expect"));
+        assert_eq!(suggestion["file"], "src/main.rs");
+        assert_eq!(suggestion["line"], 10);
+    }
+
+    #[test]
+    fn test_suggest_fix_auto_fixable() {
+        let lint = json!({
+            "code": {"code": "clippy::clone_on_copy"},
+            "message": {"0": "clone on copy type"},
+            "spans": [{"file_name": "src/lib.rs", "line_start": 5}]
+        });
+
+        let suggestion = suggest_fix_for_lint(&lint).unwrap();
+        assert_eq!(suggestion["auto_fixable"], true);
+        assert!(suggestion["suggestion"].as_str().unwrap().contains("copied"));
+    }
+
+    #[test]
+    fn test_suggest_fix_from_message_help() {
+        let lint = json!({
+            "code": {"code": "unknown_lint"},
+            "message": {"0": "some issue\nhelp: try doing this instead"},
+            "spans": [{"file_name": "src/test.rs", "line_start": 1}]
+        });
+
+        let suggestion = suggest_fix_for_lint(&lint).unwrap();
+        assert_eq!(suggestion["auto_fixable"], false);
+        assert!(suggestion["suggestion"].as_str().unwrap().contains("try doing this"));
+    }
+
+    #[test]
+    fn test_suggest_fix_no_info_returns_none() {
+        let lint = json!({
+            "code": {"code": "unknown"},
+            "message": {"0": "some message without help"},
+            "spans": []
+        });
+
+        // Should return None since no known lint code and no help in message
+        let result = suggest_fix_for_lint(&lint);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_generate_recommendations_unwrap_heavy() {
+        let errors = vec![];
+        let warnings = (0..5)
+            .map(|_| json!({
+                "code": {"code": "clippy::unwrap_used"},
+                "message": {"0": "unwrap used"}
+            }))
+            .collect::<Vec<_>>();
+
+        let recs = generate_recommendations(&errors, &warnings);
+        assert!(!recs.is_empty());
+        assert!(recs.iter().any(|r| r["category"] == "error_handling"));
+    }
+
+    #[test]
+    fn test_generate_recommendations_errors_critical() {
+        let errors = vec![json!({"message": {"0": "compile error"}})];
+        let warnings = vec![];
+
+        let recs = generate_recommendations(&errors, &warnings);
+        assert!(recs.iter().any(|r| r["priority"] == "critical"));
+    }
+
+    #[test]
+    fn test_generate_recommendations_multiple_lint_types() {
+        let errors = vec![];
+        let warnings: Vec<Value> = (0..11)
+            .map(|i| json!({
+                "code": {"code": format!("clippy::lint_{}", i)},
+                "message": {"0": "warning"}
+            }))
+            .collect();
+
+        let recs = generate_recommendations(&errors, &warnings);
+        // Should recommend addressing multiple lint types
+        assert!(recs.iter().any(|r| r["category"] == "maintenance"));
+    }
+
+    #[test]
+    fn test_generate_recommendations_clone_on_copy() {
+        let errors = vec![];
+        let warnings = vec![json!({
+            "code": {"code": "clippy::clone_on_copy"},
+            "message": {"0": "clone on copy"}
+        })];
+
+        let recs = generate_recommendations(&errors, &warnings);
+        assert!(recs.iter().any(|r| r["category"] == "performance"));
+    }
+
+    #[test]
+    fn test_generate_recommendations_needless_collect() {
+        let errors = vec![];
+        let warnings = vec![json!({
+            "code": {"code": "clippy::needless_collect"},
+            "message": {"0": "needless collect"}
+        })];
+
+        let recs = generate_recommendations(&errors, &warnings);
+        assert!(recs.iter().any(|r| r["category"] == "performance"));
+    }
+
+    #[tokio::test]
+    async fn test_categorize_missing_result_json() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("categorize"));
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("result_json"));
+    }
+
+    #[tokio::test]
+    async fn test_categorize_invalid_json() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("categorize"));
+        params.insert("result_json".to_string(), json!("not valid json"));
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_suggest_fixes_missing_result_json() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("suggest_fixes"));
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_score_with_result_json() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("score"));
+        params.insert("result_json".to_string(), json!([]));
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["quality_score"], 100);
+        assert_eq!(result["grade"], "A+");
+    }
+
+    #[tokio::test]
+    async fn test_score_with_warnings() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("score"));
+        let lints = vec![
+            json!({"level": "warning", "message": {"0": "warn1"}, "code": {"code": "clippy::unwrap_used"}}),
+            json!({"level": "warning", "message": {"0": "warn2"}, "code": {"code": "clippy::unwrap_used"}}),
+        ];
+        params.insert("result_json".to_string(), json!(lints));
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        // Each warning is -3, so 100 - 6 = 94
+        assert_eq!(result["quality_score"], 94);
+    }
+
+    #[tokio::test]
+    async fn test_score_with_errors() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("score"));
+        let lints = vec![
+            json!({"level": "error", "message": {"0": "err1"}}),
+        ];
+        params.insert("result_json".to_string(), json!(lints));
+        let result = tool.execute(&params).await.unwrap();
+        // Each error is -15, so 100 - 15 = 85
+        assert_eq!(result["quality_score"], 85);
+        assert_eq!(result["grade"], "B");
+    }
+
+    #[tokio::test]
+    async fn test_score_low_grade() {
+        let tool = ClippyLintTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("score"));
+        // Many errors to get a low score
+        let lints: Vec<Value> = (0..10)
+            .map(|_| json!({"level": "error", "message": {"0": "error"}}))
+            .collect();
+        params.insert("result_json".to_string(), json!(lints));
+        let result = tool.execute(&params).await.unwrap();
+        // 100 - 10*15 = -50, clamped to 0
+        assert_eq!(result["quality_score"], 0);
+        assert_eq!(result["grade"], "F");
+    }
+
+    #[test]
+    fn test_suggest_fix_all_known_lints() {
+        let known_lints = [
+            "clippy::unwrap_used",
+            "clippy::expect_used",
+            "clippy::todo",
+            "clippy::unimplemented",
+            "clippy::useless_conversion",
+            "clippy::redundant_closure",
+            "clippy::needless_collect",
+            "clippy::clone_on_copy",
+            "clippy::let_and_return",
+            "clippy::match_like_matches_macro",
+            "clippy::if_same_then_else",
+            "clippy::manual_map",
+            "clippy::or_fun_call",
+            "clippy::unnecessary_to_owned",
+            "clippy::explicit_iter_loop",
+            "clippy::needless_borrow",
+        ];
+
+        for lint_code in &known_lints {
+            let lint = json!({
+                "code": {"code": lint_code},
+                "message": {"0": "test message"},
+                "spans": [{"file_name": "src/test.rs", "line_start": 1}]
+            });
+            let suggestion = suggest_fix_for_lint(&lint);
+            assert!(suggestion.is_some(), "No suggestion for {}", lint_code);
+            assert!(!suggestion.as_ref().unwrap()["suggestion"].as_str().unwrap().is_empty());
+        }
+    }
+}

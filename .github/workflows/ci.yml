@@ -1,0 +1,104 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --all-targets --all-features
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-targets --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  coverage:
+    name: Coverage Threshold (80%)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+      - name: Generate coverage
+        run: cargo llvm-cov --lib --json > coverage.json
+      - name: Enforce 80% coverage for new tools
+        run: |
+          python3 -c "
+          import json, sys
+          with open('coverage.json') as f:
+              data = json.load(f)
+          fail = False
+          checked = 0
+          for d in data.get('data', []):
+              for f in d.get('files', []):
+                  fn = f.get('filename', '')
+                  if 'tools/builtin' in fn:
+                      pct = f.get('summary', {}).get('lines', {}).get('percent', 0)
+                      checked += 1
+                      status = 'PASS' if pct >= 80 else 'FAIL'
+                      print(f'[{status}] {fn}: {pct:.1f}%')
+                      if pct < 80:
+                          fail = True
+          print(f'\nChecked {checked} tool files')
+          if fail:
+              print('FAIL: Some tool files below 80% coverage threshold!')
+              sys.exit(1)
+          print('PASS: All tool files meet 80% coverage threshold')
+          "
+
+  cross-platform:
+    name: Cross-platform (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test

@@ -620,3 +620,247 @@ fn generate_dependency_viz(files: &[String], title: &str) -> Result<Value, Strin
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(CodeQualityTool));
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tool() -> CodeQualityTool {
+        CodeQualityTool
+    }
+
+    #[tokio::test]
+    async fn test_score_action_on_dir() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("score".to_string()));
+        params.insert("path".to_string(), Value::String("src/tools/builtin".to_string()));
+        params.insert("recursive".to_string(), Value::Bool(false));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert!(result["overall_score"].as_f64().is_some());
+        let files = result["files"].as_array().unwrap();
+        assert!(!files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_score_action_single_file() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("score".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("src/tools/builtin/hello_tool.rs".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["total_files"], 1);
+        let grade = result["overall_grade"].as_str().unwrap();
+        assert!(["A+", "A", "B", "C", "D", "F"].contains(&grade));
+    }
+
+    #[tokio::test]
+    async fn test_viz_deps_action() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("viz_deps".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("src/tools/builtin/hello_tool.rs".to_string()),
+        );
+        params.insert(
+            "title".to_string(),
+            Value::String("Test Diagram".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert!(result["mermaid"].as_str().unwrap().contains("graph TD"));
+        assert!(result["mermaid"].as_str().unwrap().contains("Test Diagram"));
+    }
+
+    #[tokio::test]
+    async fn test_duplicates_action() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("duplicates".to_string()),
+        );
+        params.insert("path".to_string(), Value::String("src/tools/builtin".to_string()));
+        params.insert("recursive".to_string(), Value::Bool(false));
+        params.insert("min_dup_lines".to_string(), Value::Number(5.into()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert!(result["duplicate_blocks"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("nonexistent".to_string()),
+        );
+        params.insert("path".to_string(), Value::String("src".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("nonexistent"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_path() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("score".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_path() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("score".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("/nonexistent/path/xyz".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_not_a_rust_file() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("score".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("Cargo.toml".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Not a Rust file"));
+    }
+
+    #[test]
+    fn test_calculate_metrics_empty() {
+        let metrics = calculate_metrics("");
+        assert_eq!(metrics.doc_coverage, 0.0);
+        assert_eq!(metrics.test_coverage, 0.0);
+        assert_eq!(metrics.unwrap_ratio, 0.0);
+        assert_eq!(metrics.unsafe_ratio, 0.0);
+        assert_eq!(metrics.todo_ratio, 0.0);
+        assert_eq!(metrics.avg_fn_length, 0.0);
+        assert_eq!(metrics.complexity_score, 0.0);
+        assert_eq!(metrics.comment_ratio, 0.0);
+    }
+
+    #[test]
+    fn test_calculate_metrics_with_code() {
+        let code = r#"
+/// A simple function
+/// with docs
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// TODO: implement this
+fn dangerous() {
+    let _x = None.unwrap();
+}
+
+#[test]
+fn test_add() {
+    assert_eq!(add(1, 2), 3);
+}
+
+#[test]
+fn test_add_negative() {
+    assert_eq!(add(-1, -2), -3);
+}
+"#;
+        let metrics = calculate_metrics(code);
+        assert!(metrics.doc_coverage > 0.0);
+        assert!(metrics.test_coverage > 0.0);
+        assert!(metrics.unwrap_ratio > 0.0);
+        assert!(metrics.todo_ratio > 0.0);
+    }
+
+    #[test]
+    fn test_score_from_metrics_perfect() {
+        let m = QualityMetrics {
+            doc_coverage: 1.0,
+            test_coverage: 1.0,
+            unwrap_ratio: 0.0,
+            unsafe_ratio: 0.0,
+            todo_ratio: 0.0,
+            avg_fn_length: 10.0,
+            complexity_score: 0.0,
+            comment_ratio: 1.0,
+        };
+        let score = score_from_metrics(&m);
+        assert!(score >= 90.0);
+    }
+
+    #[test]
+    fn test_score_from_metrics_terrible() {
+        let m = QualityMetrics {
+            doc_coverage: 0.0,
+            test_coverage: 0.0,
+            unwrap_ratio: 1.0,
+            unsafe_ratio: 0.1,
+            todo_ratio: 0.1,
+            avg_fn_length: 200.0,
+            complexity_score: 1.0,
+            comment_ratio: 0.0,
+        };
+        let score = score_from_metrics(&m);
+        assert!(score < 30.0);
+    }
+
+    #[test]
+    fn test_collect_rust_files() {
+        let mut files = Vec::new();
+        let result = collect_rust_files(Path::new("src"), &mut files, true, 0);
+        assert!(result.is_ok());
+        assert!(!files.is_empty());
+        // Should not include target directory
+        for f in &files {
+            assert!(!f.contains("/target/"));
+        }
+    }
+
+    #[test]
+    fn test_collect_rust_files_depth_limit() {
+        let mut files = Vec::new();
+        let result = collect_rust_files(Path::new("src"), &mut files, true, 25);
+        assert!(result.is_ok());
+        assert!(files.is_empty()); // depth > 20 returns early
+    }
+
+    #[test]
+    fn test_read_file_nonexistent() {
+        let result = read_file("/nonexistent_file_xyz.rs");
+        assert!(result.is_err());
+    }
+}

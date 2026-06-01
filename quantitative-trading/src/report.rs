@@ -2,13 +2,24 @@ use crate::backtest::{BacktestEngine, Trade, TradeSide};
 use crate::data::Candle;
 use serde::{Deserialize, Serialize};
 
+use std::ops::Deref;
+
 /// 回测结果报告
+#[derive(Debug, Clone)]
 pub struct BacktestResult {
     pub engine: BacktestResultData,
     #[allow(dead_code)]
     pub trades: Vec<Trade>,
     #[allow(dead_code)]
     pub total_bars: usize,
+}
+
+// Convenience: allow direct field access like result.sharpe_ratio
+impl Deref for BacktestResult {
+    type Target = BacktestResultData;
+    fn deref(&self) -> &Self::Target {
+        &self.engine
+    }
 }
 
 /// 可序列化的回测结果
@@ -32,6 +43,59 @@ pub struct BacktestResultData {
 }
 
 impl BacktestResult {
+    /// 从交易列表创建结果 (用于参数优化)
+    pub fn from_trades(trades: &[Trade], initial_capital: f64) -> Self {
+        let total_trades = trades.len();
+        let winning_trades = trades.iter().filter(|t| t.pnl > 0.0).count();
+        let losing_trades = trades.iter().filter(|t| t.pnl <= 0.0).count();
+        let win_rate = if total_trades > 0 {
+            winning_trades as f64 / total_trades as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        let final_equity = trades.iter().map(|t| t.pnl).sum::<f64>() + initial_capital;
+        let total_return_pct = (final_equity - initial_capital) / initial_capital * 100.0;
+
+        let (avg_win, avg_loss, profit_factor) = if total_trades > 0 {
+            let wins: Vec<f64> = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl).collect();
+            let losses: Vec<f64> = trades.iter().filter(|t| t.pnl <= 0.0).map(|t| t.pnl.abs()).collect();
+            let avg_w = if !wins.is_empty() { wins.iter().sum::<f64>() / wins.len() as f64 } else { 0.0 };
+            let avg_l = if !losses.is_empty() { losses.iter().sum::<f64>() / losses.len() as f64 } else { 0.0 };
+            let gross_profit: f64 = wins.iter().sum();
+            let gross_loss: f64 = losses.iter().sum();
+            let pf = if gross_loss > 0.0 { gross_profit / gross_loss } else if gross_profit > 0.0 { f64::INFINITY } else { 0.0 };
+            (avg_w, avg_l, pf)
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+
+        // 简化的夏普比率
+        let pnl_pcts: Vec<f64> = trades.iter().map(|t| t.pnl_percent / 100.0).collect();
+        let sharpe_ratio = if pnl_pcts.len() > 1 {
+            let mean: f64 = pnl_pcts.iter().sum::<f64>() / pnl_pcts.len() as f64;
+            let var: f64 = pnl_pcts.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / pnl_pcts.len() as f64;
+            let std = var.sqrt();
+            if std > 0.0 { mean / std * (252.0_f64.sqrt()) } else { 0.0 }
+        } else { 0.0 };
+
+        let max_drawdown_pct = 0.0; // 简化
+        let avg_bars_held = if !trades.is_empty() {
+            trades.iter().map(|t| t.bars_held as f64).sum::<f64>() / trades.len() as f64
+        } else { 0.0 };
+
+        Self {
+            engine: BacktestResultData {
+                initial_capital, final_equity, total_return_pct,
+                total_trades, winning_trades, losing_trades, win_rate,
+                max_drawdown: 0.0, max_drawdown_pct, total_pnl: final_equity - initial_capital,
+                avg_win, avg_loss, profit_factor, sharpe_ratio, avg_bars_held,
+            },
+            trades: trades.to_vec(),
+            total_bars: 0,
+        }
+    }
+
     pub fn new(engine: &BacktestEngine, candles: &[Candle], trades: &[Trade]) -> Self {
         let total_trades = trades.len();
         let winning_trades = engine.winning_trades;

@@ -1,4 +1,5 @@
 pub mod archive_tool;
+pub mod ast_analyzer;
 pub mod benchmark_tool;
 pub mod chart_generator;
 pub mod ci_cd_tool;

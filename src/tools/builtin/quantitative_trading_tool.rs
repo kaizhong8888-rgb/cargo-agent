@@ -4,9 +4,12 @@ use crate::trading::data::{Candle, DataSource};
 use crate::trading::ml::{self, FeatureConfig};
 use crate::trading::report::BacktestResult;
 use crate::trading::strategy::{
-    self, BollingerBandsStrategy, KeltnerChannelsStrategy, KeltnerMode, MacdMode, MacdStrategy,
-    ParabolicSarStrategy, RsiMeanReversion, SmaCrossover, SmaCrossoverWithRsi, Signal, Strategy,
+    self, AdxDiStrategy, AtrTrailingStopStrategy, BollingerBandsStrategy, IchimokuStrategy,
+    KeltnerChannelsStrategy, KeltnerMode, MacdMode, MacdStrategy, MultiFactorMomentum,
+    ObvMomentumStrategy, ParabolicSarStrategy, PairsTradingStrategy, RsiMeanReversion,
+    SmaCrossover, SmaCrossoverWithRsi, Signal, StochasticRsiStrategy, Strategy,
     SuperTrendStrategy, TripleEmaStrategy, TurtleTradingStrategy, VwapRsiStrategy,
+    WilliamsRStrategy,
 };
 use chrono::DateTime;
 use serde_json::Value;
@@ -21,7 +24,7 @@ impl Tool for QuantitativeTradingTool {
     }
 
     fn description(&self) -> &str {
-        "量化交易功能：回测策略比较、技术指标计算、真实市场数据获取。支持13+传统策略和4种机器学习策略（决策树、线性回归、KNN、ML组合）。操作: backtest（策略回测）、indicators（技术指标）、strategies（策略列表）、fetch_data（从API获取真实K线数据）、mock_data（模拟数据）。数据来源支持Binance API（加密货币）、腾讯财经API（A股/港股/美股）、CSV文件、模拟数据。"
+        "量化交易功能：回测策略比较、技术指标计算、真实市场数据获取。支持28+传统策略和12种机器学习策略（决策树、随机森林、线性回归、逻辑回归、线性SVM、感知机、多层感知机、朴素贝叶斯、梯度提升、KNN、ML组合、全模型组合）。操作: backtest（策略回测）、indicators（技术指标）、strategies（策略列表）、fetch_data（从API获取真实K线数据）、mock_data（模拟数据）。数据来源支持Binance API（加密货币）、腾讯财经API（A股/港股/美股）、CSV文件、模拟数据。"
     }
 
     fn parameters(&self) -> Vec<ToolParameter> {
@@ -64,7 +67,7 @@ impl Tool for QuantitativeTradingTool {
             },
             ToolParameter {
                 name: "strategy_names".into(),
-                description: "指定要回测的策略名称（逗号分隔）。默认全部。可选: SMA_Crossover, SMA_RSI, RSI_MeanRev, MACD_Crossover, MACD_Histogram, MACD_Divergence, Turtle_Trading, Triple_EMA, Bollinger_MeanRev, Bollinger_Squeeze, VWAP_RSI, Ensemble, ML_DecisionTree, ML_LinearRegression, ML_KNN, ML_Ensemble".into(),
+                description: "指定要回测的策略名称（逗号分隔）。默认全部。可选: SMA_Crossover, SMA_RSI, RSI_MeanRev, MACD_Crossover, MACD_Histogram, MACD_Divergence, Turtle_Trading, Triple_EMA, Bollinger_MeanRev, Bollinger_Squeeze, VWAP_RSI, SuperTrend, Keltner_Breakout, Keltner_Reversion, Parabolic_SAR, Ichimoku, ADX_DI, ATR_Trailing_Stop, Stochastic_RSI, Williams_R, OBV_Momentum, Multi_Factor, Pairs_Trading, Ensemble, ML_DecisionTree, ML_RandomForest, ML_LinearRegression, ML_LogisticRegression, ML_LinearSvm, ML_Perceptron, ML_Mlp, ML_NaiveBayes, ML_GradientBoost, ML_KNN, ML_Ensemble, ML_FullEnsemble".into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -327,11 +330,28 @@ fn get_strategy_by_name(name: &str) -> Option<Box<dyn Strategy>> {
         ))),
         "Parabolic_SAR" => Some(Box::new(ParabolicSarStrategy::new(0.02, 0.2))),
         "Ensemble" => Some(strategy::create_ensemble_strategy()),
+        // 新增策略
+        "Ichimoku" => Some(Box::new(IchimokuStrategy::new(1))),
+        "ADX_DI" => Some(Box::new(AdxDiStrategy::new(14, 25.0))),
+        "ATR_Trailing_Stop" => Some(Box::new(AtrTrailingStopStrategy::new(10, 3.0))),
+        "Stochastic_RSI" => Some(Box::new(StochasticRsiStrategy::new(14, 3, 14, 30.0, 70.0))),
+        "Williams_R" => Some(Box::new(WilliamsRStrategy::new(14, -80.0, -20.0))),
+        "OBV_Momentum" => Some(Box::new(ObvMomentumStrategy::new(20))),
+        "Multi_Factor" => Some(Box::new(MultiFactorMomentum::new(12, 26, 14, 30.0, 70.0, 20))),
+        "Pairs_Trading" => Some(Box::new(PairsTradingStrategy::new(20, 2.0, 0.5))),
         // ML strategies
         "ML_DecisionTree" => Some(create_ml_strategy_wrapper(MlStrategyType::DecisionTree)),
+        "ML_RandomForest" => Some(create_ml_strategy_wrapper(MlStrategyType::RandomForest)),
         "ML_LinearRegression" => Some(create_ml_strategy_wrapper(MlStrategyType::LinearRegression)),
+        "ML_LogisticRegression" => Some(create_ml_strategy_wrapper(MlStrategyType::LogisticRegression)),
+        "ML_LinearSvm" => Some(create_ml_strategy_wrapper(MlStrategyType::LinearSvm)),
+        "ML_Perceptron" => Some(create_ml_strategy_wrapper(MlStrategyType::Perceptron)),
+        "ML_Mlp" => Some(create_ml_strategy_wrapper(MlStrategyType::Mlp)),
+        "ML_NaiveBayes" => Some(create_ml_strategy_wrapper(MlStrategyType::NaiveBayes)),
+        "ML_GradientBoost" => Some(create_ml_strategy_wrapper(MlStrategyType::GradientBoost)),
         "ML_KNN" => Some(create_ml_strategy_wrapper(MlStrategyType::Knn)),
         "ML_Ensemble" => Some(create_ml_strategy_wrapper(MlStrategyType::Ensemble)),
+        "ML_FullEnsemble" => Some(create_ml_strategy_wrapper(MlStrategyType::FullEnsemble)),
         _ => None,
     }
 }
@@ -339,9 +359,17 @@ fn get_strategy_by_name(name: &str) -> Option<Box<dyn Strategy>> {
 /// ML strategy types for deferred creation (need candles to train)
 enum MlStrategyType {
     DecisionTree,
+    RandomForest,
     LinearRegression,
+    LogisticRegression,
+    LinearSvm,
+    Perceptron,
+    Mlp,
+    NaiveBayes,
+    GradientBoost,
     Knn,
     Ensemble,
+    FullEnsemble,
 }
 
 fn create_ml_strategy_wrapper(ml_type: MlStrategyType) -> Box<dyn Strategy> {
@@ -357,9 +385,17 @@ impl Strategy for MlPlaceholderStrategy {
     fn name(&self) -> &str {
         match self.0 {
             MlStrategyType::DecisionTree => "Decision Tree",
+            MlStrategyType::RandomForest => "Random Forest",
             MlStrategyType::LinearRegression => "Linear Regression",
+            MlStrategyType::LogisticRegression => "Logistic Regression",
+            MlStrategyType::LinearSvm => "Linear SVM",
+            MlStrategyType::Perceptron => "Perceptron",
+            MlStrategyType::Mlp => "MLP",
+            MlStrategyType::NaiveBayes => "Naive Bayes",
+            MlStrategyType::GradientBoost => "Gradient Boosting",
             MlStrategyType::Knn => "KNN",
             MlStrategyType::Ensemble => "ML Ensemble",
+            MlStrategyType::FullEnsemble => "ML Full Ensemble",
         }
     }
     fn generate(&self, _candles: &[Candle]) -> Vec<Signal> {
@@ -384,6 +420,26 @@ fn get_strategy_key(name: &str) -> &str {
         "Keltner Breakout" => "Keltner_Breakout",
         "Keltner Reversion" => "Keltner_Reversion",
         "Parabolic SAR" => "Parabolic_SAR",
+        "Ichimoku Cloud" => "Ichimoku",
+        "ADX + DI Trend Strength" => "ADX_DI",
+        "ATR Trailing Stop" => "ATR_Trailing_Stop",
+        "Stochastic + RSI Dual Oscillator" => "Stochastic_RSI",
+        "Williams %R Momentum" => "Williams_R",
+        "OBV Volume Confirmation" => "OBV_Momentum",
+        "Multi-Factor Momentum" => "Multi_Factor",
+        "Pairs Trading (Mean Rev)" => "Pairs_Trading",
+        "Decision Tree" => "ML_DecisionTree",
+        "Random Forest" => "ML_RandomForest",
+        "Linear Regression" => "ML_LinearRegression",
+        "Logistic Regression" => "ML_LogisticRegression",
+        "Linear SVM" => "ML_LinearSvm",
+        "Perceptron" => "ML_Perceptron",
+        "MLP" => "ML_Mlp",
+        "Naive Bayes" => "ML_NaiveBayes",
+        "Gradient Boosting" => "ML_GradientBoost",
+        "KNN" => "ML_KNN",
+        "ML Ensemble" => "ML_Ensemble",
+        "ML Full Ensemble" => "ML_FullEnsemble",
         _ => "",
     }
 }
@@ -411,8 +467,36 @@ fn handle_strategies() -> Result<Value, String> {
         "key": "ML_DecisionTree",
     }));
     list.push(serde_json::json!({
+        "name": "Random Forest (ML)",
+        "key": "ML_RandomForest",
+    }));
+    list.push(serde_json::json!({
         "name": "Linear Regression (ML)",
         "key": "ML_LinearRegression",
+    }));
+    list.push(serde_json::json!({
+        "name": "Logistic Regression (ML)",
+        "key": "ML_LogisticRegression",
+    }));
+    list.push(serde_json::json!({
+        "name": "Linear SVM (ML)",
+        "key": "ML_LinearSvm",
+    }));
+    list.push(serde_json::json!({
+        "name": "Perceptron (ML)",
+        "key": "ML_Perceptron",
+    }));
+    list.push(serde_json::json!({
+        "name": "MLP (ML)",
+        "key": "ML_Mlp",
+    }));
+    list.push(serde_json::json!({
+        "name": "Naive Bayes (ML)",
+        "key": "ML_NaiveBayes",
+    }));
+    list.push(serde_json::json!({
+        "name": "Gradient Boosting (ML)",
+        "key": "ML_GradientBoost",
     }));
     list.push(serde_json::json!({
         "name": "KNN (ML)",
@@ -421,6 +505,10 @@ fn handle_strategies() -> Result<Value, String> {
     list.push(serde_json::json!({
         "name": "ML Ensemble (Tree+LR+KNN)",
         "key": "ML_Ensemble",
+    }));
+    list.push(serde_json::json!({
+        "name": "ML Full Ensemble (10 models)",
+        "key": "ML_FullEnsemble",
     }));
     Ok(serde_json::json!({
         "total": list.len(),
@@ -476,34 +564,74 @@ fn handle_backtest_sync(params: &HashMap<String, Value>) -> Result<Value, String
     // Separate ML placeholder strategies from regular strategies
     let mut regular_strats: Vec<Box<dyn Strategy>> = Vec::new();
     let mut has_ml_tree = false;
+    let mut has_ml_rf = false;
     let mut has_ml_lr = false;
+    let mut has_ml_logreg = false;
+    let mut has_ml_svm = false;
+    let mut has_ml_perceptron = false;
+    let mut has_ml_mlp = false;
+    let mut has_ml_nb = false;
+    let mut has_ml_gb = false;
     let mut has_ml_knn = false;
     let mut has_ml_ensemble = false;
+    let mut has_ml_full = false;
 
     for strategy in strats {
         match strategy.name() {
             "Decision Tree" => has_ml_tree = true,
+            "Random Forest" => has_ml_rf = true,
             "Linear Regression" => has_ml_lr = true,
+            "Logistic Regression" => has_ml_logreg = true,
+            "Linear SVM" => has_ml_svm = true,
+            "Perceptron" => has_ml_perceptron = true,
+            "MLP" => has_ml_mlp = true,
+            "Naive Bayes" => has_ml_nb = true,
+            "Gradient Boosting" => has_ml_gb = true,
             "KNN" => has_ml_knn = true,
             "ML Ensemble" => has_ml_ensemble = true,
+            "ML Full Ensemble" => has_ml_full = true,
             _ => regular_strats.push(strategy),
         }
     }
 
     // If any ML strategies requested, train them
-    if has_ml_tree || has_ml_lr || has_ml_knn || has_ml_ensemble {
+    if has_ml_tree || has_ml_rf || has_ml_lr || has_ml_logreg || has_ml_svm || has_ml_perceptron || has_ml_mlp || has_ml_nb || has_ml_gb || has_ml_knn || has_ml_ensemble || has_ml_full {
         let config = FeatureConfig::default();
         if has_ml_tree {
             regular_strats.push(Box::new(ml::DecisionTreeStrategy::new(&candles, config.clone(), 5, 10)));
         }
+        if has_ml_rf {
+            regular_strats.push(Box::new(ml::RandomForestStrategy::new(&candles, config.clone(), 10, 4, 10)));
+        }
         if has_ml_lr {
             regular_strats.push(Box::new(ml::LinearRegressionStrategy::new(&candles, config.clone(), 0.001)));
+        }
+        if has_ml_logreg {
+            regular_strats.push(Box::new(ml::LogisticRegressionStrategy::new(&candles, config.clone(), 0.05, 200, 0.01, 0.5)));
+        }
+        if has_ml_svm {
+            regular_strats.push(Box::new(ml::LinearSvmStrategy::new(&candles, config.clone(), 0.01, 200, 0.1)));
+        }
+        if has_ml_perceptron {
+            regular_strats.push(Box::new(ml::PerceptronStrategy::new(&candles, config.clone(), 0.1, 100)));
+        }
+        if has_ml_mlp {
+            regular_strats.push(Box::new(ml::MlpStrategy::new(&candles, config.clone(), 16, 0.05, 100, 0.5)));
+        }
+        if has_ml_nb {
+            regular_strats.push(Box::new(ml::NaiveBayesStrategy::new(&candles, config.clone())));
+        }
+        if has_ml_gb {
+            regular_strats.push(Box::new(ml::GradientBoostingStrategy::new(&candles, config.clone(), 20, 0.1, 8)));
         }
         if has_ml_knn {
             regular_strats.push(Box::new(ml::KnnStrategy::new(&candles, config.clone(), 7)));
         }
         if has_ml_ensemble {
-            regular_strats.push(Box::new(ml::MlEnsembleStrategy::new(&candles, config)));
+            regular_strats.push(Box::new(ml::MlEnsembleStrategy::new(&candles, config.clone())));
+        }
+        if has_ml_full {
+            regular_strats.push(Box::new(ml::MlFullEnsembleStrategy::new(&candles, config)));
         }
     }
 

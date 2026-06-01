@@ -542,6 +542,146 @@ pub fn keltner_channels(
 }
 
 // ========================================================================
+// ADX + DI (Average Directional Index + Directional Indicators)
+// ========================================================================
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdxDiOutput {
+    pub adx: Vec<f64>,     // ADX 趋势强度 (>25 强趋势)
+    pub plus_di: Vec<f64>, // +DI 上升方向指标
+    pub minus_di: Vec<f64>, // -DI 下降方向指标
+}
+
+/// 计算 ADX + DI 指标
+#[inline]
+pub fn adx_di(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> AdxDiOutput {
+    let n = highs.len();
+    if n < period + 1 || period == 0 {
+        let empty = vec![f64::NAN; n];
+        return AdxDiOutput { adx: empty.clone(), plus_di: empty.clone(), minus_di: empty };
+    }
+
+    let mut plus_dm = vec![0.0; n];
+    let mut minus_dm = vec![0.0; n];
+    let mut tr_values = vec![0.0; n];
+
+    for i in 1..n {
+        let high_diff = highs[i] - highs[i - 1];
+        let low_diff = lows[i - 1] - lows[i];
+        plus_dm[i] = if high_diff > low_diff && high_diff > 0.0 { high_diff } else { 0.0 };
+        minus_dm[i] = if low_diff > high_diff && low_diff > 0.0 { low_diff } else { 0.0 };
+
+        let hl = highs[i] - lows[i];
+        let hc = (highs[i] - closes[i - 1]).abs();
+        let cl = (lows[i] - closes[i - 1]).abs();
+        tr_values[i] = hl.max(hc).max(cl);
+    }
+
+    let mut smooth_plus_dm: f64 = plus_dm[1..=period].iter().sum::<f64>() / period as f64;
+    let mut smooth_minus_dm: f64 = minus_dm[1..=period].iter().sum::<f64>() / period as f64;
+    let mut smooth_tr: f64 = tr_values[1..=period].iter().sum::<f64>() / period as f64;
+
+    let mut plus_di = vec![f64::NAN; n];
+    let mut minus_di = vec![f64::NAN; n];
+    let mut dx_values = vec![f64::NAN; n];
+    let p_f64 = period as f64;
+
+    for i in period..n {
+        if i > period {
+            smooth_plus_dm = smooth_plus_dm - smooth_plus_dm / p_f64 + plus_dm[i];
+            smooth_minus_dm = smooth_minus_dm - smooth_minus_dm / p_f64 + minus_dm[i];
+            smooth_tr = smooth_tr - smooth_tr / p_f64 + tr_values[i];
+        }
+
+        if smooth_tr > 0.0 {
+            plus_di[i] = smooth_plus_dm / smooth_tr * 100.0;
+            minus_di[i] = smooth_minus_dm / smooth_tr * 100.0;
+        }
+
+        let di_sum = plus_di[i] + minus_di[i];
+        if di_sum > 0.0 {
+            dx_values[i] = (plus_di[i] - minus_di[i]).abs() / di_sum * 100.0;
+        }
+    }
+
+    let mut adx = vec![f64::NAN; n];
+    let adx_start = period * 2;
+    if n > adx_start {
+        let mut sum_dx = 0.0;
+        let mut count = 0;
+        for i in period..=adx_start {
+            if !dx_values[i].is_nan() { sum_dx += dx_values[i]; count += 1; }
+        }
+        if count > 0 { adx[adx_start] = sum_dx / count as f64; }
+
+        for i in (adx_start + 1)..n {
+            if !dx_values[i].is_nan() && !adx[i - 1].is_nan() {
+                adx[i] = (adx[i - 1] * (p_f64 - 1.0) + dx_values[i]) / p_f64;
+            }
+        }
+    }
+
+    AdxDiOutput { adx, plus_di, minus_di }
+}
+
+// ========================================================================
+// ATR Trailing Stop
+// ========================================================================
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AtrTrailingStopOutput {
+    pub stop_line: Vec<f64>,
+    pub direction: Vec<i8>, // 1=多头止损, -1=空头止损
+}
+
+/// 计算 ATR 追踪止损
+#[inline]
+pub fn atr_trailing_stop(
+    highs: &[f64], lows: &[f64], closes: &[f64],
+    atr_period: usize, multiplier: f64,
+) -> AtrTrailingStopOutput {
+    let n = closes.len();
+    let atr_values = atr(highs, lows, closes, atr_period);
+    let mut stop_line = vec![f64::NAN; n];
+    let mut direction = vec![0i8; n];
+
+    if n < atr_period + 1 {
+        return AtrTrailingStopOutput { stop_line, direction };
+    }
+
+    direction[atr_period] = 1;
+    stop_line[atr_period] = lows[atr_period] - multiplier * atr_values[atr_period];
+
+    for i in (atr_period + 1)..n {
+        if atr_values[i].is_nan() { continue; }
+        let prev_dir = direction[i - 1];
+        let prev_stop = stop_line[i - 1];
+
+        if prev_dir == 1 {
+            let new_stop = lows[i] - multiplier * atr_values[i];
+            let raised = if prev_stop.is_nan() { new_stop } else { new_stop.max(prev_stop) };
+            if closes[i] < raised {
+                direction[i] = -1;
+                stop_line[i] = highs[i] + multiplier * atr_values[i];
+            } else {
+                direction[i] = 1;
+                stop_line[i] = raised;
+            }
+        } else {
+            let new_stop = highs[i] + multiplier * atr_values[i];
+            let lowered = if prev_stop.is_nan() { new_stop } else { new_stop.min(prev_stop) };
+            if closes[i] > lowered {
+                direction[i] = 1;
+                stop_line[i] = lows[i] - multiplier * atr_values[i];
+            } else {
+                direction[i] = -1;
+                stop_line[i] = lowered;
+            }
+        }
+    }
+
+    AtrTrailingStopOutput { stop_line, direction }
+}
+
+// ========================================================================
 // 抛物线转向 (Parabolic SAR) — 简化嵌套逻辑
 // ========================================================================
 #[inline]

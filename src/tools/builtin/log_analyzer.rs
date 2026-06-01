@@ -722,3 +722,345 @@ fn extract_time_bucket(timestamp: &str) -> Option<String> {
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(LogAnalyzerTool));
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn make_tool() -> LogAnalyzerTool {
+        LogAnalyzerTool
+    }
+
+    fn create_test_log(content: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir();
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let file_name = format!("test_log_{}_{}.log", std::process::id(), id);
+        let path = dir.join(file_name);
+        let mut file = std::fs::File::create(&path).expect("create temp file");
+        file.write_all(content.as_bytes()).expect("write log");
+        file.flush().expect("flush");
+        path
+    }
+
+    #[tokio::test]
+    async fn test_parse_action() {
+        let tool = make_tool();
+        let log = create_test_log(
+            "2024-01-15T10:30:00Z [INFO] Server started\n\
+             2024-01-15T10:30:01Z [ERROR] Connection failed\n\
+             2024-01-15T10:30:02Z [DEBUG] Processing request\n",
+        );
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("parse".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["action"], "parse");
+        assert_eq!(result["parsed_entries"], 3);
+        let entries = result["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0]["level"], "INFO");
+        assert_eq!(entries[1]["level"], "ERROR");
+        assert_eq!(entries[2]["level"], "DEBUG");
+    }
+
+    #[tokio::test]
+    async fn test_filter_by_level() {
+        let tool = make_tool();
+        let log = create_test_log(
+            "2024-01-15T10:30:00Z [INFO] Server started\n\
+             2024-01-15T10:30:01Z [ERROR] Connection failed\n\
+             2024-01-15T10:30:02Z [ERROR] Timeout occurred\n\
+             2024-01-15T10:30:03Z [DEBUG] Processing request\n",
+        );
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("filter".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert("level".to_string(), Value::String("ERROR".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        // Filter should find entries with ERROR level (at least 1)
+        let matched = result["matched"].as_u64().unwrap_or(0);
+        assert!(matched >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_filter_by_keyword() {
+        let tool = make_tool();
+        let log = create_test_log(
+            "2024-01-15T10:30:00Z [INFO] Server started\n\
+             2024-01-15T10:30:01Z [ERROR] Connection to database failed\n\
+             2024-01-15T10:30:02Z [INFO] Request processed\n",
+        );
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("filter".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert("keyword".to_string(), Value::String("database".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["matched"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_stats_action() {
+        let tool = make_tool();
+        let log = create_test_log(
+            "2024-01-15T10:30:00Z [INFO] Server started\n\
+             2024-01-15T10:30:01Z [ERROR] Connection failed\n\
+             2024-01-15T10:30:02Z [WARN] Slow query\n\
+             2024-01-15T10:30:03Z [FATAL] Out of memory\n\
+             2024-01-15T10:30:04Z [INFO] Recovery complete\n",
+        );
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("stats".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let stats = &result["stats"];
+        assert_eq!(stats["total_entries"], 5);
+        assert_eq!(stats["error_count"], 1);
+        assert_eq!(stats["warning_count"], 1);
+        assert_eq!(stats["fatal_count"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_tail_action() {
+        let tool = make_tool();
+        let log_content = (0..20)
+            .map(|i| format!("2024-01-15T10:30:{:02}Z [INFO] Line {}", i, i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let log = create_test_log(&log_content);
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("tail".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert("limit".to_string(), Value::Number(5.into()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["showing"], 5);
+        let entries = result["entries"].as_array().unwrap();
+        // Should be the last 5 lines
+        assert_eq!(entries[0]["line"], 16);
+        assert_eq!(entries[4]["line"], 20);
+    }
+
+    #[tokio::test]
+    async fn test_search_action() {
+        let tool = make_tool();
+        let log = create_test_log(
+            "2024-01-15T10:30:00Z [INFO] Server started on port 8080\n\
+             2024-01-15T10:30:01Z [ERROR] Connection to port 5432 failed\n\
+             2024-01-15T10:30:02Z [INFO] Listening on port 8080\n",
+        );
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("search".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert("keyword".to_string(), Value::String("port 8080".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let matches = result["matches"].as_u64().unwrap_or(0);
+        assert!(matches >= 1);
+        let results = result["results"].as_array().unwrap();
+        assert!(results[0]["context"].as_array().unwrap().len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_timeline_action() {
+        let tool = make_tool();
+        let log = create_test_log(
+            "2024-01-15T10:30:00Z [INFO] Event 1\n\
+             2024-01-15T10:30:30Z [ERROR] Event 2\n\
+             2024-01-15T10:31:00Z [INFO] Event 3\n",
+        );
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("timeline".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let timeline = result["timeline"].as_array().unwrap();
+        assert!(!timeline.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_patterns_error_spike() {
+        let tool = make_tool();
+        // Use format that spans multiple lines to ensure all are on separate lines
+        let log_content: String = (0..10)
+            .map(|i| format!("2024-01-15T10:30:{:02}Z [ERROR] Error number {}\n", i, i))
+            .collect();
+        let log = create_test_log(&log_content);
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("patterns".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let patterns = result["patterns"].as_array().unwrap();
+        // At least one pattern should be detected (error spike or high error rate)
+        assert!(!patterns.is_empty() || result["patterns_detected"].as_u64().unwrap_or(0) >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = make_tool();
+        let log = create_test_log("some log line\n");
+
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("invalid".to_string()));
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = make_tool();
+        let log = create_test_log("some log line\n");
+
+        let mut params = HashMap::new();
+        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_file() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("parse".to_string()));
+        params.insert("path".to_string(), Value::String("/nonexistent/logfile.log".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read log file"));
+    }
+
+    #[test]
+    fn test_normalize_level() {
+        assert_eq!(normalize_level("INFO"), "INFO");
+        assert_eq!(normalize_level("WARN"), "WARN");
+        assert_eq!(normalize_level("WARNING"), "WARN");
+        assert_eq!(normalize_level("FATAL"), "FATAL");
+        assert_eq!(normalize_level("CRITICAL"), "FATAL");
+        assert_eq!(normalize_level("ERROR"), "ERROR");
+        assert_eq!(normalize_level("DEBUG"), "DEBUG");
+        assert_eq!(normalize_level("TRACE"), "TRACE");
+    }
+
+    #[test]
+    fn test_parse_log_line_iso_format() {
+        let entry = parse_log_line("2024-01-15T10:30:00Z [INFO] Server started", 1);
+        assert_eq!(entry.level, Some("INFO".to_string()));
+        assert_eq!(entry.message, "Server started");
+        assert!(entry.timestamp.is_some());
+    }
+
+    #[test]
+    fn test_parse_log_line_bracket_format() {
+        let entry = parse_log_line("[2024-01-15 10:30:00] [ERROR] Connection failed", 1);
+        assert_eq!(entry.level, Some("ERROR".to_string()));
+        assert_eq!(entry.message, "Connection failed");
+    }
+
+    #[test]
+    fn test_parse_log_line_simple_format() {
+        let entry = parse_log_line("ERROR: something went wrong", 1);
+        assert_eq!(entry.level, Some("ERROR".to_string()));
+    }
+
+    #[test]
+    fn test_compute_stats() {
+        let entries = vec![
+            LogEntry {
+                line_number: 1,
+                raw: "2024-01-15T10:30:00Z [INFO] test".to_string(),
+                timestamp: Some("2024-01-15T10:30:00Z".to_string()),
+                level: Some("INFO".to_string()),
+                module: None,
+                message: "test".to_string(),
+            },
+            LogEntry {
+                line_number: 2,
+                raw: "2024-01-15T10:30:01Z [ERROR] failure".to_string(),
+                timestamp: Some("2024-01-15T10:30:01Z".to_string()),
+                level: Some("ERROR".to_string()),
+                module: None,
+                message: "failure".to_string(),
+            },
+        ];
+
+        let stats = compute_stats(&entries);
+        assert_eq!(stats["total_entries"], 2);
+        assert_eq!(stats["error_count"], 1);
+    }
+
+    #[test]
+    fn test_filter_entries_invalid_regex() {
+        let entries: Vec<LogEntry> = vec![];
+        let result = filter_entries(&entries, None, None, Some("[invalid"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_filter_entries_by_level() {
+        let entries = vec![
+            LogEntry {
+                line_number: 1,
+                raw: "info line".to_string(),
+                timestamp: None,
+                level: Some("INFO".to_string()),
+                module: None,
+                message: "info line".to_string(),
+            },
+            LogEntry {
+                line_number: 2,
+                raw: "error line".to_string(),
+                timestamp: None,
+                level: Some("ERROR".to_string()),
+                module: None,
+                message: "error line".to_string(),
+            },
+        ];
+
+        let result = filter_entries(&entries, Some("ERROR"), None, None).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].level, Some("ERROR".to_string()));
+    }
+
+    #[test]
+    fn test_extract_time_bucket() {
+        let bucket = extract_time_bucket("2024-01-15T10:30:45Z");
+        assert_eq!(bucket, Some("2024-01-15 10:30".to_string()));
+
+        let bucket = extract_time_bucket("2024-01-15 10:30:45");
+        assert_eq!(bucket, Some("2024-01-15 10:30".to_string()));
+
+        let bucket = extract_time_bucket("no timestamp here");
+        assert!(bucket.is_none());
+    }
+}

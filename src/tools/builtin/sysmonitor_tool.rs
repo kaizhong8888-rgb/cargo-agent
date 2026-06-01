@@ -195,3 +195,217 @@ fn fmt_size(bytes: u64) -> String {
     while s >= 1024.0 && i < 4 { s /= 1024.0; i += 1; }
     if i == 0 { format!("{} {}", bytes, U[i]) } else { format!("{:.2} {}", s, U[i]) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- pct ----
+
+    #[test]
+    fn test_pct_full() { assert_eq!(pct(100, 100), "100.0"); }
+
+    #[test]
+    fn test_pct_half() { assert_eq!(pct(50, 100), "50.0"); }
+
+    #[test]
+    fn test_pct_zero_part() { assert_eq!(pct(0, 100), "0.0"); }
+
+    #[test]
+    fn test_pct_zero_total() { assert_eq!(pct(50, 0), "0"); }
+
+    #[test]
+    fn test_pct_large() {
+        assert_eq!(pct(8_589_934_592, 17_179_869_184), "50.0");
+    }
+
+    #[test]
+    fn test_pct_rounding() {
+        assert_eq!(pct(1, 3), "33.3");
+        assert_eq!(pct(2, 3), "66.7");
+    }
+
+    // ---- fmt_duration ----
+
+    #[test]
+    fn test_fmt_duration_zero() { assert_eq!(fmt_duration(0), "0d 0h 0m"); }
+
+    #[test]
+    fn test_fmt_duration_one_min() { assert_eq!(fmt_duration(60), "0d 0h 1m"); }
+
+    #[test]
+    fn test_fmt_duration_one_hour() { assert_eq!(fmt_duration(3600), "0d 1h 0m"); }
+
+    #[test]
+    fn test_fmt_duration_one_day() { assert_eq!(fmt_duration(86400), "1d 0h 0m"); }
+
+    #[test]
+    fn test_fmt_duration_complex() {
+        assert_eq!(fmt_duration(186300), "2d 3h 45m");
+    }
+
+    #[test]
+    fn test_fmt_duration_leap_year() {
+        assert!(fmt_duration(366 * 86400).contains("366d"));
+    }
+
+    #[test]
+    fn test_fmt_duration_max() {
+        let r = fmt_duration(u64::MAX);
+        assert!(r.contains('d') && r.contains('h') && r.contains('m'));
+    }
+
+    // ---- fmt_size ----
+
+    #[test]
+    fn test_fmt_size_zero() { assert_eq!(fmt_size(0), "0 B"); }
+
+    #[test]
+    fn test_fmt_size_bytes() { assert_eq!(fmt_size(512), "512 B"); }
+
+    #[test]
+    fn test_fmt_size_just_below_kb() { assert_eq!(fmt_size(1023), "1023 B"); }
+
+    #[test]
+    fn test_fmt_size_kb() { assert_eq!(fmt_size(1024), "1.00 KB"); }
+
+    #[test]
+    fn test_fmt_size_just_above_kb() { assert_eq!(fmt_size(1025), "1.00 KB"); }
+
+    #[test]
+    fn test_fmt_size_mb() { assert_eq!(fmt_size(1_048_576), "1.00 MB"); }
+
+    #[test]
+    fn test_fmt_size_partial_mb() { assert_eq!(fmt_size(2_621_440), "2.50 MB"); }
+
+    #[test]
+    fn test_fmt_size_gb() { assert_eq!(fmt_size(1_073_741_824), "1.00 GB"); }
+
+    #[test]
+    fn test_fmt_size_tb() { assert_eq!(fmt_size(1_099_511_627_776), "1.00 TB"); }
+
+    #[test]
+    fn test_fmt_size_5tb() { assert_eq!(fmt_size(5 * 1_099_511_627_776), "5.00 TB"); }
+
+    #[test]
+    fn test_fmt_size_boundary() {
+        assert_eq!(fmt_size(1024), "1.00 KB");
+        assert_eq!(fmt_size(1023), "1023 B");
+    }
+
+    // ---- Integration tests ----
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("invalid"));
+        assert!(tool.execute(&params).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = SysMonitorTool;
+        let params = HashMap::new();
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_info_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("info"));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r.get("hostname").is_some());
+        assert!(r.get("os").is_some());
+        assert!(r.get("uptime_seconds").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cpu_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("cpu"));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r["total_cores"].as_u64().unwrap() > 0);
+        assert!(r.get("global_usage_percent").is_some());
+        assert!(!r["cpus"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_memory_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("memory"));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r["ram"]["total_bytes"].as_u64().unwrap() > 0);
+        assert!(r["ram"]["usage_percent"].as_str().is_some());
+        assert!(r["swap"].get("total_bytes").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_disk_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("disk"));
+        let r = tool.execute(&params).await.unwrap();
+        let disks = r["disks"].as_array().unwrap();
+        assert!(!disks.is_empty());
+        for d in disks {
+            assert!(d.get("mount_point").is_some());
+            assert!(d.get("total_bytes").is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_network_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("network"));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r.get("interfaces").is_some());
+        assert!(r.get("total_received_bytes").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_processes_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("processes"));
+        params.insert("process_count".to_string(), serde_json::json!(5));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r["total_processes"].as_u64().unwrap() > 0);
+        let procs = r["top_processes"].as_array().unwrap();
+        assert!(procs.len() <= 5);
+        for p in procs {
+            assert!(p.get("pid").is_some());
+            assert!(p.get("name").is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_processes_custom_count() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("processes"));
+        params.insert("process_count".to_string(), serde_json::json!(3));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r["top_processes"].as_array().unwrap().len() <= 3);
+    }
+
+    #[tokio::test]
+    async fn test_all_action() {
+        let tool = SysMonitorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), serde_json::json!("all"));
+        let r = tool.execute(&params).await.unwrap();
+        assert!(r.get("system").is_some());
+        assert!(r.get("cpu").is_some());
+        assert!(r.get("memory").is_some());
+        assert!(r.get("disk").is_some());
+        assert!(r.get("network").is_some());
+        assert!(r.get("processes").is_some());
+    }
+}

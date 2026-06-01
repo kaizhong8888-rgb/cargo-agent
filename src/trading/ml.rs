@@ -501,6 +501,818 @@ impl Strategy for MlEnsembleStrategy {
     }
 }
 
+/// 简单伪随机数生成器 (LCG) — 用于 Bootstrap 采样
+struct SimpleRng {
+    state: u64,
+}
+
+impl SimpleRng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+    fn next(&mut self) -> usize {
+        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (self.state >> 33) as usize
+    }
+}
+
+// ========================================================================
+// Random Forest (多棵决策树 + Bootstrap 采样)
+// ========================================================================
+
+pub struct RandomForestStrategy {
+    trees: Vec<TreeNode>,
+    config: FeatureConfig,
+    #[allow(dead_code)]
+    n_trees: usize,
+    name: String,
+}
+
+impl RandomForestStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig, n_trees: usize, max_depth: usize, min_samples: usize) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let _refs: Vec<&[f64]> = features.iter().map(|f| f.as_slice()).collect();
+        let n = features.len();
+
+        let mut trees = Vec::with_capacity(n_trees);
+
+        if n == 0 {
+            trees.push(TreeNode::Leaf(0));
+        } else {
+            for t in 0..n_trees {
+                let mut rng = SimpleRng::new(t as u64 + 42);
+                let (boot_features, boot_labels) = Self::bootstrap_sample(&features, &labels, &mut rng);
+                let boot_refs: Vec<&[f64]> = boot_features.iter().map(|f| f.as_slice()).collect();
+
+                if boot_refs.is_empty() {
+                    trees.push(TreeNode::Leaf(0));
+                } else {
+                    trees.push(TreeNode::build(&boot_refs, &boot_labels, max_depth, min_samples));
+                }
+            }
+        }
+
+        let name = format!("Random Forest (trees={}, depth={})", n_trees, max_depth);
+        Self { trees, config, n_trees, name }
+    }
+
+    fn bootstrap_sample(features: &FeatureMatrix, labels: &[usize], rng: &mut SimpleRng)
+        -> (Vec<[f64; N_FEATURES]>, Vec<usize>)
+    {
+        let n = features.len();
+        let mut bf = Vec::with_capacity(n);
+        let mut bl = Vec::with_capacity(n);
+        for _ in 0..n {
+            let idx = rng.next() % n;
+            bf.push(features[idx]);
+            bl.push(labels[idx]);
+        }
+        (bf, bl)
+    }
+}
+
+impl Strategy for RandomForestStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let mut votes_1 = 0;
+                for tree in &self.trees {
+                    if tree.predict(feat) == 1 { votes_1 += 1; }
+                }
+                signals[idx] = if votes_1 > self.trees.len() / 2 { Signal::Buy } else { Signal::Sell };
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// Gaussian Naive Bayes (朴素贝叶斯分类器)
+// ========================================================================
+
+struct GaussianNB {
+    class_priors: [f64; 2],
+    means: [[f64; N_FEATURES]; 2],
+    variances: [[f64; N_FEATURES]; 2],
+}
+
+impl GaussianNB {
+    fn new() -> Self {
+        Self {
+            class_priors: [0.5, 0.5],
+            means: [[0.0; N_FEATURES]; 2],
+            variances: [[1.0; N_FEATURES]; 2],
+        }
+    }
+
+    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize]) {
+        let n = features.len();
+        if n == 0 { return; }
+
+        let mut class_counts = [0usize; 2];
+        for &l in labels { class_counts[l] += 1; }
+
+        for c in 0..2 {
+            self.class_priors[c] = if n > 0 { class_counts[c] as f64 / n as f64 } else { 0.5 };
+        }
+
+        for c in 0..2 {
+            if class_counts[c] == 0 { continue; }
+            for j in 0..N_FEATURES {
+                let mut sum = 0.0;
+                let mut count = 0;
+                for i in 0..n {
+                    if labels[i] == c { sum += features[i][j]; count += 1; }
+                }
+                self.means[c][j] = if count > 0 { sum / count as f64 } else { 0.0 };
+            }
+            for j in 0..N_FEATURES {
+                let mut sum_sq = 0.0;
+                let mut count = 0;
+                for i in 0..n {
+                    if labels[i] == c {
+                        let diff = features[i][j] - self.means[c][j];
+                        sum_sq += diff * diff;
+                        count += 1;
+                    }
+                }
+                self.variances[c][j] = if count > 0 { sum_sq / count as f64 + 1e-6 } else { 1.0 };
+            }
+        }
+    }
+
+    fn predict(&self, x: &[f64]) -> usize {
+        let mut log_probs = [0.0f64; 2];
+        for c in 0..2 {
+            log_probs[c] = self.class_priors[c].max(1e-10).ln();
+            for j in 0..N_FEATURES {
+                let diff = x[j] - self.means[c][j];
+                let var = self.variances[c][j];
+                log_probs[c] -= 0.5 * (2.0 * std::f64::consts::PI * var).ln() + diff * diff / (2.0 * var);
+            }
+        }
+        if log_probs[0] >= log_probs[1] { 0 } else { 1 }
+    }
+}
+
+pub struct NaiveBayesStrategy {
+    model: GaussianNB,
+    config: FeatureConfig,
+    name: String,
+}
+
+impl NaiveBayesStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let mut model = GaussianNB::new();
+        model.fit(&features, &labels);
+        Self { model, config, name: "Naive Bayes".to_string() }
+    }
+}
+
+impl Strategy for NaiveBayesStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let pred = self.model.predict(feat);
+                signals[idx] = if pred == 1 { Signal::Buy } else { Signal::Sell };
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// Gradient Boosting (梯度提升决策树)
+// ========================================================================
+
+struct ShallowTree {
+    feature_idx: usize,
+    threshold: f64,
+    left_value: f64,
+    right_value: f64,
+}
+
+impl ShallowTree {
+    fn predict(&self, x: &[f64]) -> f64 {
+        if x[self.feature_idx] <= self.threshold { self.left_value } else { self.right_value }
+    }
+
+    fn fit(features: &[&[f64]], residuals: &[f64], max_leaves: usize) -> Self {
+        let n = features.len();
+        if n == 0 {
+            return Self { feature_idx: 0, threshold: 0.0, left_value: 0.0, right_value: 0.0 };
+        }
+
+        let global_mean: f64 = residuals.iter().sum::<f64>() / n as f64;
+        let max_feat = max_leaves.min(N_FEATURES);
+        let total_var: f64 = residuals.iter().map(|r| { let d = r - global_mean; d * d }).sum::<f64>();
+
+        let mut best_gain = 0.0f64;
+        let mut best_feat = 0;
+        let mut best_thresh = 0.0;
+        let mut best_left_val = global_mean;
+        let mut best_right_val = global_mean;
+
+        for feat_idx in 0..max_feat {
+            let mut vals: Vec<(f64, usize)> = features.iter()
+                .enumerate()
+                .map(|(i, f)| (f[feat_idx], i))
+                .collect();
+            vals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+            let step = vals.len().max(10) / 20;
+            let mut left_sum = 0.0f64;
+            let mut left_count = 0usize;
+            for (pos, (_, idx)) in vals.iter().enumerate() {
+                left_sum += residuals[*idx];
+                left_count += 1;
+
+                if (pos + 1) % step != 0 && pos + 1 < vals.len() { continue; }
+
+                let left_mean = left_sum / left_count as f64;
+                let right_sum: f64 = (left_count..n).map(|k| residuals[vals[k].1]).sum();
+                let right_count = n - left_count;
+                if right_count == 0 { continue; }
+                let right_mean = right_sum / right_count as f64;
+
+                let left_var: f64 = (0..left_count).map(|k| { let d = residuals[vals[k].1] - left_mean; d * d }).sum::<f64>();
+                let right_var: f64 = (left_count..n).map(|k| { let d = residuals[vals[k].1] - right_mean; d * d }).sum::<f64>();
+                let gain = total_var - left_var - right_var;
+
+                if gain > best_gain {
+                    best_gain = gain;
+                    best_feat = feat_idx;
+                    best_thresh = vals[pos].0;
+                    best_left_val = left_mean;
+                    best_right_val = right_mean;
+                }
+            }
+        }
+
+        ShallowTree {
+            feature_idx: best_feat,
+            threshold: best_thresh,
+            left_value: best_left_val,
+            right_value: best_right_val,
+        }
+    }
+}
+
+pub struct GradientBoostingStrategy {
+    trees: Vec<ShallowTree>,
+    learning_rate: f64,
+    initial_pred: f64,
+    config: FeatureConfig,
+    name: String,
+}
+
+impl GradientBoostingStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig, n_estimators: usize, learning_rate: f64, max_leaves: usize) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let n = features.len();
+
+        if n == 0 {
+            return Self {
+                trees: Vec::new(), learning_rate, initial_pred: 0.0,
+                config, name: "Gradient Boosting".to_string(),
+            };
+        }
+
+        let label_mean: f64 = labels.iter().map(|l| *l as f64).sum::<f64>() / n as f64;
+        let initial_pred = label_mean - 0.5;
+
+        let mut preds: Vec<f64> = vec![initial_pred; n];
+        let mut trees = Vec::with_capacity(n_estimators);
+
+        for _ in 0..n_estimators {
+            let residuals: Vec<f64> = labels.iter()
+                .zip(preds.iter())
+                .map(|(l, p)| (*l as f64 - 0.5) - p)
+                .collect();
+
+            let feature_refs: Vec<&[f64]> = features.iter().map(|f| f.as_slice()).collect();
+            let tree = ShallowTree::fit(&feature_refs, &residuals, max_leaves);
+            // update predictions before moving tree
+            for i in 0..n {
+                preds[i] += learning_rate * tree.predict(&features[i]);
+            }
+            trees.push(tree);
+        }
+
+        let name = format!("Gradient Boosting (trees={}, lr={})", n_estimators, learning_rate);
+        Self { trees, learning_rate, initial_pred, config, name }
+    }
+}
+
+impl Strategy for GradientBoostingStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let mut pred = self.initial_pred;
+                for tree in &self.trees {
+                    pred += self.learning_rate * tree.predict(feat);
+                }
+                signals[idx] = if pred > 0.0 { Signal::Buy } else { Signal::Sell };
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// Logistic Regression (逻辑回归 + SGD)
+// ========================================================================
+
+fn sigmoid(x: f64) -> f64 {
+    1.0 / (1.0 + (-x).exp().clamp(1e-10, 1e10))
+}
+
+struct LogisticRegressionModel {
+    weights: [f64; N_FEATURES],
+    bias: f64,
+}
+
+impl LogisticRegressionModel {
+    fn new() -> Self {
+        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+    }
+
+    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize, reg: f64) {
+        if features.is_empty() { return; }
+        self.weights = [0.0; N_FEATURES];
+        self.bias = 0.0;
+        let n = features.len();
+        let inv_n = 1.0 / n as f64;
+
+        for _epoch in 0..epochs {
+            let mut grad_w = [0.0f64; N_FEATURES];
+            let mut grad_b = 0.0f64;
+
+            for i in 0..n {
+                let mut logit = self.bias;
+                for j in 0..N_FEATURES { logit += self.weights[j] * features[i][j]; }
+                let pred = sigmoid(logit);
+                let error = pred - labels[i] as f64;
+                for j in 0..N_FEATURES { grad_w[j] += error * features[i][j] + reg * self.weights[j]; }
+                grad_b += error;
+            }
+
+            for j in 0..N_FEATURES { self.weights[j] -= lr * grad_w[j] * inv_n; }
+            self.bias -= lr * grad_b * inv_n;
+        }
+    }
+
+    fn predict_proba(&self, x: &[f64]) -> f64 {
+        let mut logit = self.bias;
+        for j in 0..N_FEATURES { logit += self.weights[j] * x[j]; }
+        sigmoid(logit)
+    }
+}
+
+pub struct LogisticRegressionStrategy {
+    model: LogisticRegressionModel,
+    config: FeatureConfig,
+    threshold: f64,
+    name: String,
+}
+
+impl LogisticRegressionStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig, lr: f64, epochs: usize, reg: f64, threshold: f64) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let mut model = LogisticRegressionModel::new();
+        model.fit(&features, &labels, lr, epochs, reg);
+        let name = format!("Logistic Regression (lr={}, epochs={}, reg={})", lr, epochs, reg);
+        Self { model, config, threshold, name }
+    }
+}
+
+impl Strategy for LogisticRegressionStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let prob = self.model.predict_proba(feat);
+                if prob > self.threshold { signals[idx] = Signal::Buy; }
+                else { signals[idx] = Signal::Sell; }
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// Linear SVM (线性支持向量机 + Hinge loss + SGD)
+// ========================================================================
+
+struct LinearSVM {
+    weights: [f64; N_FEATURES],
+    bias: f64,
+}
+
+impl LinearSVM {
+    fn new() -> Self {
+        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+    }
+
+    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize, c_param: f64) {
+        if features.is_empty() { return; }
+        self.weights = [0.0; N_FEATURES];
+        self.bias = 0.0;
+        let n = features.len();
+        let inv_n = 1.0 / n as f64;
+
+        // 转换标签 0→-1, 1→+1
+        let ys: Vec<f64> = labels.iter().map(|l| if *l == 1 { 1.0 } else { -1.0 }).collect();
+
+        for _epoch in 0..epochs {
+            let mut grad_w = [0.0f64; N_FEATURES];
+            let mut grad_b = 0.0f64;
+
+            for i in 0..n {
+                let mut score = self.bias;
+                for j in 0..N_FEATURES { score += self.weights[j] * features[i][j]; }
+                let margin = ys[i] * score;
+
+                if margin < 1.0 {
+                    // Hinge loss 激活区域
+                    for j in 0..N_FEATURES {
+                        grad_w[j] += -ys[i] * features[i][j] + 2.0 * c_param * self.weights[j];
+                    }
+                    grad_b += -ys[i];
+                } else {
+                    // 仅正则化
+                    for j in 0..N_FEATURES { grad_w[j] += 2.0 * c_param * self.weights[j]; }
+                }
+            }
+
+            for j in 0..N_FEATURES { self.weights[j] -= lr * grad_w[j] * inv_n; }
+            self.bias -= lr * grad_b * inv_n;
+        }
+    }
+
+    fn predict(&self, x: &[f64]) -> usize {
+        let mut score = self.bias;
+        for j in 0..N_FEATURES { score += self.weights[j] * x[j]; }
+        if score > 0.0 { 1 } else { 0 }
+    }
+}
+
+pub struct LinearSvmStrategy {
+    model: LinearSVM,
+    config: FeatureConfig,
+    name: String,
+}
+
+impl LinearSvmStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig, lr: f64, epochs: usize, c_param: f64) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let mut model = LinearSVM::new();
+        model.fit(&features, &labels, lr, epochs, c_param);
+        let name = format!("Linear SVM (lr={}, epochs={}, C={})", lr, epochs, c_param);
+        Self { model, config, name }
+    }
+}
+
+impl Strategy for LinearSvmStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let pred = self.model.predict(feat);
+                signals[idx] = if pred == 1 { Signal::Buy } else { Signal::Sell };
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// Perceptron (感知机 — 单层神经网络)
+// ========================================================================
+
+struct PerceptronModel {
+    weights: [f64; N_FEATURES],
+    bias: f64,
+}
+
+impl PerceptronModel {
+    fn new() -> Self {
+        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+    }
+
+    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize) {
+        if features.is_empty() { return; }
+        // 初始化小随机权重
+        let mut seed: u64 = 42;
+        let mut next_rand = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as f64 / 4294967296.0) * 0.1
+        };
+        for j in 0..N_FEATURES { self.weights[j] = next_rand(); }
+        self.bias = 0.0;
+        let n = features.len();
+
+        for _epoch in 0..epochs {
+            for i in 0..n {
+                let mut score = self.bias;
+                for j in 0..N_FEATURES { score += self.weights[j] * features[i][j]; }
+                let pred = if score >= 0.0 { 1 } else { 0 };
+                let error = labels[i] as isize - pred as isize;
+
+                if error != 0 {
+                    for j in 0..N_FEATURES {
+                        self.weights[j] += lr * error as f64 * features[i][j];
+                    }
+                    self.bias += lr * error as f64;
+                }
+            }
+        }
+    }
+
+    fn predict(&self, x: &[f64]) -> usize {
+        let mut score = self.bias;
+        for j in 0..N_FEATURES { score += self.weights[j] * x[j]; }
+        if score >= 0.0 { 1 } else { 0 }
+    }
+}
+
+pub struct PerceptronStrategy {
+    model: PerceptronModel,
+    config: FeatureConfig,
+    name: String,
+}
+
+impl PerceptronStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig, lr: f64, epochs: usize) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let mut model = PerceptronModel::new();
+        model.fit(&features, &labels, lr, epochs);
+        Self { model, config, name: "Perceptron".to_string() }
+    }
+}
+
+impl Strategy for PerceptronStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let pred = self.model.predict(feat);
+                signals[idx] = if pred == 1 { Signal::Buy } else { Signal::Sell };
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// MLP (2层多层感知机)
+// ========================================================================
+
+struct MlpModel {
+    hidden_size: usize,
+    w1: Vec<[f64; N_FEATURES]>, // hidden x features
+    b1: Vec<f64>,
+    w2: Vec<f64>, // hidden
+    b2: f64,
+}
+
+impl MlpModel {
+    fn new(hidden_size: usize) -> Self {
+        let mut seed: u64 = 123;
+        let mut next_rand = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as f64 / 4294967296.0) * 0.5
+        };
+        let mut w1 = vec![[0.0; N_FEATURES]; hidden_size];
+        let mut b1 = vec![0.0; hidden_size];
+        let mut w2 = vec![0.0; hidden_size];
+        for h in 0..hidden_size {
+            for j in 0..N_FEATURES { w1[h][j] = next_rand(); }
+            b1[h] = 0.0;
+            w2[h] = next_rand();
+        }
+        Self { hidden_size, w1, b1, w2, b2: 0.0 }
+    }
+
+    fn relu(x: f64) -> f64 { if x > 0.0 { x } else { 0.0 } }
+    fn relu_deriv(x: f64) -> f64 { if x > 0.0 { 1.0 } else { 0.0 } }
+
+    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize) {
+        if features.is_empty() { return; }
+        let n = features.len();
+        let h = self.hidden_size;
+
+        for _epoch in 0..epochs {
+            for i in 0..n {
+                // Forward pass
+                let mut hidden = vec![0.0; h];
+                let mut hidden_pre = vec![0.0; h];
+                for hh in 0..h {
+                    let mut s = self.b1[hh];
+                    for j in 0..N_FEATURES { s += self.w1[hh][j] * features[i][j]; }
+                    hidden_pre[hh] = s;
+                    hidden[hh] = Self::relu(s);
+                }
+                let mut out = self.b2;
+                for hh in 0..h { out += self.w2[hh] * hidden[hh]; }
+                let pred = sigmoid(out);
+                let target = labels[i] as f64;
+                let error = pred - target; // d_loss/d_out
+
+                // Backward pass
+                let d_out = error * pred * (1.0 - pred); // sigmoid derivative
+
+                let mut dw2 = vec![0.0; h];
+                let db2 = d_out;
+                for hh in 0..h {
+                    dw2[hh] = d_out * hidden[hh];
+                }
+
+                // Backprop to hidden layer
+                let mut dw1 = vec![[0.0; N_FEATURES]; h];
+                let mut db1 = vec![0.0; h];
+                for hh in 0..h {
+                    let d_hidden = d_out * self.w2[hh] * Self::relu_deriv(hidden_pre[hh]);
+                    db1[hh] = d_hidden;
+                    for j in 0..N_FEATURES {
+                        dw1[hh][j] = d_hidden * features[i][j];
+                    }
+                }
+
+                // Update weights
+                for hh in 0..h {
+                    for j in 0..N_FEATURES { self.w1[hh][j] -= lr * dw1[hh][j] / n as f64; }
+                    self.b1[hh] -= lr * db1[hh] / n as f64;
+                    self.w2[hh] -= lr * dw2[hh] / n as f64;
+                }
+                self.b2 -= lr * db2 / n as f64;
+            }
+        }
+    }
+
+    fn predict_proba(&self, x: &[f64]) -> f64 {
+        let h = self.hidden_size;
+        let mut hidden = vec![0.0; h];
+        for hh in 0..h {
+            let mut s = self.b1[hh];
+            for j in 0..N_FEATURES { s += self.w1[hh][j] * x[j]; }
+            hidden[hh] = Self::relu(s);
+        }
+        let mut out = self.b2;
+        for hh in 0..h { out += self.w2[hh] * hidden[hh]; }
+        sigmoid(out)
+    }
+}
+
+pub struct MlpStrategy {
+    model: MlpModel,
+    config: FeatureConfig,
+    threshold: f64,
+    name: String,
+}
+
+impl MlpStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig, hidden_size: usize, lr: f64, epochs: usize, threshold: f64) -> Self {
+        let (features, labels, _start) = extract_features(candles, &config);
+        let mut model = MlpModel::new(hidden_size);
+        model.fit(&features, &labels, lr, epochs);
+        let name = format!("MLP (hidden={}, lr={}, epochs={})", hidden_size, lr, epochs);
+        Self { model, config, threshold, name }
+    }
+}
+
+impl Strategy for MlpStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let n = candles.len();
+        let mut signals = vec![Signal::Hold; n];
+        let (features, _labels, start_idx) = extract_features(candles, &self.config);
+        for (i, feat) in features.iter().enumerate() {
+            let idx = start_idx + i;
+            if idx < n {
+                let prob = self.model.predict_proba(feat);
+                if prob > self.threshold { signals[idx] = Signal::Buy; }
+                else { signals[idx] = Signal::Sell; }
+            }
+        }
+        signals
+    }
+}
+
+// ========================================================================
+// 全模型 ML Ensemble (10个模型投票)
+// ========================================================================
+
+pub struct MlFullEnsembleStrategy {
+    tree: DecisionTreeStrategy,
+    rf: RandomForestStrategy,
+    lr: LinearRegressionStrategy,
+    logreg: LogisticRegressionStrategy,
+    svm: LinearSvmStrategy,
+    perceptron: PerceptronStrategy,
+    mlp: MlpStrategy,
+    nb: NaiveBayesStrategy,
+    gb: GradientBoostingStrategy,
+    knn: KnnStrategy,
+    name: String,
+}
+
+impl MlFullEnsembleStrategy {
+    pub fn new(candles: &[Candle], config: FeatureConfig) -> Self {
+        let tree = DecisionTreeStrategy::new(candles, config.clone(), 5, 10);
+        let rf = RandomForestStrategy::new(candles, config.clone(), 10, 4, 10);
+        let lr = LinearRegressionStrategy::new(candles, config.clone(), 0.001);
+        let logreg = LogisticRegressionStrategy::new(candles, config.clone(), 0.05, 200, 0.01, 0.5);
+        let svm = LinearSvmStrategy::new(candles, config.clone(), 0.01, 200, 0.1);
+        let perceptron = PerceptronStrategy::new(candles, config.clone(), 0.1, 100);
+        let mlp = MlpStrategy::new(candles, config.clone(), 16, 0.05, 100, 0.5);
+        let nb = NaiveBayesStrategy::new(candles, config.clone());
+        let gb = GradientBoostingStrategy::new(candles, config.clone(), 20, 0.1, 8);
+        let knn = KnnStrategy::new(candles, config.clone(), 7);
+        let name = "ML Full Ensemble (10 models)".to_string();
+        Self { tree, rf, lr, logreg, svm, perceptron, mlp, nb, gb, knn, name }
+    }
+}
+
+impl Strategy for MlFullEnsembleStrategy {
+    fn name(&self) -> &str { &self.name }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let all_signals: Vec<Vec<Signal>> = vec![
+            self.tree.generate(candles),
+            self.rf.generate(candles),
+            self.lr.generate(candles),
+            self.logreg.generate(candles),
+            self.svm.generate(candles),
+            self.perceptron.generate(candles),
+            self.mlp.generate(candles),
+            self.nb.generate(candles),
+            self.gb.generate(candles),
+            self.knn.generate(candles),
+        ];
+
+        let n = candles.len();
+        let threshold = (all_signals.len() as f64 / 2.0).ceil() as usize;
+        let mut signals = vec![Signal::Hold; n];
+
+        for i in 0..n {
+            let mut buy_votes = 0;
+            let mut sell_votes = 0;
+            for s in &all_signals {
+                if i < s.len() {
+                    match s[i] {
+                        Signal::Buy => buy_votes += 1,
+                        Signal::Sell => sell_votes += 1,
+                        _ => {}
+                    }
+                }
+            }
+            if buy_votes >= threshold && buy_votes > sell_votes {
+                signals[i] = Signal::Buy;
+            } else if sell_votes >= threshold && sell_votes > buy_votes {
+                signals[i] = Signal::Sell;
+            }
+        }
+        signals
+    }
+}
+
 // ========================================================================
 // 创建 ML 策略
 // ========================================================================
@@ -594,5 +1406,77 @@ mod tests {
             let signals = s.generate(&candles);
             assert_eq!(signals.len(), candles.len());
         }
+    }
+
+    #[test]
+    fn test_random_forest() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = RandomForestStrategy::new(&candles, config, 5, 4, 10);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_naive_bayes() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = NaiveBayesStrategy::new(&candles, config);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_gradient_boosting() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = GradientBoostingStrategy::new(&candles, config, 10, 0.1, 8);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_ml_full_ensemble() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = MlFullEnsembleStrategy::new(&candles, config);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_logistic_regression() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = LogisticRegressionStrategy::new(&candles, config, 0.05, 200, 0.01, 0.5);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_linear_svm() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = LinearSvmStrategy::new(&candles, config, 0.01, 200, 0.1);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_perceptron() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = PerceptronStrategy::new(&candles, config, 0.1, 100);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
+    }
+
+    #[test]
+    fn test_mlp() {
+        let candles = create_test_candles();
+        let config = FeatureConfig::default();
+        let strategy = MlpStrategy::new(&candles, config, 16, 0.05, 100, 0.5);
+        let signals = strategy.generate(&candles);
+        assert_eq!(signals.len(), candles.len());
     }
 }

@@ -207,7 +207,7 @@ impl BenchmarkTool {
                         "elapsed_ns": elapsed,
                         "elapsed_ms": elapsed as f64 / 1_000_000.0,
                     }));
-                    if fastest.is_none() || elapsed < fastest.as_ref().unwrap().1 {
+                    if fastest.is_none() || elapsed < fastest.as_ref().map_or(u128::MAX, |(_, t)| *t) {
                         fastest = Some((name.clone(), elapsed));
                     }
                 }
@@ -539,7 +539,7 @@ fn main() {{
         output
             .stdin
             .as_ref()
-            .unwrap()
+            .ok_or("rustc process stdin unavailable")?
             .write_all(code.as_bytes())
             .map_err(|e| format!("Failed to write code: {e}"))?;
 
@@ -662,7 +662,7 @@ fn count_recursive_functions(content: &str) -> usize {
     let mut count = 0;
     for cap in RE_FN.captures_iter(content) {
         let fn_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-        let start = cap.get(0).unwrap().end();
+        let start = cap.get(0).map_or(0, |m| m.end());
         // Find matching brace
         let rest = &content[start..];
         let mut depth = 0;
@@ -699,4 +699,356 @@ fn count_string_concatenation(content: &str) -> usize {
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(BenchmarkTool));
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tool() -> BenchmarkTool {
+        BenchmarkTool
+    }
+
+    #[test]
+    fn test_wrap_for_benchmark() {
+        let tool = make_tool();
+        let code = "let x = 1 + 1;";
+        let wrapped = tool.wrap_for_benchmark(code, 1000);
+
+        assert!(wrapped.contains("1000u64"));
+        assert!(wrapped.contains("let x = 1 + 1;"));
+        assert!(wrapped.contains("Instant::now()"));
+        assert!(wrapped.contains("elapsed.as_nanos()"));
+    }
+
+    #[test]
+    fn test_count_nested_loops() {
+        let code = r#"
+fn example() {
+    for i in 0..10 {
+        for j in 0..10 {
+            println!("{}", i * j);
+        }
+    }
+}
+"#;
+        let count = count_nested_loops(code);
+        assert!(count >= 1);
+    }
+
+    #[test]
+    fn test_count_nested_loops_no_nesting() {
+        let code = r#"
+fn example() {
+    for i in 0..10 {
+        println!("{}", i);
+    }
+    for j in 0..5 {
+        println!("{}", j);
+    }
+}
+"#;
+        let count = count_nested_loops(code);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_recursive_functions() {
+        let code = r#"
+pub fn fibonacci(n: u64) -> u64 {
+    if n <= 1 {
+        return n;
+    }
+    fibonacci(n - 1) + fibonacci(n - 2)
+}
+"#;
+        let count = count_recursive_functions(code);
+        assert!(count >= 1);
+    }
+
+    #[test]
+    fn test_count_recursive_functions_no_recursion() {
+        let code = r#"
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+"#;
+        let count = count_recursive_functions(code);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_string_concatenation() {
+        let code = r#"
+fn build_string() -> String {
+    let a = "hello".to_string() + " " + "world";
+    let b = String::from("foo") + "bar";
+    b
+}
+"#;
+        let count = count_string_concatenation(code);
+        assert!(count >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("invalid".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = make_tool();
+        let params = HashMap::new();
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_micro_benchmark_missing_code() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("micro_benchmark".to_string()),
+        );
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_compare_missing_implementations() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("compare".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_compare_empty_implementations() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("compare".to_string()));
+        params.insert("implementations".to_string(), Value::String("[]".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+    }
+
+    #[tokio::test]
+    async fn test_compare_invalid_json() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("compare".to_string()));
+        params.insert(
+            "implementations".to_string(),
+            Value::String("not valid json".to_string()),
+        );
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_analyze_hotspots_missing_path() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("analyze_hotspots".to_string()),
+        );
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_estimate_complexity_missing_code() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("estimate_complexity".to_string()),
+        );
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_estimate_complexity_simple() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("estimate_complexity".to_string()),
+        );
+        params.insert(
+            "code".to_string(),
+            Value::String("let x = 1 + 1;".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert!(result["estimated_complexity"]
+            .as_str()
+            .unwrap()
+            .contains("O(1)"));
+    }
+
+    #[tokio::test]
+    async fn test_estimate_complexity_with_loops() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("estimate_complexity".to_string()),
+        );
+        params.insert(
+            "code".to_string(),
+            Value::String(
+                r#"
+for i in 0..n {
+    for j in 0..n {
+        sum += i * j;
+    }
+}
+"#
+                .to_string(),
+            ),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let complexity = result["estimated_complexity"].as_str().unwrap();
+        assert!(complexity.contains("O(n") || complexity.contains("quadratic"));
+        assert!(result["factors"].as_array().unwrap().len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_estimate_complexity_with_recursion() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("estimate_complexity".to_string()),
+        );
+        params.insert(
+            "code".to_string(),
+            Value::String(
+                r#"
+pub fn fib(n: u64) -> u64 {
+    if n <= 1 { return n; }
+    fib(n - 1) + fib(n - 2)
+}
+"#
+                .to_string(),
+            ),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let factors = result["factors"].as_array().unwrap();
+        let has_recursive = factors.iter().any(|f| f["factor"] == "recursive_calls");
+        assert!(has_recursive);
+    }
+
+    #[tokio::test]
+    async fn test_estimate_complexity_with_clone() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("estimate_complexity".to_string()),
+        );
+        params.insert(
+            "code".to_string(),
+            Value::String(
+                r#"
+let a = vec.clone();
+let b = vec.clone();
+let c = vec.clone();
+"#
+                .to_string(),
+            ),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        let factors = result["factors"].as_array().unwrap();
+        let has_clone = factors.iter().any(|f| f["factor"] == "clone_operations");
+        assert!(has_clone);
+    }
+
+    #[test]
+    fn test_collect_pub_functions_on_file() {
+        let tool = make_tool();
+        let mut functions = Vec::new();
+        let result = tool.collect_pub_functions(
+            Path::new("src/tools/builtin/hello_tool.rs"),
+            &mut functions,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_collect_pub_functions_on_dir() {
+        let tool = make_tool();
+        let mut functions = Vec::new();
+        let result =
+            tool.collect_pub_functions(Path::new("src/tools/builtin"), &mut functions);
+        assert!(result.is_ok());
+        assert!(!functions.is_empty());
+    }
+
+    #[test]
+    fn test_collect_rust_files_basic() {
+        let tool = make_tool();
+        let mut files = Vec::new();
+        let result = tool.collect_rust_files(Path::new("src"), &mut files, true, 0);
+        assert!(result.is_ok());
+        assert!(!files.is_empty());
+        // Should skip target directory
+        for f in &files {
+            assert!(!f.contains("/target/"));
+        }
+    }
+
+    #[test]
+    fn test_collect_rust_files_depth_limit() {
+        let tool = make_tool();
+        let mut files = Vec::new();
+        let result = tool.collect_rust_files(Path::new("src"), &mut files, true, 15);
+        assert!(result.is_ok());
+        assert!(files.is_empty()); // depth > 10 returns early
+    }
+
+    #[test]
+    fn test_collect_rust_files_non_dir() {
+        // collect_rust_files only handles directories, not single files.
+        // When given a file path, std::fs::read_dir will fail.
+        let tool = make_tool();
+        let mut files = Vec::new();
+        let result = tool.collect_rust_files(
+            Path::new("src/tools/builtin/hello_tool.rs"),
+            &mut files,
+            true,
+            0,
+        );
+        // The function tries to read_dir on a file path, which fails.
+        // This is expected behavior.
+        assert!(result.is_err());
+    }
 }

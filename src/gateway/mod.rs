@@ -137,6 +137,9 @@ impl Gateway {
         // Test Generator: analyze Rust source and generate unit/integration/property tests
         crate::tools::builtin::test_generator::register_all(&mut tool_registry);
 
+        // AST Analyzer: AST-level code analysis using syn (analyze, unused_imports, public_api, dependencies, complexity)
+        crate::tools::builtin::ast_analyzer::register_all(&mut tool_registry);
+
         // Benchmark: performance analysis, micro-benchmarks, criterion code generation, hotspot detection
         crate::tools::builtin::benchmark_tool::register_all(&mut tool_registry);
 

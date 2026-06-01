@@ -1072,6 +1072,521 @@ impl Strategy for EnsembleStrategy {
 }
 
 // ========================================================================
+// 1️⃣3️⃣ 一目均衡表 (Ichimoku Cloud) 趋势跟踪策略
+// ========================================================================
+pub struct IchimokuStrategy {
+    /// TK交叉确认窗口 (默认1根)
+    confirm_period: usize,
+}
+
+impl IchimokuStrategy {
+    pub fn new(confirm_period: usize) -> Self {
+        Self { confirm_period }
+    }
+}
+
+impl Strategy for IchimokuStrategy {
+    fn name(&self) -> &str {
+        "Ichimoku Cloud"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
+        let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+
+        let ichi = indicators::ichimoku(&highs, &lows, &closes);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        // 需要足够的数据 (52周期 + 26前移)
+        let warmup = 78;
+        if n < warmup + self.confirm_period {
+            return signals;
+        }
+
+        for i in warmup..(n - self.confirm_period) {
+            let tenkan = ichi.tenkan_sen[i];
+            let kijun = ichi.kijun_sen[i];
+            let span_a = ichi.senkou_span_a[i];
+            let span_b = ichi.senkou_span_b[i];
+            let price = closes[i];
+            let chikou = ichi.chikou_span[i];
+
+            if tenkan.is_nan() || kijun.is_nan() || span_a.is_nan() || span_b.is_nan() {
+                continue;
+            }
+
+            // 多头条件: TK金叉 + 价格在云层上方 + 迟行带确认
+            let tk_bullish = tenkan > kijun;
+            let above_cloud = price > span_a.max(span_b);
+            let chikou_confirmed = chikou.is_nan() || chikou > closes.get(i.saturating_add(26)).copied().unwrap_or(f64::MAX);
+
+            if tk_bullish && above_cloud && chikou_confirmed {
+                // 确认: TK交叉后confirm_period根K线保持
+                let mut confirmed = true;
+                for j in 1..=self.confirm_period {
+                    if i + j < n {
+                        let ft = ichi.tenkan_sen[i + j];
+                        let fk = ichi.kijun_sen[i + j];
+                        if !(ft.is_nan() || fk.is_nan()) && ft <= fk {
+                            confirmed = false;
+                            break;
+                        }
+                    }
+                }
+                if confirmed {
+                    signals[i + self.confirm_period] = Signal::Buy;
+                }
+            }
+
+            // 空头条件: TK死叉 + 价格在云层下方
+            let tk_bearish = tenkan < kijun;
+            let below_cloud = price < span_a.min(span_b);
+
+            if tk_bearish && below_cloud {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 1️⃣4️⃣ ADX + DI 趋势强度过滤策略
+// ========================================================================
+pub struct AdxDiStrategy {
+    adx_period: usize,
+    /// ADX 阈值，超过表示趋势较强 (默认25)
+    adx_threshold: f64,
+}
+
+impl AdxDiStrategy {
+    pub fn new(adx_period: usize, adx_threshold: f64) -> Self {
+        Self { adx_period, adx_threshold }
+    }
+}
+
+impl Strategy for AdxDiStrategy {
+    fn name(&self) -> &str {
+        "ADX + DI Trend Strength"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
+        let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+
+        let adx_out = indicators::adx_di(&highs, &lows, &closes, self.adx_period);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        let warmup = self.adx_period * 2 + 1;
+        if n <= warmup { return signals; }
+
+        for i in warmup..n {
+            let adx = adx_out.adx[i];
+            let plus_di = adx_out.plus_di[i];
+            let minus_di = adx_out.minus_di[i];
+            let prev_plus = adx_out.plus_di[i - 1];
+            let prev_minus = adx_out.minus_di[i - 1];
+
+            if adx.is_nan() || plus_di.is_nan() || minus_di.is_nan() {
+                continue;
+            }
+
+            // 买入: 趋势强(ADX>阈值) + +DI > -DI + +DI上穿-DI
+            if adx > self.adx_threshold && plus_di > minus_di && prev_plus <= prev_minus {
+                signals[i] = Signal::Buy;
+            }
+            // 卖出: 趋势强(ADX>阈值) + -DI > +DI + -DI上穿+DI
+            else if adx > self.adx_threshold && minus_di > plus_di && prev_minus <= prev_plus {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 1️⃣5️⃣ ATR 追踪止损策略
+// ========================================================================
+pub struct AtrTrailingStopStrategy {
+    atr_period: usize,
+    multiplier: f64,
+}
+
+impl AtrTrailingStopStrategy {
+    pub fn new(atr_period: usize, multiplier: f64) -> Self {
+        Self { atr_period, multiplier }
+    }
+}
+
+impl Strategy for AtrTrailingStopStrategy {
+    fn name(&self) -> &str {
+        "ATR Trailing Stop"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
+        let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+
+        let ats = indicators::atr_trailing_stop(&highs, &lows, &closes, self.atr_period, self.multiplier);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        let warmup = self.atr_period + 1;
+        if n <= warmup { return signals; }
+
+        for i in warmup..n {
+            let curr_dir = ats.direction[i];
+            let prev_dir = ats.direction[i - 1];
+
+            if prev_dir == 0 || curr_dir == 0 { continue; }
+
+            // 从空头止损翻多头止损 → 买入
+            if prev_dir == -1 && curr_dir == 1 {
+                signals[i] = Signal::Buy;
+            }
+            // 从多头止损翻空头止损 → 卖出
+            else if prev_dir == 1 && curr_dir == -1 {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 1️⃣6️⃣ 随机指标 + RSI 双振荡器策略
+// ========================================================================
+pub struct StochasticRsiStrategy {
+    stoch_k_period: usize,
+    stoch_d_period: usize,
+    rsi_period: usize,
+    oversold: f64,
+    overbought: f64,
+}
+
+impl StochasticRsiStrategy {
+    pub fn new(
+        stoch_k_period: usize,
+        stoch_d_period: usize,
+        rsi_period: usize,
+        oversold: f64,
+        overbought: f64,
+    ) -> Self {
+        Self {
+            stoch_k_period,
+            stoch_d_period,
+            rsi_period,
+            oversold,
+            overbought,
+        }
+    }
+}
+
+impl Strategy for StochasticRsiStrategy {
+    fn name(&self) -> &str {
+        "Stochastic + RSI Dual Oscillator"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
+        let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+
+        let stoch = indicators::stochastic(&highs, &lows, &closes, self.stoch_k_period, self.stoch_d_period);
+        let rsi_vals = indicators::rsi(&closes, self.rsi_period);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        let warmup = self.stoch_k_period.max(self.rsi_period) + self.stoch_d_period * 2;
+        if n <= warmup { return signals; }
+
+        for i in warmup..n {
+            let k = stoch.k[i];
+            let d = stoch.d[i];
+            let prev_k = stoch.k[i - 1];
+            let prev_d = stoch.d[i - 1];
+            let rsi_val = rsi_vals[i];
+            let prev_rsi = rsi_vals[i - 1];
+
+            if k.is_nan() || d.is_nan() || rsi_val.is_nan() { continue; }
+
+            // 买入: K从下方上穿D(金叉) + RSI在超卖区域回升
+            if prev_k <= prev_d && k > d && rsi_val < self.oversold && prev_rsi <= rsi_val {
+                signals[i] = Signal::Buy;
+            }
+            // 卖出: K从上方下穿D(死叉) + RSI在超买区域回落
+            else if prev_k >= prev_d && k < d && rsi_val > self.overbought && prev_rsi >= rsi_val {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 1️⃣7️⃣ Williams %R 动量策略
+// ========================================================================
+pub struct WilliamsRStrategy {
+    period: usize,
+    oversold: f64,  // 默认 -80
+    overbought: f64, // 默认 -20
+}
+
+impl WilliamsRStrategy {
+    pub fn new(period: usize, oversold: f64, overbought: f64) -> Self {
+        Self { period, oversold, overbought }
+    }
+}
+
+impl Strategy for WilliamsRStrategy {
+    fn name(&self) -> &str {
+        "Williams %R Momentum"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
+        let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+
+        let wr = indicators::williams_r(&highs, &lows, &closes, self.period);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        if n <= self.period { return signals; }
+
+        for i in self.period..n {
+            let curr = wr[i];
+            let prev = wr[i - 1];
+            if curr.is_nan() { continue; }
+
+            // 买入: %R 从超卖区(-100附近)回升
+            if prev <= self.oversold && curr > self.oversold {
+                signals[i] = Signal::Buy;
+            }
+            // 卖出: %R 从超买区(0附近)回落
+            else if prev >= self.overbought && curr < self.overbought {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 1️⃣8️⃣ OBV 量价确认策略
+// ========================================================================
+pub struct ObvMomentumStrategy {
+    sma_period: usize,
+}
+
+impl ObvMomentumStrategy {
+    pub fn new(sma_period: usize) -> Self {
+        Self { sma_period }
+    }
+}
+
+impl Strategy for ObvMomentumStrategy {
+    fn name(&self) -> &str {
+        "OBV Volume Confirmation"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+        let volumes: Vec<f64> = candles.iter().map(|c| c.volume).collect();
+
+        let obv_vals = indicators::obv(&closes, &volumes);
+        let obv_sma = indicators::sma(&obv_vals, self.sma_period);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        let warmup = self.sma_period + 1;
+        if n <= warmup { return signals; }
+
+        for i in warmup..n {
+            let obv = obv_vals[i];
+            let sma = obv_sma[i];
+            let prev_obv = obv_vals[i - 1];
+            let prev_sma = obv_sma[i - 1];
+
+            if obv.is_nan() || sma.is_nan() { continue; }
+
+            // 买入: OBV 上穿其SMA (资金流入确认)
+            if prev_obv <= prev_sma && obv > sma {
+                signals[i] = Signal::Buy;
+            }
+            // 卖出: OBV 下穿其SMA (资金流出确认)
+            else if prev_obv >= prev_sma && obv < sma {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 1️⃣9️⃣ 多因子动量策略 (Multi-Factor Momentum)
+// ========================================================================
+pub struct MultiFactorMomentum {
+    fast_ema: usize,
+    slow_ema: usize,
+    rsi_period: usize,
+    rsi_oversold: f64,
+    rsi_overbought: f64,
+    volume_sma_period: usize,
+}
+
+impl MultiFactorMomentum {
+    pub fn new(
+        fast_ema: usize, slow_ema: usize, rsi_period: usize,
+        rsi_oversold: f64, rsi_overbought: f64, volume_sma_period: usize,
+    ) -> Self {
+        Self {
+            fast_ema, slow_ema, rsi_period,
+            rsi_oversold, rsi_overbought, volume_sma_period,
+        }
+    }
+}
+
+impl Strategy for MultiFactorMomentum {
+    fn name(&self) -> &str {
+        "Multi-Factor Momentum"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+        let volumes: Vec<f64> = candles.iter().map(|c| c.volume).collect();
+
+        let fast = indicators::ema(&closes, self.fast_ema);
+        let slow = indicators::ema(&closes, self.slow_ema);
+        let rsi_vals = indicators::rsi(&closes, self.rsi_period);
+        let vol_sma = indicators::sma(&volumes, self.volume_sma_period);
+
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        let warmup = self.slow_ema.max(self.rsi_period).max(self.volume_sma_period);
+        if n <= warmup + 1 { return signals; }
+
+        for i in (warmup + 1)..n {
+            let f = fast[i];
+            let s = slow[i];
+            let pf = fast[i - 1];
+            let ps = slow[i - 1];
+            let rsi = rsi_vals[i];
+            let vol = volumes[i];
+            let avg_vol = vol_sma[i];
+
+            if f.is_nan() || s.is_nan() || rsi.is_nan() || avg_vol.is_nan() { continue; }
+
+            // 因子1: EMA金叉/死叉
+            let trend_bullish = pf <= ps && f > s;
+            let trend_bearish = pf >= ps && f < s;
+            let _in_uptrend = f > s;
+            let in_downtrend = f < s;
+
+            // 因子2: RSI 不在极端区域
+            let rsi_ok_buy = rsi < self.rsi_overbought;
+            let rsi_ok_sell = rsi > self.rsi_oversold;
+
+            // 因子3: 成交量放大确认
+            let vol_confirm = vol > avg_vol * 1.2; // 超过均值20%
+
+            // 买入: 金叉 + RSI不超买 + 放量
+            if trend_bullish && rsi_ok_buy && vol_confirm {
+                signals[i] = Signal::Buy;
+            }
+            // 卖出: 死叉 + RSI不超卖 + 放量 (或处于下跌趋势中)
+            else if (trend_bearish || in_downtrend) && rsi_ok_sell && vol_confirm {
+                signals[i] = Signal::Sell;
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
+// 2️⃣0️⃣ 配对交易策略 (Pairs Trading - 单资产简化版: 均值回归到历史中位)
+// ========================================================================
+pub struct PairsTradingStrategy {
+    lookback: usize,
+    entry_z: f64,  // 入场 Z-Score 阈值 (默认 2.0)
+    exit_z: f64,   // 出场 Z-Score 阈值 (默认 0.5)
+}
+
+impl PairsTradingStrategy {
+    pub fn new(lookback: usize, entry_z: f64, exit_z: f64) -> Self {
+        Self { lookback, entry_z, exit_z }
+    }
+}
+
+impl Strategy for PairsTradingStrategy {
+    fn name(&self) -> &str {
+        "Pairs Trading (Mean Rev)"
+    }
+
+    fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
+        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
+
+        if n < self.lookback + 1 { return signals; }
+
+        let mut in_position = false;
+
+        for i in self.lookback..n {
+            let window = &closes[i - self.lookback..i];
+            let mean: f64 = window.iter().sum::<f64>() / self.lookback as f64;
+            let variance: f64 = window.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / self.lookback as f64;
+            let std = variance.sqrt();
+
+            if std < f64::EPSILON { continue; }
+
+            let z_score = (closes[i] - mean) / std;
+
+            if !in_position {
+                // Z-Score > +entry → 价格过高，做空
+                if z_score > self.entry_z {
+                    signals[i] = Signal::Sell;
+                    in_position = true;
+                }
+                // Z-Score < -entry → 价格过低，做多
+                else if z_score < -self.entry_z {
+                    signals[i] = Signal::Buy;
+                    in_position = true;
+                }
+            } else {
+                // Z-Score 回归到 exit 以内 → 平仓
+                if z_score.abs() < self.exit_z {
+                    // 之前做空 → 现在买入平仓
+                    // 之前做多 → 现在卖出平仓
+                    // 简化处理: 根据z_score方向决定
+                    if z_score > 0.0 {
+                        signals[i] = Signal::Buy;  // 之前做空, 现在买入
+                    } else {
+                        signals[i] = Signal::Sell;  // 之前做多, 现在卖出
+                    }
+                    in_position = false;
+                }
+            }
+        }
+
+        signals
+    }
+}
+
+// ========================================================================
 // 创建所有内置策略列表
 // ========================================================================
 pub fn create_default_strategies() -> Vec<Box<dyn Strategy>> {
@@ -1111,6 +1626,15 @@ pub fn create_default_strategies() -> Vec<Box<dyn Strategy>> {
             KeltnerMode::Reversion,
         )),
         Box::new(ParabolicSarStrategy::new(0.02, 0.2)),
+        // 新增策略
+        Box::new(IchimokuStrategy::new(1)),
+        Box::new(AdxDiStrategy::new(14, 25.0)),
+        Box::new(AtrTrailingStopStrategy::new(10, 3.0)),
+        Box::new(StochasticRsiStrategy::new(14, 3, 14, 30.0, 70.0)),
+        Box::new(WilliamsRStrategy::new(14, -80.0, -20.0)),
+        Box::new(ObvMomentumStrategy::new(20)),
+        Box::new(MultiFactorMomentum::new(12, 26, 14, 30.0, 70.0, 20)),
+        Box::new(PairsTradingStrategy::new(20, 2.0, 0.5)),
     ]
 }
 

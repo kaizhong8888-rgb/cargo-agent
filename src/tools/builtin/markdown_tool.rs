@@ -760,3 +760,261 @@ fn load_content(params: &HashMap<String, Value>) -> Result<String, String> {
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(MarkdownProcessorTool));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_md_to_html_headings() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("to_html"));
+        params.insert("content".to_string(), json!("# Hello\n\n## World"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let html = result["html"].as_str().unwrap();
+        assert!(html.contains("<h1"));
+        assert!(html.contains("Hello"));
+        assert!(html.contains("<h2"));
+        assert!(html.contains("World"));
+    }
+
+    #[tokio::test]
+    async fn test_md_to_html_code_block() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("to_html"));
+        params.insert("content".to_string(), json!("```\nlet x = 1;\n```"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let html = result["html"].as_str().unwrap();
+        assert!(html.contains("<pre><code"));
+        assert!(html.contains("let x = 1;"));
+    }
+
+    #[tokio::test]
+    async fn test_md_to_html_links_and_images() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("to_html"));
+        params.insert("content".to_string(), json!("[click](http://example.com)\n\n![alt](img.png)"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let html = result["html"].as_str().unwrap();
+        assert!(html.contains("<a href"));
+        assert!(html.contains("click"));
+        assert!(html.contains("<img"));
+        assert!(html.contains("alt"));
+    }
+
+    #[tokio::test]
+    async fn test_md_to_html_bold_italic() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("to_html"));
+        params.insert("content".to_string(), json!("**bold** and *italic*"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let html = result["html"].as_str().unwrap();
+        assert!(html.contains("<strong>bold</strong>"));
+        assert!(html.contains("<em>italic</em>"));
+    }
+
+    #[tokio::test]
+    async fn test_md_to_text_strips_formatting() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("to_text"));
+        params.insert("content".to_string(), json!("# Title\n\n**bold** text"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let text = result["text"].as_str().unwrap();
+        assert!(text.contains("Title"));
+        assert!(!text.contains("**"));
+    }
+
+    #[tokio::test]
+    async fn test_toc_generation() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("toc"));
+        params.insert("content".to_string(), json!("# Intro\n\n## Section 1\n\n### Subsection\n\n## Section 2"));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["heading_count"], 4);
+        let toc = result["toc"].as_array().unwrap();
+        assert_eq!(toc[0]["level"], 1);
+        assert_eq!(toc[0]["text"], "Intro");
+        assert_eq!(toc[1]["level"], 2);
+        assert_eq!(toc[1]["text"], "Section 1");
+    }
+
+    #[tokio::test]
+    async fn test_toc_max_depth() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("toc"));
+        params.insert("content".to_string(), json!("# H1\n\n### H3\n\n##### H5"));
+        params.insert("max_depth".to_string(), json!(3));
+
+        let result = tool.execute(&params).await.unwrap();
+        // Should only include h1 and h3, not h5
+        assert_eq!(result["heading_count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_lint_trailing_whitespace() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("lint"));
+        params.insert("content".to_string(), json!("hello   \nworld"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let issues = result["issues"].as_array().unwrap();
+        assert!(issues.iter().any(|i| i["rule"] == "no_trailing_whitespace"));
+    }
+
+    #[tokio::test]
+    async fn test_lint_heading_hierarchy() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("lint"));
+        params.insert("content".to_string(), json!("# H1\n\n#### H4"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let issues = result["issues"].as_array().unwrap();
+        assert!(issues.iter().any(|i| i["rule"] == "heading_hierarchy"));
+    }
+
+    #[tokio::test]
+    async fn test_lint_unclosed_code_block() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("lint"));
+        params.insert("content".to_string(), json!("```\ncode without close"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let issues = result["issues"].as_array().unwrap();
+        assert!(issues.iter().any(|i| i["rule"] == "unclosed_code_block"));
+    }
+
+    #[tokio::test]
+    async fn test_lint_empty_link() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("lint"));
+        params.insert("content".to_string(), json!("[](http://example.com)"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let issues = result["issues"].as_array().unwrap();
+        assert!(issues.iter().any(|i| i["rule"] == "empty_link_text"));
+    }
+
+    #[tokio::test]
+    async fn test_stats_basic() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("stats"));
+        params.insert("content".to_string(), json!("# Title\n\nSome text here.\n\n## Section\n\n- item 1\n- item 2"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let stats = &result["stats"];
+        assert_eq!(stats["headings"], 2);
+        assert_eq!(stats["list_items"], 2);
+        assert!(stats["words"].as_u64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_stats_code_blocks_excluded_from_word_count() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("stats"));
+        params.insert("content".to_string(), json!("```\nword1 word2 word3 word4 word5\n```\n\nactual words"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let stats = &result["stats"];
+        // Words in code block should not be counted
+        assert_eq!(stats["code_blocks"], 1);
+        assert_eq!(stats["words"], 2); // only "actual words"
+    }
+
+    #[tokio::test]
+    async fn test_transform_normalize_links() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("transform"));
+        params.insert("content".to_string(), json!("[click](http://example.com   )"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let content = result["content"].as_str().unwrap();
+        assert!(!content.contains("   )"));
+        assert!(content.contains("http://example.com)"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_links_external() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("validate_links"));
+        params.insert("content".to_string(), json!("[Google](https://google.com)"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let links = result["links"].as_array().unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0]["type"], "external");
+        assert_eq!(links[0]["valid"], true);
+    }
+
+    #[tokio::test]
+    async fn test_validate_links_local_broken() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("validate_links"));
+        params.insert("content".to_string(), json!("[missing](./nonexistent.md)"));
+
+        let result = tool.execute(&params).await.unwrap();
+        let links = result["links"].as_array().unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0]["type"], "local");
+        assert_eq!(links[0]["valid"], false);
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = MarkdownProcessorTool;
+        let params = HashMap::new();
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing required parameter: action"));
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("nonexistent"));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_content_and_path() {
+        let tool = MarkdownProcessorTool;
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), json!("stats"));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("content or path"));
+    }
+
+    #[tokio::test]
+    async fn test_html_escape() {
+        assert_eq!(escape_html("<script>"), "&lt;script&gt;");
+        assert_eq!(escape_html("a & b"), "a &amp; b");
+        assert_eq!(escape_html("\"quoted\""), "&quot;quoted&quot;");
+    }
+}

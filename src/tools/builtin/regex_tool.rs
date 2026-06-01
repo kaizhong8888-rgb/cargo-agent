@@ -624,3 +624,411 @@ fn explain_pattern(pattern: &str) -> Vec<Value> {
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(RegexTool));
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tool() -> RegexTool {
+        RegexTool
+    }
+
+    #[tokio::test]
+    async fn test_action_test_match() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("test".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+        params.insert("text".to_string(), Value::String("abc123def".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["matched"], true);
+    }
+
+    #[tokio::test]
+    async fn test_action_test_no_match() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("test".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"^\d+$".to_string()));
+        params.insert("text".to_string(), Value::String("abc123".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["matched"], false);
+    }
+
+    #[tokio::test]
+    async fn test_action_test_case_insensitive() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("test".to_string()));
+        params.insert("pattern".to_string(), Value::String("HELLO".to_string()));
+        params.insert("text".to_string(), Value::String("hello world".to_string()));
+        params.insert("case_insensitive".to_string(), Value::Bool(true));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["matched"], true);
+    }
+
+    #[tokio::test]
+    async fn test_action_test_missing_text() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("test".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_action_find_all() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("find_all".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+        params.insert("text".to_string(), Value::String("123 abc 456 def 789".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["total_matches"], 3);
+        let matches = result["matches"].as_array().unwrap();
+        assert_eq!(matches[0]["full_match"], "123");
+        assert_eq!(matches[1]["full_match"], "456");
+        assert_eq!(matches[2]["full_match"], "789");
+    }
+
+    #[tokio::test]
+    async fn test_action_find_all_with_groups() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("find_all".to_string()));
+        params.insert(
+            "pattern".to_string(),
+            Value::String(r"(\w+)=(\d+)".to_string()),
+        );
+        params.insert(
+            "text".to_string(),
+            Value::String("a=1 b=2 c=3".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_matches"], 3);
+        let matches = result["matches"].as_array().unwrap();
+        let groups = matches[0]["groups"].as_array().unwrap();
+        assert_eq!(groups[0]["match"], "a=1");
+        assert_eq!(groups[1]["match"], "a");
+        assert_eq!(groups[2]["match"], "1");
+    }
+
+    #[tokio::test]
+    async fn test_action_find_all_limit() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("find_all".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\d".to_string()));
+        params.insert(
+            "text".to_string(),
+            Value::String("1 2 3 4 5 6 7 8 9 0".to_string()),
+        );
+        params.insert("max_matches".to_string(), Value::Number(3.into()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_matches"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_action_replace() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("replace".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\s+".to_string()));
+        params.insert("text".to_string(), Value::String("hello   world  test".to_string()));
+        params.insert("replacement".to_string(), Value::String("-".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["result"], "hello-world-test");
+        assert_eq!(result["replacements_made"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_action_replace_with_groups() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("replace".to_string()));
+        params.insert(
+            "pattern".to_string(),
+            Value::String(r"(\w+)\s+(\w+)".to_string()),
+        );
+        params.insert(
+            "text".to_string(),
+            Value::String("John Doe".to_string()),
+        );
+        params.insert("replacement".to_string(), Value::String("$2, $1".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["result"], "Doe, John");
+    }
+
+    #[tokio::test]
+    async fn test_action_replace_missing_params() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("replace".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_action_validate_valid() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("validate".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"^\d{3}-\d{4}$".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["valid"], true);
+        assert_eq!(result["analysis"]["has_anchors"], true);
+        assert_eq!(result["analysis"]["has_quantifiers"], true);
+    }
+
+    #[tokio::test]
+    async fn test_action_validate_invalid() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("validate".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"[invalid".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["valid"], false);
+        assert!(result["error"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_action_explain() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("explain".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"^\d{3}-\d{4}$".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let components = result["components"].as_array().unwrap();
+        assert!(!components.is_empty());
+
+        // Check anchor
+        let anchor = components.iter().find(|c| c["type"] == "anchor");
+        assert!(anchor.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_action_generate_rust() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("generate_rust".to_string()),
+        );
+        params.insert(
+            "pattern".to_string(),
+            Value::String(r"(?P<name>\w+)=(?P<value>\d+)".to_string()),
+        );
+        params.insert(
+            "text".to_string(),
+            Value::String("a=1 b=2".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["has_named_captures"], true);
+        let code = result["generated_code"].as_str().unwrap();
+        assert!(code.contains("pub fn"));
+        assert!(code.contains("#[cfg(test)]"));
+        assert!(code.contains("fn test_"));
+    }
+
+    #[tokio::test]
+    async fn test_action_generate_rust_custom_name() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("generate_rust".to_string()),
+        );
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+        params.insert(
+            "function_name".to_string(),
+            Value::String("find_numbers".to_string()),
+        );
+
+        let result = tool.execute(&params).await.unwrap();
+        let code = result["generated_code"].as_str().unwrap();
+        assert!(code.contains("pub fn find_numbers"));
+    }
+
+    #[tokio::test]
+    async fn test_action_generate_rust_with_options() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert(
+            "action".to_string(),
+            Value::String("generate_rust".to_string()),
+        );
+        params.insert("pattern".to_string(), Value::String(r"hello".to_string()));
+        params.insert("case_insensitive".to_string(), Value::Bool(true));
+        params.insert("multiline".to_string(), Value::Bool(true));
+
+        let result = tool.execute(&params).await.unwrap();
+        let code = result["generated_code"].as_str().unwrap();
+        assert!(code.contains(".case_insensitive(true)"));
+        assert!(code.contains(".multi_line(true)"));
+    }
+
+    #[tokio::test]
+    async fn test_action_unknown() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("invalid".to_string()));
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_pattern() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("test".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_missing_action() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
+
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_analyze_pattern() {
+        let analysis = analyze_pattern(r"^(\w+)@(\w+)\.(\w+)$");
+        assert_eq!(analysis["has_anchors"], true);
+        assert_eq!(analysis["has_capture_groups"], true);
+        assert_eq!(analysis["has_named_captures"], false);
+        assert_eq!(analysis["complexity"], "moderate");
+    }
+
+    #[test]
+    fn test_analyze_pattern_complex() {
+        let analysis = analyze_pattern(
+            r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})[T ](?P<hour>\d{2}):(?P<min>\d{2}):(?P<sec>\d{2})",
+        );
+        assert_eq!(analysis["has_named_captures"], true);
+        assert_eq!(analysis["has_quantifiers"], true);
+        assert_eq!(analysis["complexity"], "complex");
+    }
+
+    #[test]
+    fn test_analyze_pattern_simple() {
+        let analysis = analyze_pattern(r"abc");
+        assert_eq!(analysis["complexity"], "simple");
+        assert_eq!(analysis["has_anchors"], false);
+        assert_eq!(analysis["has_capture_groups"], false);
+    }
+
+    #[test]
+    fn test_build_regex_case_insensitive() {
+        let mut params = HashMap::new();
+        params.insert("case_insensitive".to_string(), Value::Bool(true));
+
+        let re = build_regex("HELLO", &params).unwrap();
+        assert!(re.is_match("hello"));
+        assert!(re.is_match("HELLO"));
+        assert!(re.is_match("Hello"));
+    }
+
+    #[test]
+    fn test_build_regex_multiline() {
+        let mut params = HashMap::new();
+        params.insert("multiline".to_string(), Value::Bool(true));
+
+        let re = build_regex("^test", &params).unwrap();
+        assert!(re.is_match("test\nline2"));
+    }
+
+    #[test]
+    fn test_build_regex_invalid() {
+        let params = HashMap::new();
+        let result = build_regex("[invalid", &params);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_explain_pattern_anchors() {
+        let components = explain_pattern("^hello$");
+        assert_eq!(components.len(), 7); // ^, h, e, l, l, o, $
+        assert_eq!(components[0]["type"], "anchor");
+        assert_eq!(components[6]["type"], "anchor");
+    }
+
+    #[test]
+    fn test_explain_pattern_escapes() {
+        let components = explain_pattern(r"\d\w\s");
+        let escapes: Vec<_> = components.iter().filter(|c| c["type"] == "escape").collect();
+        assert_eq!(escapes.len(), 3);
+    }
+
+    #[test]
+    fn test_explain_pattern_character_class() {
+        let components = explain_pattern(r"[a-zA-Z0-9]");
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0]["type"], "character_class");
+    }
+
+    #[test]
+    fn test_explain_pattern_negated_class() {
+        let components = explain_pattern(r"[^a-z]");
+        assert_eq!(components.len(), 1);
+        let meaning = components[0]["meaning"].as_str().unwrap();
+        assert!(meaning.contains("NOT"));
+    }
+
+    #[test]
+    fn test_explain_pattern_groups() {
+        let components = explain_pattern(r"(hello)(?:world)(?<name>\w+)");
+        let groups: Vec<_> = components.iter().filter(|c| c["type"] == "group").collect();
+        assert_eq!(groups.len(), 3);
+    }
+
+    #[test]
+    fn test_explain_pattern_quantifier_brace() {
+        let components = explain_pattern(r"a{3}");
+        let quants: Vec<_> = components
+            .iter()
+            .filter(|c| c["type"] == "quantifier")
+            .collect();
+        assert_eq!(quants.len(), 1);
+    }
+
+    #[test]
+    fn test_explain_empty() {
+        let components = explain_pattern("");
+        assert_eq!(components.len(), 0);
+    }
+}

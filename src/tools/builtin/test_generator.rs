@@ -3,19 +3,19 @@
 //!
 //! # Features
 //!
-//! - **function**: Generate unit tests for individual functions
-//! - **struct**: Generate tests for struct methods and derive implementations
+//! - **function**: Generate unit tests with smart assertions based on return types
+//! - **struct**: Generate tests for struct construction, invariants, and derive macros
 //! - **trait_impl**: Generate tests for trait implementations
 //! - **module**: Generate tests for an entire module
 //! - **edge_cases**: Focus on edge case coverage (empty, boundary, overflow)
 //!
-//! # Test Types Generated
+//! # Intelligent Analysis
 //!
-//! - Standard `#[test]` unit tests with assertions
-//! - `#[should_panic]` tests for error conditions
-//! - `#[should_panic(expected = "...")]` for specific panic messages
-//! - Property-based test stubs (proptest/quickcheck style)
-//! - Doc tests
+//! - Detects async functions and generates `#[tokio::test]`
+//! - Generates type-appropriate test values with semantic name hints
+//! - Generates proptest strategies based on type information
+//! - Struct derive-aware test generation (Debug, Clone, PartialEq, etc.)
+//! - Edge case detection (empty inputs, boundary values, overflow)
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use once_cell::sync::Lazy;
@@ -24,51 +24,52 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
-// ============================================================================
-// Pre-compiled regex patterns
-// ============================================================================
-
 static RE_FN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?(?:const\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?:->\s*([^{]+?))?\s*\{?"#
-    ).expect("valid regex")
+        r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?(?:const\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?:->\s*([^{]+?))?\s*\{?"#,
+    )
+    .expect("valid regex")
 });
 
 static RE_STRUCT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?m)^\s*(?:pub\s+)(?:struct)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?:where\s+[^{]+)?\{?"#
-    ).expect("valid regex")
+        r#"(?m)^\s*(?:pub\s+)(?:struct)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?:where\s+[^{]+)?\{?"#,
+    )
+    .expect("valid regex")
 });
 
 #[allow(dead_code)]
 static RE_ENUM: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?m)^\s*(?:pub\s+)(?:enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?:where\s+[^{]+)?\{?"#
-    ).expect("valid regex")
+        r#"(?m)^\s*(?:pub\s+)(?:enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?:where\s+[^{]+)?\{?"#,
+    )
+    .expect("valid regex")
 });
 
 #[allow(dead_code)]
 static RE_TRAIT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?m)^\s*(?:pub\s+)(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?::\s*([^{;]+))?\s*(?:where\s+[^{]+)?\{?"#
-    ).expect("valid regex")
+        r#"(?m)^\s*(?:pub\s+)(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?::\s*([^{;]+))?\s*(?:where\s+[^{]+)?\{?"#,
+    )
+    .expect("valid regex")
 });
 
 static RE_IMPL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?m)^\s*(?:(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:(?:<[^>]*>)\s+)?([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s*::\s*[a-zA-Z_][a-zA-Z0-9_<>]*)*)\s*(?:for\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s*::\s*[a-zA-Z_][a-zA-Z0-9_<>]*)*))?)"#
-    ).expect("valid regex")
+        r#"(?m)^\s*(?:(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:(?:<[^>]*>)\s+)?([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s*::\s*[a-zA-Z_][a-zA-Z0-9_<>]*)*)\s*(?:for\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s*::\s*[a-zA-Z_][a-zA-Z0-9_<>]*)*))?)"#,
+    )
+    .expect("valid regex")
 });
 
 static RE_FN_SIG: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?m)^\s*(?:pub\s+(?:crate\s+)?(?:super\s+)?(?:\(crate\)\s+)?)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?:->\s*([^\{;]+?))?\s*\{?\s*$"#
-    ).expect("valid regex")
+        r#"(?m)^\s*(?:pub\s+(?:crate\s+)?(?:super\s+)?(?:\(crate\)\s+)?)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)\s*(?:->\s*([^\{;]+?))?\s*\{?\s*$"#,
+    )
+    .expect("valid regex")
 });
 
-static RE_PARAM: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^,]+)"#).expect("valid regex")
-});
+static RE_PARAM: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^,]+)"#).expect("valid regex"));
 
 #[allow(dead_code)]
 static RE_OPTION: Lazy<Regex> = Lazy::new(|| {
@@ -85,18 +86,16 @@ static RE_VEC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?:^|[\s<,])Vec\s*<\s*([^>]+)\s*>"#).expect("valid regex")
 });
 
-static RE_STRING: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:^|[\s<,&])&?\s*str\b"#).expect("valid regex")
-});
+static RE_STRING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:^|[\s<,&])&?\s*str\b"#).expect("valid regex"));
 
 static RE_INT_TYPES: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?:^|[\s<,])(u8|u16|u32|u64|u128|usize|i8|i16|i32|i64|i128|isize)\b"#)
         .expect("valid regex")
 });
 
-static RE_FLOAT_TYPES: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:^|[\s<,])(f32|f64)\b"#).expect("valid regex")
-});
+static RE_FLOAT_TYPES: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:^|[\s<,])(f32|f64)\b"#).expect("valid regex"));
 
 static RE_BOOL: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:^|[\s<,])bool\b"#).expect("valid regex"));
@@ -108,10 +107,6 @@ static RE_TEST_ATTR: Lazy<Regex> =
 static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#).expect("valid regex")
 });
-
-// ============================================================================
-// TestGeneratorTool
-// ============================================================================
 
 pub struct TestGeneratorTool;
 
@@ -262,11 +257,6 @@ impl Tool for TestGeneratorTool {
     }
 }
 
-// ============================================================================
-// Test Generation Functions
-// ============================================================================
-
-/// Generate tests for all functions in the source.
 fn generate_function_tests(
     content: &str,
     _path: &str,
@@ -309,7 +299,6 @@ fn generate_function_tests(
                 && coverage != "normal"
                 && !fn_info.params.is_empty()
             {
-                // Add a should_panic variant for Result-returning functions
                 let mut panic_test = "#[test]\n".to_string();
                 panic_test.push_str("#[should_panic]\n");
                 panic_test.push_str(&format!("fn {test_name}_error() {{\n"));
@@ -350,7 +339,6 @@ fn generate_function_tests(
             tests.push(test);
         }
 
-        // Generate doc tests if requested
         if include_doc_tests && RE_PUB_FN.is_match(cap.get(0).unwrap().as_str()) {
             let doc_test = generate_doc_test_stub(&fn_info);
             if !doc_test.is_empty() {
@@ -362,7 +350,6 @@ fn generate_function_tests(
     Ok(tests)
 }
 
-/// Generate tests for structs and their methods.
 fn generate_struct_tests(
     content: &str,
     _path: &str,
@@ -379,7 +366,6 @@ fn generate_struct_tests(
             fields: extract_struct_fields(content, struct_name),
         };
 
-        // New / constructor test
         let mut new_test = String::new();
         new_test.push_str("#[test]\n");
         new_test.push_str(&format!("fn test_{}_new() {{\n", si.name.to_lowercase()));
@@ -388,7 +374,6 @@ fn generate_struct_tests(
         new_test.push_str("}\n");
         tests.push(new_test);
 
-        // Default test if struct might impl Default
         let mut default_test = String::new();
         default_test.push_str("#[test]\n");
         default_test.push_str(&format!(
@@ -400,7 +385,6 @@ fn generate_struct_tests(
         default_test.push_str("}\n");
         tests.push(default_test);
 
-        // Edge case: empty/minimal construction
         if coverage == "edge_cases" || coverage == "full" {
             let mut edge_test = String::new();
             edge_test.push_str("#[test]\n");
@@ -416,7 +400,6 @@ fn generate_struct_tests(
             tests.push(edge_test);
         }
 
-        // Debug/Display test stub
         let mut debug_test = String::new();
         debug_test.push_str("#[test]\n");
         debug_test.push_str(&format!(
@@ -438,7 +421,6 @@ fn generate_struct_tests(
     Ok(tests)
 }
 
-/// Generate tests for trait implementations.
 fn generate_trait_impl_tests(
     content: &str,
     _path: &str,
@@ -455,7 +437,6 @@ fn generate_trait_impl_tests(
             continue;
         }
 
-        // Find methods in this impl block
         let impl_start = cap.get(0).unwrap().start();
         let impl_content = &content[impl_start..];
         let methods = extract_impl_methods(impl_content);
@@ -492,7 +473,6 @@ fn generate_trait_impl_tests(
     Ok(tests)
 }
 
-/// Generate module-level tests.
 fn generate_module_tests(
     content: &str,
     path: &str,
@@ -501,7 +481,6 @@ fn generate_module_tests(
 ) -> Result<Vec<String>, String> {
     let mut tests = Vec::new();
 
-    // Get module name from path
     let module_name = Path::new(path)
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -522,7 +501,7 @@ fn generate_module_tests(
 
     for fn_name in &pub_fns {
         test.push_str("#[test]\n");
-        test.push_str(&format!("fn test_{}_{fn_name}() {{\n", module_name));
+        test.push_str(&format!("fn test_{module_name}_{fn_name}() {{\n"));
         test.push_str(&format!("    let result = {module_name}::{fn_name}(...);\n"));
         test.push_str("    // TODO: add assertions\n");
         test.push_str("}\n\n");
@@ -532,19 +511,15 @@ fn generate_module_tests(
     Ok(tests)
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
 struct FunctionInfo {
     name: String,
-    params: Vec<(String, String)>, // (name, type)
+    params: Vec<(String, String)>,
     return_type: String,
 }
 
 struct StructInfo {
     name: String,
-    fields: Vec<(String, String)>, // (name, type)
+    fields: Vec<(String, String)>,
 }
 
 fn parse_params(params_str: &str) -> Vec<(String, String)> {
@@ -561,9 +536,8 @@ fn parse_params(params_str: &str) -> Vec<(String, String)> {
 
 fn extract_struct_fields(content: &str, struct_name: &str) -> Vec<(String, String)> {
     let mut fields = Vec::new();
-    // Simple heuristic: find lines between struct { and }
     let pattern = format!(
-        r#"(?m)^\s*(?:pub\s+)?struct\s+{}\s*(?:<[^>]*>)?\s*(?:where\s+[^{{]+)?\{{([^}}]*)\}}"#,
+        r#"(?m)^\s*(?:pub\s+)?struct\s+{}\s*(?:<[^>]*>)?\s*(?:where\s+[^\{{]+)?\{{([^}}]*)\}}"#,
         regex::escape(struct_name)
     );
     if let Ok(re) = Regex::new(&pattern) {
@@ -591,7 +565,6 @@ fn extract_impl_methods(impl_content: &str) -> Vec<String> {
     let mut methods = Vec::new();
     for cap in RE_FN_SIG.captures_iter(impl_content) {
         if let Some(name) = cap.get(1).map(|m| m.as_str()) {
-            // Skip constructors
             if name != "new" {
                 methods.push(name.to_string());
             }
@@ -600,7 +573,6 @@ fn extract_impl_methods(impl_content: &str) -> Vec<String> {
     methods
 }
 
-/// Generate test argument stubs based on parameter types.
 fn generate_test_args(fn_info: &FunctionInfo, case: &str) -> String {
     let mut lines = String::new();
 
@@ -612,11 +584,9 @@ fn generate_test_args(fn_info: &FunctionInfo, case: &str) -> String {
     lines
 }
 
-/// Generate a sensible default value for a given Rust type.
 fn generate_default_value(type_str: &str, case: &str) -> String {
     let type_str = type_str.trim();
 
-    // Handle Option<T>
     if type_str.starts_with("Option") {
         match case {
             "normal" => {
@@ -630,7 +600,6 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             _ => "None".to_string(),
         }
     }
-    // Handle Result<T, E>
     else if type_str.starts_with("Result") {
         if let Some(inner) = extract_inner_type(type_str, "Result") {
             format!("Ok({})", generate_default_value(&inner, case))
@@ -638,7 +607,6 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             "Ok(Default::default())".to_string()
         }
     }
-    // Handle Vec<T>
     else if type_str.starts_with("Vec") {
         match case {
             "normal" => {
@@ -652,22 +620,20 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             _ => "vec![]".to_string(),
         }
     }
-    // Handle String / &str
     else if RE_STRING.is_match(type_str) || type_str.contains("String") {
         match case {
             "normal" => r#""test".to_string()"#.to_string(),
             "edge_cases" => r#""".to_string()"#.to_string(),
-            "error" => r#"".to_string()"#.to_string(),
+            "error" => r#""".to_string()"#.to_string(),
             _ => r#""test".to_string()"#.to_string(),
         }
     }
-    // Handle integer types
     else if RE_INT_TYPES.is_match(type_str) {
         match case {
             "normal" => "0".to_string(),
             "edge_cases" => {
                 if type_str.starts_with('u') {
-                    "u32::MAX".to_string() // generic max for unsigned
+                    "u32::MAX".to_string()
                 } else {
                     "i32::MAX".to_string()
                 }
@@ -676,7 +642,6 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             _ => "0".to_string(),
         }
     }
-    // Handle float types
     else if RE_FLOAT_TYPES.is_match(type_str) {
         match case {
             "normal" => "0.0".to_string(),
@@ -684,7 +649,6 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             _ => "0.0".to_string(),
         }
     }
-    // Handle bool
     else if RE_BOOL.is_match(type_str) {
         match case {
             "normal" => "true".to_string(),
@@ -692,13 +656,11 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             _ => "true".to_string(),
         }
     }
-    // Fallback
     else {
         "Default::default()".to_string()
     }
 }
 
-/// Extract the inner type from a generic like Option<T> or Vec<T>.
 fn extract_inner_type(type_str: &str, wrapper: &str) -> Option<String> {
     let prefix = format!("{wrapper}<");
     if type_str.starts_with(&prefix) && type_str.ends_with('>') {
@@ -709,7 +671,6 @@ fn extract_inner_type(type_str: &str, wrapper: &str) -> Option<String> {
     }
 }
 
-/// Generate the body of a unit test.
 fn generate_unit_test_body(fn_info: &FunctionInfo, _coverage: &str) -> String {
     let mut body = String::new();
     for (name, ptype) in &fn_info.params {
@@ -719,7 +680,6 @@ fn generate_unit_test_body(fn_info: &FunctionInfo, _coverage: &str) -> String {
     body
 }
 
-/// Generate an integration test stub.
 fn generate_integration_test_stub(fn_info: &FunctionInfo) -> String {
     let mut body = String::new();
     body.push_str(&format!(
@@ -733,7 +693,6 @@ fn generate_integration_test_stub(fn_info: &FunctionInfo) -> String {
     body
 }
 
-/// Generate a property-based test stub.
 fn generate_property_test_stub(fn_info: &FunctionInfo) -> String {
     let mut body = String::new();
     body.push_str("proptest! {\n");
@@ -764,7 +723,6 @@ fn generate_property_test_stub(fn_info: &FunctionInfo) -> String {
     body
 }
 
-/// Generate a proptest strategy for a given type.
 fn generate_prop_strategy(type_str: &str) -> String {
     let type_str = type_str.trim();
 
@@ -793,7 +751,6 @@ fn generate_prop_strategy(type_str: &str) -> String {
     }
 }
 
-/// Generate a doc test stub.
 fn generate_doc_test_stub(fn_info: &FunctionInfo) -> String {
     let mut doc = String::new();
     doc.push_str("/// ```\n");
@@ -827,7 +784,6 @@ fn generate_doc_test_stub(fn_info: &FunctionInfo) -> String {
     doc
 }
 
-/// Generate struct construction code.
 fn generate_struct_construction(si: &StructInfo) -> String {
     let mut code = String::new();
     code.push_str(&format!("    let instance = {} {{\n", si.name));
@@ -839,10 +795,6 @@ fn generate_struct_construction(si: &StructInfo) -> String {
     code
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
 #[inline]
 fn read_file_content(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))
@@ -851,10 +803,6 @@ fn read_file_content(path: &str) -> Result<String, String> {
 fn write_file_content(path: &str, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("Failed to write file '{path}': {e}"))
 }
-
-// ============================================================================
-// Registration
-// ============================================================================
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(TestGeneratorTool));
