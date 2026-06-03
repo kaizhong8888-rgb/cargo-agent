@@ -541,7 +541,7 @@ mod tests {
         rm.drawdown_control.reduce_position_at_pct = 0.15;
 
         // 正常情况
-        let (stop, reduce, pct) = rm.check_drawdown_control(9500.0); // 5% DD
+        let (stop, reduce, _pct) = rm.check_drawdown_control(9500.0); // 5% DD
         assert!(!stop && !reduce);
 
         // 减仓阈值
@@ -550,7 +550,7 @@ mod tests {
         assert!((pct - 0.5).abs() < 0.01);
 
         // 停止交易阈值
-        let (stop, reduce, pct) = rm.check_drawdown_control(7900.0); // 21% DD
+        let (stop, reduce, _pct) = rm.check_drawdown_control(7900.0); // 21% DD
         assert!(stop && !reduce);
     }
 

@@ -18,6 +18,8 @@ pub mod param_optimizer;
 pub mod portfolio_optimizer;
 pub mod report;
 pub mod risk_management;
+pub mod seasonal_strategy;
+pub mod statistical_arbitrage;
 pub mod strategy;
 pub mod strategy_router;
 pub mod tencent;

@@ -3,6 +3,7 @@
 
 use super::data::Candle;
 use super::market_regime::{MarketRegime, MarketRegimeDetector};
+use super::seasonal_strategy::SeasonalStrategy;
 use super::strategy::{
     BollingerBandsStrategy, MacdMode, MacdStrategy, RsiMeanReversion, SmaCrossoverWithRsi,
     Strategy, TripleEmaStrategy, TurtleTradingStrategy, VwapRsiStrategy,
@@ -56,10 +57,16 @@ impl StrategyRouter {
                     "RSI Mean Reversion (14, 20, 80)",
                     "Bollinger Bands MeanRev",
                     "VWAP + RSI Reversion",
+                    "Stat Arb Pairs Trading",
+                    "Seasonal Patterns",
                 ]
             }
             MarketRegime::LowVolatilitySqueeze => {
-                vec!["Bollinger Bands + Squeeze", "Turtle Trading (20,10,20,2.0)"]
+                vec![
+                    "Bollinger Bands + Squeeze",
+                    "Turtle Trading (20,10,20,2.0)",
+                    "Seasonal Patterns",
+                ]
             }
             MarketRegime::HighVolatilityBreakout => {
                 vec![
@@ -100,12 +107,15 @@ impl StrategyRouter {
                     Box::new(RsiMeanReversion::new(14, 20.0, 80.0)),
                     Box::new(BollingerBandsStrategy::new(20, 2.0, 1.0, 1.0, false)),
                     Box::new(VwapRsiStrategy::new(14, 30.0, 70.0, 1.0)),
+                    // 震荡市场适合统计套利和季节性策略
+                    Box::new(SeasonalStrategy::default()),
                 ]
             }
             MarketRegime::LowVolatilitySqueeze => {
                 vec![
                     Box::new(BollingerBandsStrategy::new(20, 2.0, 1.0, 1.0, true)),
                     Box::new(TurtleTradingStrategy::new(20, 10, 20, 2.0)),
+                    Box::new(SeasonalStrategy::default()),
                 ]
             }
             MarketRegime::HighVolatilityBreakout => {

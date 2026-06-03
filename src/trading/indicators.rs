@@ -1511,7 +1511,7 @@ mod tests {
         }
         assert!(ema_inc.ready);
         // 增量 EMA 和批量 EMA 使用不同的 warmup 方式，允许合理误差
-        let batch = ema(&data, 3);
+        let _batch = ema(&data, 3);
         let last = ema_inc.value;
         // 趋势应该一致（都在上涨）
         assert!(last > 8.0, "EMA should trend upward, got {}", last);

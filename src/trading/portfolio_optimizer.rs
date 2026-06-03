@@ -828,7 +828,7 @@ mod tests {
     #[test]
     fn test_portfolio_analyzer() {
         let (_returns, cov, symbols) = sample_data();
-        let n = symbols.len();
+        let _n = symbols.len();
         let weights = vec![0.5, 0.3, 0.2];
         let individual_vols = vec![0.20, 0.10, 0.173]; // sqrt of diagonal
 
