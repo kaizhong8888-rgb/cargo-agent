@@ -29,6 +29,7 @@ pub mod evolution_tools;
 pub mod file_tools;
 pub mod fs_tools;
 pub mod fuzz_driver;
+pub mod fortune_tool;
 pub mod git_tools;
 pub mod git_workflow_tool;
 pub mod github_tool;
