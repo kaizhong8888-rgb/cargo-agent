@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn hook_register_and_dispatch() {
         let mut mgr = HookManager::new();
-        mgr.register("ping", |_e| "pong".to_string());
+        mgr.register("ping", Arc::new(|_e| "pong".to_string()));
         assert_eq!(mgr.hook_count(), 1);
 
         let ctx = ToolCallContext {

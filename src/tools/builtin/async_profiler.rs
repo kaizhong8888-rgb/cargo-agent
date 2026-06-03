@@ -856,3 +856,402 @@ struct FileAnalysis {
     spawn_count: usize,
     blocking_count: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tool() -> AsyncProfilerTool {
+        AsyncProfilerTool
+    }
+
+    // ===== IssueSeverity ordering =====
+
+    #[test]
+    fn test_issue_severity_ordering() {
+        // Ord is derived by declaration order: Critical(0) < Warning(1) < Info(2)
+        assert!(IssueSeverity::Critical < IssueSeverity::Warning);
+        assert!(IssueSeverity::Warning < IssueSeverity::Info);
+        assert!(IssueSeverity::Critical < IssueSeverity::Info);
+        assert_eq!(IssueSeverity::Critical, IssueSeverity::Critical);
+    }
+
+    // ===== AsyncIssue::to_json =====
+
+    #[test]
+    fn test_async_issue_to_json() {
+        let issue = AsyncIssue {
+            file: "src/main.rs".to_string(),
+            line: 42,
+            severity: IssueSeverity::Critical,
+            category: "blocking_io".to_string(),
+            message: "Blocking call detected".to_string(),
+            suggestion: "Use tokio::fs".to_string(),
+            code_snippet: "std::fs::read(\"file\")".to_string(),
+        };
+        let json = issue.to_json();
+        assert_eq!(json["file"], "src/main.rs");
+        assert_eq!(json["line"], 42);
+        assert_eq!(json["severity"], "critical");
+        assert_eq!(json["category"], "blocking_io");
+        assert_eq!(json["message"], "Blocking call detected");
+    }
+
+    // ===== SpawnPattern::to_json =====
+
+    #[test]
+    fn test_spawn_pattern_to_json() {
+        let pattern = SpawnPattern {
+            file: "src/lib.rs".to_string(),
+            line: 10,
+            pattern_type: "async_block".to_string(),
+            code_snippet: "tokio::spawn(async { ... })".to_string(),
+            has_join_handle: false,
+        };
+        let json = pattern.to_json();
+        assert_eq!(json["file"], "src/lib.rs");
+        assert_eq!(json["line"], 10);
+        assert_eq!(json["pattern_type"], "async_block");
+        assert_eq!(json["has_join_handle"], false);
+    }
+
+    // ===== check_blocking_line =====
+
+    #[test]
+    fn test_check_blocking_detects_std_fs() {
+        let tool = make_tool();
+        let result =
+            tool.check_blocking_line("src/main.rs", 5, "    std::fs::read_to_string(\"file\");");
+        assert!(result.is_some());
+        let issue = result.unwrap();
+        assert_eq!(issue.severity, IssueSeverity::Critical);
+        assert_eq!(issue.line, 6); // line_num + 1
+        assert_eq!(issue.category, "blocking_io");
+    }
+
+    #[test]
+    fn test_check_blocking_detects_std_thread_sleep() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 10, "    std::thread::sleep(dur);");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().severity, IssueSeverity::Critical);
+    }
+
+    #[test]
+    fn test_check_blocking_detects_std_net() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 3, "    std::net::TcpListener::bind(addr);");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().severity, IssueSeverity::Critical);
+    }
+
+    #[test]
+    fn test_check_blocking_detects_std_sync_mutex() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 7, "    let guard = std::sync::Mutex::new(x);");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().severity, IssueSeverity::Warning);
+    }
+
+    #[test]
+    fn test_check_blocking_skips_comments() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 0, "// std::fs::read(\"file\")");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_blocking_skips_attributes() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 0, "#[allow(std_fs_usage)]");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_blocking_non_blocking_code() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 0, "    let x = a + b;");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_blocking_detects_reqwest_blocking() {
+        let tool = make_tool();
+        let result =
+            tool.check_blocking_line("src/main.rs", 20, "    let client = reqwest::blocking::Client::new();");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().severity, IssueSeverity::Warning);
+    }
+
+    #[test]
+    fn test_check_blocking_detects_process_command() {
+        let tool = make_tool();
+        let result = tool.check_blocking_line("src/main.rs", 15, "    std::process::Command::new(\"ls\");");
+        assert!(result.is_some());
+    }
+
+    // ===== is_in_async_context =====
+
+    #[test]
+    fn test_is_in_async_context_true() {
+        let tool = make_tool();
+        let code = "async fn my_func() {\n    let x = 1;\n    std::fs::read(\"f\");\n}";
+        let lines: Vec<(usize, &str)> = code.lines().enumerate().collect();
+        assert!(tool.is_in_async_context(&lines, 2)); // inside async fn
+    }
+
+    #[test]
+    fn test_is_in_async_context_false_for_sync_fn() {
+        let tool = make_tool();
+        let code = "fn sync_func() {\n    let x = 1;\n    std::fs::read(\"f\");\n}";
+        let lines: Vec<(usize, &str)> = code.lines().enumerate().collect();
+        assert!(!tool.is_in_async_context(&lines, 2)); // inside sync fn
+    }
+
+    #[test]
+    fn test_is_in_async_context_top_level() {
+        let tool = make_tool();
+        let code = "const X: i32 = 5;";
+        let lines: Vec<(usize, &str)> = code.lines().enumerate().collect();
+        assert!(!tool.is_in_async_context(&lines, 0));
+    }
+
+    // ===== generate_recommendations =====
+
+    #[test]
+    fn test_generate_recommendations_with_blocking() {
+        let tool = make_tool();
+        let stats = AnalysisStats {
+            total_blocking: 3,
+            ..Default::default()
+        };
+        let issues: Vec<AsyncIssue> = vec![];
+        let recs = tool.generate_recommendations(&stats, &issues);
+        assert!(!recs.is_empty());
+        assert!(recs[0].contains("3 blocking calls"));
+    }
+
+    #[test]
+    fn test_generate_recommendations_empty_returns_healthy() {
+        let tool = make_tool();
+        let stats = AnalysisStats::default();
+        let issues: Vec<AsyncIssue> = vec![];
+        let recs = tool.generate_recommendations(&stats, &issues);
+        assert_eq!(recs.len(), 1);
+        assert!(recs[0].contains("healthy"));
+    }
+
+    #[test]
+    fn test_generate_recommendations_with_critical_issues() {
+        let tool = make_tool();
+        let stats = AnalysisStats {
+            total_spawn_calls: 25,
+            total_async_fns: 60,
+            ..Default::default()
+        };
+        let issues = vec![
+            AsyncIssue {
+                file: "a.rs".to_string(),
+                line: 1,
+                severity: IssueSeverity::Critical,
+                category: "x".to_string(),
+                message: "crit1".to_string(),
+                suggestion: "fix".to_string(),
+                code_snippet: "x".to_string(),
+            },
+            AsyncIssue {
+                file: "b.rs".to_string(),
+                line: 2,
+                severity: IssueSeverity::Critical,
+                category: "x".to_string(),
+                message: "crit2".to_string(),
+                suggestion: "fix".to_string(),
+                code_snippet: "x".to_string(),
+            },
+        ];
+        let recs = tool.generate_recommendations(&stats, &issues);
+        assert!(recs.iter().any(|r| r.contains("2 critical")));
+        assert!(recs.iter().any(|r| r.contains("spawn")));
+        assert!(recs.iter().any(|r| r.contains("Large async")));
+    }
+
+    // ===== generate_spawn_suggestions =====
+
+    #[test]
+    fn test_spawn_suggestions_more_async_blocks() {
+        let tool = make_tool();
+        let patterns = vec![
+            SpawnPattern {
+                file: "a.rs".to_string(), line: 1, pattern_type: "async_block".to_string(),
+                code_snippet: "x".to_string(), has_join_handle: false,
+            },
+            SpawnPattern {
+                file: "b.rs".to_string(), line: 2, pattern_type: "async_block".to_string(),
+                code_snippet: "x".to_string(), has_join_handle: false,
+            },
+            SpawnPattern {
+                file: "c.rs".to_string(), line: 3, pattern_type: "function".to_string(),
+                code_snippet: "x".to_string(), has_join_handle: false,
+            },
+        ];
+        let suggestions = tool.generate_spawn_suggestions(&patterns);
+        assert!(suggestions.iter().any(|s| s.contains("async blocks")));
+    }
+
+    #[test]
+    fn test_spawn_suggestions_reasonable() {
+        let tool = make_tool();
+        let patterns: Vec<SpawnPattern> = vec![];
+        let suggestions = tool.generate_spawn_suggestions(&patterns);
+        assert_eq!(suggestions.len(), 1);
+        assert!(suggestions[0].contains("reasonable"));
+    }
+
+    // ===== count_severities =====
+
+    #[test]
+    fn test_count_severities_mixed() {
+        let tool = make_tool();
+        let issues = vec![
+            AsyncIssue { file: "a".to_string(), line: 1, severity: IssueSeverity::Critical, category: "x".to_string(), message: "a".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
+            AsyncIssue { file: "b".to_string(), line: 2, severity: IssueSeverity::Warning, category: "x".to_string(), message: "b".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
+            AsyncIssue { file: "c".to_string(), line: 3, severity: IssueSeverity::Info, category: "x".to_string(), message: "c".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
+            AsyncIssue { file: "d".to_string(), line: 4, severity: IssueSeverity::Critical, category: "x".to_string(), message: "d".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
+        ];
+        let counts = tool.count_severities(&issues);
+        assert_eq!(counts.critical, 2);
+        assert_eq!(counts.warning, 1);
+        assert_eq!(counts.info, 1);
+    }
+
+    #[test]
+    fn test_count_severities_empty() {
+        let tool = make_tool();
+        let counts = tool.count_severities(&[]);
+        assert_eq!(counts.critical, 0);
+        assert_eq!(counts.warning, 0);
+        assert_eq!(counts.info, 0);
+    }
+
+    // ===== analyze_file =====
+
+    #[test]
+    fn test_analyze_file_counts_async_fns() {
+        let tool = make_tool();
+        let code = r#"
+async fn foo() {}
+async fn bar() {}
+fn baz() {}
+"#;
+        let analysis = tool.analyze_file("test.rs", code);
+        assert_eq!(analysis.async_fn_count, 2);
+    }
+
+    #[test]
+    fn test_analyze_file_counts_spawn() {
+        let tool = make_tool();
+        let code = r#"
+async fn main() {
+    tokio::spawn(async {});
+    tokio::spawn(work());
+}
+"#;
+        let analysis = tool.analyze_file("test.rs", code);
+        assert_eq!(analysis.spawn_count, 2);
+    }
+
+    // ===== analyze_spawn_in_file =====
+
+    #[test]
+    fn test_analyze_spawn_detects_async_block() {
+        let tool = make_tool();
+        let code = r#"async fn main() {
+    tokio::spawn(async { println!("hi"); });
+}"#;
+        let (patterns, issues) = tool.analyze_spawn_in_file("test.rs", code);
+        assert_eq!(patterns.len(), 1);
+        assert_eq!(patterns[0].pattern_type, "async_block");
+        assert_eq!(issues.len(), 1); // unhandled spawn
+    }
+
+    #[test]
+    fn test_analyze_spawn_detects_function() {
+        let tool = make_tool();
+        let code = r#"async fn main() {
+    let h = tokio::spawn(my_work());
+}"#;
+        let (patterns, issues) = tool.analyze_spawn_in_file("test.rs", code);
+        assert_eq!(patterns.len(), 1);
+        assert_eq!(patterns[0].pattern_type, "function");
+        assert_eq!(issues.len(), 0); // handle stored
+    }
+
+    // ===== collect_rust_files =====
+
+    #[test]
+    fn test_collect_rust_filters_target_dir() {
+        let tool = make_tool();
+        let files = tool.collect_rust_files("src", false);
+        assert!(files.is_ok());
+        let files = files.unwrap();
+        assert!(!files.iter().any(|f| f.contains("/target/")));
+    }
+
+    #[test]
+    fn test_collect_rust_single_file() {
+        let tool = make_tool();
+        let files = tool.collect_rust_files("src/tools/builtin/hello_tool.rs", false);
+        assert!(files.is_ok());
+        let files = files.unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("hello_tool.rs"));
+    }
+
+    #[test]
+    fn test_collect_rust_nonexistent_path() {
+        let tool = make_tool();
+        let result = tool.collect_rust_files("/nonexistent/path", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_collect_rust_non_rust_file() {
+        let tool = make_tool();
+        let result = tool.collect_rust_files("Cargo.toml", false);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // ===== execute action routing =====
+
+    #[tokio::test]
+    async fn test_execute_unknown_action() {
+        let tool = make_tool();
+        let mut params = HashMap::new();
+        params.insert("action".to_string(), Value::String("invalid".to_string()));
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+
+    // ===== AnalysisStats default =====
+
+    #[test]
+    fn test_analysis_stats_default() {
+        let stats = AnalysisStats::default();
+        assert_eq!(stats.total_files, 0);
+        assert_eq!(stats.total_lines, 0);
+        assert_eq!(stats.total_async_fns, 0);
+        assert_eq!(stats.total_spawn_calls, 0);
+        assert_eq!(stats.total_blocking, 0);
+    }
+
+    // ===== SeverityCounts default =====
+
+    #[test]
+    fn test_severity_counts_default() {
+        let counts = SeverityCounts::default();
+        assert_eq!(counts.critical, 0);
+        assert_eq!(counts.warning, 0);
+        assert_eq!(counts.info, 0);
+    }
+}

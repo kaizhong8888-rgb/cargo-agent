@@ -819,3 +819,462 @@ enum LicenseCompat {
     Warning(String),
     Incompatible(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tool() -> LicenseAuditTool {
+        LicenseAuditTool
+    }
+
+    // ===== License classification tests =====
+
+    #[test]
+    fn test_is_permissive_mit() {
+        let tool = make_tool();
+        assert!(tool.is_permissive("MIT"));
+        assert!(tool.is_permissive("mit"));
+    }
+
+    #[test]
+    fn test_is_permissive_apache() {
+        let tool = make_tool();
+        assert!(tool.is_permissive("Apache-2.0"));
+        assert!(tool.is_permissive("Apache 2.0"));
+    }
+
+    #[test]
+    fn test_is_permissive_bsd() {
+        let tool = make_tool();
+        assert!(tool.is_permissive("BSD-2-Clause"));
+        assert!(tool.is_permissive("BSD-3-Clause"));
+        assert!(tool.is_permissive("BSD"));
+    }
+
+    #[test]
+    fn test_is_permissive_misc() {
+        let tool = make_tool();
+        assert!(tool.is_permissive("ISC"));
+        assert!(tool.is_permissive("Unlicense"));
+        assert!(tool.is_permissive("CC0-1.0"));
+        assert!(tool.is_permissive("Zlib"));
+        assert!(tool.is_permissive("BSL-1.0"));
+    }
+
+    #[test]
+    fn test_is_permissive_gpl_false() {
+        let tool = make_tool();
+        assert!(!tool.is_permissive("GPL-3.0"));
+        assert!(!tool.is_permissive("LGPL-2.1"));
+        assert!(!tool.is_permissive("AGPL-3.0"));
+    }
+
+    #[test]
+    fn test_is_weak_copyleft() {
+        let tool = make_tool();
+        assert!(tool.is_weak_copyleft("MPL-2.0"));
+        assert!(tool.is_weak_copyleft("Mozilla Public License 2.0"));
+        assert!(tool.is_weak_copyleft("LGPL-2.1"));
+        assert!(tool.is_weak_copyleft("LGPL-3.0"));
+        assert!(tool.is_weak_copyleft("LGPL"));
+        assert!(tool.is_weak_copyleft("EPL-1.0"));
+        assert!(tool.is_weak_copyleft("EPL-2.0"));
+        assert!(tool.is_weak_copyleft("CDDL-1.0"));
+    }
+
+    #[test]
+    fn test_is_weak_copyleft_mit_false() {
+        let tool = make_tool();
+        assert!(!tool.is_weak_copyleft("MIT"));
+        assert!(!tool.is_weak_copyleft("Apache-2.0"));
+    }
+
+    #[test]
+    fn test_is_strong_copyleft() {
+        let tool = make_tool();
+        assert!(tool.is_strong_copyleft("GPL-2.0"));
+        assert!(tool.is_strong_copyleft("GPL-3.0"));
+        assert!(tool.is_strong_copyleft("GPL-2.0-only"));
+        assert!(tool.is_strong_copyleft("GPL-3.0-only"));
+        assert!(tool.is_strong_copyleft("GPL-2.0-or-later"));
+        assert!(tool.is_strong_copyleft("GPL-3.0-or-later"));
+    }
+
+    #[test]
+    fn test_is_strong_copyleft_lgpl_false() {
+        let tool = make_tool();
+        // LGPL should NOT be strong copyleft (it's weak)
+        assert!(!tool.is_strong_copyleft("LGPL-2.1"));
+        assert!(!tool.is_strong_copyleft("LGPL-3.0"));
+    }
+
+    #[test]
+    fn test_is_strong_copyleft_mit_false() {
+        let tool = make_tool();
+        assert!(!tool.is_strong_copyleft("MIT"));
+        assert!(!tool.is_strong_copyleft("Apache-2.0"));
+    }
+
+    #[test]
+    fn test_is_network_copyleft() {
+        let tool = make_tool();
+        assert!(tool.is_network_copyleft("AGPL-3.0"));
+        assert!(tool.is_network_copyleft("SSPL-1.0"));
+        assert!(!tool.is_network_copyleft("GPL-3.0"));
+        assert!(!tool.is_network_copyleft("MIT"));
+    }
+
+    #[test]
+    fn test_is_copyleft() {
+        let tool = make_tool();
+        assert!(tool.is_copyleft("GPL-3.0"));
+        assert!(tool.is_copyleft("LGPL-2.1"));
+        assert!(tool.is_copyleft("AGPL-3.0"));
+        assert!(tool.is_copyleft("MPL-2.0"));
+        assert!(!tool.is_copyleft("MIT"));
+        assert!(!tool.is_copyleft("Apache-2.0"));
+        assert!(!tool.is_copyleft("BSD-3-Clause"));
+    }
+
+    // ===== Risk assessment tests =====
+
+    #[test]
+    fn test_assess_risk_low() {
+        let tool = make_tool();
+        assert_eq!(tool.assess_risk("MIT"), "low");
+        assert_eq!(tool.assess_risk("Apache-2.0"), "low");
+        assert_eq!(tool.assess_risk("BSD-3-Clause"), "low");
+        assert_eq!(tool.assess_risk("ISC"), "low");
+    }
+
+    #[test]
+    fn test_assess_risk_medium() {
+        let tool = make_tool();
+        assert_eq!(tool.assess_risk("MPL-2.0"), "medium");
+        assert_eq!(tool.assess_risk("LGPL-2.1"), "medium");
+        assert_eq!(tool.assess_risk("EPL-2.0"), "medium");
+    }
+
+    #[test]
+    fn test_assess_risk_high() {
+        let tool = make_tool();
+        assert_eq!(tool.assess_risk("GPL-3.0"), "high");
+        assert_eq!(tool.assess_risk("GPL-2.0"), "high");
+    }
+
+    #[test]
+    fn test_assess_risk_critical() {
+        let tool = make_tool();
+        assert_eq!(tool.assess_risk("AGPL-3.0"), "critical");
+        assert_eq!(tool.assess_risk("SSPL-1.0"), "critical");
+    }
+
+    // ===== License normalization =====
+
+    #[test]
+    fn test_normalize_license_or() {
+        let tool = make_tool();
+        assert_eq!(tool.normalize_license("MIT OR Apache-2.0"), "MIT OR Apache-2.0");
+    }
+
+    #[test]
+    fn test_normalize_license_and() {
+        let tool = make_tool();
+        assert_eq!(tool.normalize_license("MIT AND Apache-2.0"), "MIT AND Apache-2.0");
+    }
+
+    #[test]
+    fn test_normalize_license_simple() {
+        let tool = make_tool();
+        assert_eq!(tool.normalize_license("  MIT  "), "MIT");
+    }
+
+    // ===== License compatibility tests =====
+
+    #[test]
+    fn test_compat_mit_with_permissive() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("MIT", "Apache-2.0"),
+            LicenseCompat::Compatible
+        ));
+        assert!(matches!(
+            tool.check_license_compat("MIT", "BSD-3-Clause"),
+            LicenseCompat::Compatible
+        ));
+        assert!(matches!(
+            tool.check_license_compat("MIT", "ISC"),
+            LicenseCompat::Compatible
+        ));
+    }
+
+    #[test]
+    fn test_compat_mit_with_weak_copyleft() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("MIT", "MPL-2.0"),
+            LicenseCompat::Warning(_)
+        ));
+    }
+
+    #[test]
+    fn test_compat_mit_with_strong_copyleft() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("MIT", "GPL-3.0"),
+            LicenseCompat::Incompatible(_)
+        ));
+    }
+
+    #[test]
+    fn test_compat_mit_with_network_copyleft() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("MIT", "AGPL-3.0"),
+            LicenseCompat::Incompatible(_)
+        ));
+    }
+
+    #[test]
+    fn test_compat_apache2_with_gpl2() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("Apache-2.0", "GPL-2.0"),
+            LicenseCompat::Incompatible(_)
+        ));
+    }
+
+    #[test]
+    fn test_compat_apache2_with_permissive() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("Apache-2.0", "MIT"),
+            LicenseCompat::Compatible
+        ));
+    }
+
+    #[test]
+    fn test_compat_gpl3_accepts_most() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("GPL-3.0", "MIT"),
+            LicenseCompat::Compatible
+        ));
+        assert!(matches!(
+            tool.check_license_compat("GPL-3.0", "Apache-2.0"),
+            LicenseCompat::Compatible
+        ));
+        assert!(matches!(
+            tool.check_license_compat("GPL-3.0", "LGPL-2.1"),
+            LicenseCompat::Compatible
+        ));
+        assert!(matches!(
+            tool.check_license_compat("GPL-3.0", "GPL-3.0"),
+            LicenseCompat::Compatible
+        ));
+    }
+
+    #[test]
+    fn test_compat_gpl3_with_agpl() {
+        let tool = make_tool();
+        assert!(matches!(
+            tool.check_license_compat("GPL-3.0", "AGPL-3.0"),
+            LicenseCompat::Warning(_)
+        ));
+    }
+
+    // ===== count_risk_levels =====
+
+    #[test]
+    fn test_count_risk_levels() {
+        let tool = make_tool();
+        let deps = vec![
+            DepLicense { name: "a".into(), version: "1.0".into(), license: "MIT".into(), risk_level: "low", is_copyleft: false },
+            DepLicense { name: "b".into(), version: "1.0".into(), license: "MPL-2.0".into(), risk_level: "medium", is_copyleft: true },
+            DepLicense { name: "c".into(), version: "1.0".into(), license: "GPL-3.0".into(), risk_level: "high", is_copyleft: true },
+            DepLicense { name: "d".into(), version: "1.0".into(), license: "AGPL-3.0".into(), risk_level: "critical", is_copyleft: true },
+            DepLicense { name: "e".into(), version: "1.0".into(), license: "BSD".into(), risk_level: "low", is_copyleft: false },
+        ];
+        let summary = tool.count_risk_levels(&deps);
+        assert_eq!(summary.low, 2);
+        assert_eq!(summary.medium, 1);
+        assert_eq!(summary.high, 1);
+        assert_eq!(summary.critical, 1);
+    }
+
+    #[test]
+    fn test_count_risk_levels_empty() {
+        let tool = make_tool();
+        let summary = tool.count_risk_levels(&[]);
+        assert_eq!(summary.low, 0);
+        assert_eq!(summary.medium, 0);
+        assert_eq!(summary.high, 0);
+        assert_eq!(summary.critical, 0);
+    }
+
+    // ===== DepLicense::to_json =====
+
+    #[test]
+    fn test_dep_license_to_json() {
+        let dep = DepLicense {
+            name: "serde".into(),
+            version: "1.0".into(),
+            license: "MIT".into(),
+            risk_level: "low",
+            is_copyleft: false,
+        };
+        let json = dep.to_json();
+        assert_eq!(json["name"], "serde");
+        assert_eq!(json["version"], "1.0");
+        assert_eq!(json["license"], "MIT");
+        assert_eq!(json["risk_level"], "low");
+        assert_eq!(json["is_copyleft"], false);
+    }
+
+    // ===== Violation::to_json =====
+
+    #[test]
+    fn test_violation_to_json() {
+        let v = Violation {
+            package: "gpl-lib@1.0".into(),
+            license: "GPL-3.0".into(),
+            reason: "Denied license".into(),
+            severity: "critical".into(),
+        };
+        let json = v.to_json();
+        assert_eq!(json["package"], "gpl-lib@1.0");
+        assert_eq!(json["license"], "GPL-3.0");
+        assert_eq!(json["reason"], "Denied license");
+        assert_eq!(json["severity"], "critical");
+    }
+
+    // ===== get_license_reference =====
+
+    #[test]
+    fn test_license_reference_mit() {
+        let tool = make_tool();
+        let ref_text = tool.get_license_reference("MIT");
+        assert!(ref_text.contains("MIT License"));
+        assert!(ref_text.contains("opensource.org/licenses/MIT"));
+    }
+
+    #[test]
+    fn test_license_reference_apache() {
+        let tool = make_tool();
+        let ref_text = tool.get_license_reference("Apache-2.0");
+        assert!(ref_text.contains("Apache License"));
+        assert!(ref_text.contains("apache.org/licenses/LICENSE-2.0"));
+    }
+
+    #[test]
+    fn test_license_reference_unknown() {
+        let tool = make_tool();
+        let ref_text = tool.get_license_reference("Custom-License");
+        assert!(ref_text.contains("copyright holder"));
+    }
+
+    // ===== normalize_license =====
+
+    #[test]
+    fn test_detect_license_from_field() {
+        let tool = make_tool();
+        let pkg = Package {
+            name: "test".into(),
+            version: "1.0".into(),
+            license: Some("MIT".into()),
+            license_file: None,
+        };
+        assert_eq!(tool.detect_license(&pkg), Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_license_from_file() {
+        let tool = make_tool();
+        let pkg = Package {
+            name: "test".into(),
+            version: "1.0".into(),
+            license: None,
+            license_file: Some("LICENSE".into()),
+        };
+        assert_eq!(
+            tool.detect_license(&pkg),
+            Some("Unknown (has license file)".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_license_none() {
+        let tool = make_tool();
+        let pkg = Package {
+            name: "test".into(),
+            version: "1.0".into(),
+            license: None,
+            license_file: None,
+        };
+        assert_eq!(tool.detect_license(&pkg), None);
+    }
+
+    #[test]
+    fn test_detect_license_empty_string() {
+        let tool = make_tool();
+        let pkg = Package {
+            name: "test".into(),
+            version: "1.0".into(),
+            license: Some("".into()),
+            license_file: None,
+        };
+        assert_eq!(tool.detect_license(&pkg), None);
+    }
+
+    // ===== format_text_report =====
+
+    #[test]
+    fn test_format_text_report_basic() {
+        let tool = make_tool();
+        let scan_result = serde_json::json!({
+            "total_dependencies": 5,
+            "risk_summary": {
+                "low": 3,
+                "medium": 1,
+                "high": 1,
+                "critical": 0,
+            },
+            "dependencies": [
+                {"name": "serde", "version": "1.0", "license": "MIT", "risk_level": "low", "is_copyleft": false}
+            ],
+            "unknown_packages": [],
+            "licensed": 1,
+            "unknown_license": 0,
+        });
+        let report = tool.format_text_report(&scan_result);
+        assert!(report.contains("LICENSE COMPLIANCE REPORT"));
+        assert!(report.contains("Total Dependencies: 5"));
+        assert!(report.contains("Low Risk: 3"));
+        assert!(report.contains("High Risk: 1"));
+    }
+
+    // ===== format_markdown_report =====
+
+    #[test]
+    fn test_format_markdown_report_basic() {
+        let tool = make_tool();
+        let scan_result = serde_json::json!({
+            "total_dependencies": 2,
+            "licensed": 2,
+            "unknown_license": 0,
+            "risk_summary": { "low": 1, "medium": 1, "high": 0, "critical": 0 },
+            "dependencies": [
+                {"name": "serde", "version": "1.0", "license": "MIT", "risk_level": "low", "is_copyleft": false},
+                {"name": "mpl-lib", "version": "2.0", "license": "MPL-2.0", "risk_level": "medium", "is_copyleft": true},
+            ],
+            "unknown_packages": [],
+        });
+        let report = tool.format_markdown_report(&scan_result);
+        assert!(report.contains("# License Compliance Report"));
+        assert!(report.contains("## Risk Summary"));
+        assert!(report.contains("## Dependencies"));
+        assert!(report.contains("serde"));
+        assert!(report.contains("mpl-lib"));
+    }
+}
