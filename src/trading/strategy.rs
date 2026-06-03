@@ -1,5 +1,6 @@
 use crate::trading::data::Candle;
 use crate::trading::indicators;
+use crate::trading::seasonal_strategy::SeasonalStrategy;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
@@ -1865,6 +1866,8 @@ pub fn create_default_strategies() -> Vec<Box<dyn Strategy>> {
         Box::new(ObvMomentumStrategy::new(20)),
         Box::new(MultiFactorMomentum::new(12, 26, 14, 30.0, 70.0, 20)),
         Box::new(PairsTradingStrategy::new(20, 2.0, 0.5)),
+        // 季节性策略
+        Box::new(SeasonalStrategy::default()),
     ]
 }
 
