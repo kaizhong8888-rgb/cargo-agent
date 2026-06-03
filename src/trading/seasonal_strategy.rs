@@ -551,8 +551,9 @@ mod tests {
         assert_eq!(cal.day_of_week, 0); // Monday
         assert_eq!(cal.month, 1); // January
 
-        let cal2 = CalendarInfo::from_index(20, 252);
-        assert_eq!(cal2.day_of_week, 0); // Monday again (20 % 5 = 0)
+        // Index 21 is first trading day of month 2 (21 / 21 + 1 = 2)
+        let cal2 = CalendarInfo::from_index(21, 252);
+        assert_eq!(cal2.day_of_week, 1); // Tuesday (21 % 5 = 1)
         assert_eq!(cal2.month, 2); // February
     }
 
