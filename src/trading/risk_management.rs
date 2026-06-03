@@ -1,8 +1,7 @@
 /// 动态风险管理模块
 /// 包括：Kelly公式仓位、ATR动态止损止盈、最大回撤控制、波动率调整仓位
-
-use crate::data::Candle;
-use crate::indicators;
+use super::data::Candle;
+use super::indicators;
 
 /// 仓位管理配置
 #[derive(Debug, Clone)]
@@ -96,7 +95,9 @@ pub struct RiskManager {
     // 内部状态
     peak_equity: f64,
     current_equity: f64,
+    #[allow(dead_code)]
     initial_equity: f64,
+    #[allow(dead_code)]
     is_reduced: bool,
     trade_history: Vec<f64>, // 存储每笔交易的PnL百分比
 }
@@ -123,8 +124,18 @@ impl RiskManager {
             return 0.0; // 样本不足
         }
 
-        let wins: Vec<f64> = self.trade_history.iter().filter(|&&p| p > 0.0).copied().collect();
-        let losses: Vec<f64> = self.trade_history.iter().filter(|&&p| p < 0.0).copied().collect();
+        let wins: Vec<f64> = self
+            .trade_history
+            .iter()
+            .filter(|&&p| p > 0.0)
+            .copied()
+            .collect();
+        let losses: Vec<f64> = self
+            .trade_history
+            .iter()
+            .filter(|&&p| p < 0.0)
+            .copied()
+            .collect();
 
         if wins.is_empty() || losses.is_empty() {
             return 0.0;
@@ -142,7 +153,9 @@ impl RiskManager {
         let kelly = win_rate - (1.0 - win_rate) / win_loss_ratio;
 
         // 应用 Kelly 折扣 (半Kelly更稳健)
-        (kelly * self.position_config.kelly_fraction).max(0.0).min(self.position_config.max_position_pct)
+        (kelly * self.position_config.kelly_fraction)
+            .max(0.0)
+            .min(self.position_config.max_position_pct)
     }
 
     /// 基于波动率调整仓位
@@ -186,12 +199,7 @@ impl RiskManager {
     }
 
     /// 计算基于 ATR 的动态止损价格
-    pub fn calculate_atr_stop_loss(
-        &self,
-        entry_price: f64,
-        atr: f64,
-        is_long: bool,
-    ) -> f64 {
+    pub fn calculate_atr_stop_loss(&self, entry_price: f64, atr: f64, is_long: bool) -> f64 {
         if is_long {
             entry_price - atr * self.stop_loss_config.atr_stop_multiplier
         } else {
@@ -200,12 +208,7 @@ impl RiskManager {
     }
 
     /// 计算基于 ATR 的动态止盈价格
-    pub fn calculate_atr_take_profit(
-        &self,
-        entry_price: f64,
-        atr: f64,
-        is_long: bool,
-    ) -> f64 {
+    pub fn calculate_atr_take_profit(&self, entry_price: f64, atr: f64, is_long: bool) -> f64 {
         if is_long {
             entry_price + atr * self.stop_loss_config.atr_take_profit_multiplier
         } else {
@@ -216,7 +219,7 @@ impl RiskManager {
     /// 计算追踪止损价格
     pub fn calculate_trailing_stop(
         &self,
-        current_price: f64,
+        _current_price: f64,
         highest_price: f64,
         atr: f64,
         is_long: bool,
@@ -299,18 +302,15 @@ impl RiskManager {
         };
 
         // 3. 波动率调整
-        let vol_adjusted = self.volatility_adjusted_position(
-            candles,
-            atr_period,
-            target_volatility_pct,
-        );
+        let vol_adjusted =
+            self.volatility_adjusted_position(candles, atr_period, target_volatility_pct);
 
         // 4. 取两者中较小值 (更保守)
         let mut position = base_position.min(vol_adjusted);
 
         // 5. 应用回撤减仓
         if should_reduce {
-            position *= (1.0 - reduce_pct);
+            position *= 1.0 - reduce_pct;
         }
 
         // 6. 限制范围
@@ -500,8 +500,8 @@ impl ExitManager {
 
 #[cfg(test)]
 mod tests {
+    use super::super::data::DataSource;
     use super::*;
-    use crate::data::DataSource;
 
     #[test]
     fn test_kelly_percentage() {

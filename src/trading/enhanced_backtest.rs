@@ -1,11 +1,10 @@
 /// 增强型回测引擎
 /// 集成：动态风险管理、市场状态识别、动态止损止盈、交易成本建模、执行延迟
-
-use crate::backtest::{Trade, TradeSide};
-use crate::data::Candle;
-use crate::market_regime::{MarketRegime, MarketRegimeDetector};
-use crate::risk_management::{ExitManager, RiskManager};
-use crate::strategy::{Signal, Strategy};
+use super::backtest::{Trade, TradeSide};
+use super::data::Candle;
+use super::market_regime::{MarketRegime, MarketRegimeDetector};
+use super::risk_management::{ExitManager, RiskManager};
+use super::strategy::{Signal, Strategy};
 
 /// 增强型回测配置
 #[derive(Debug, Clone)]
@@ -101,7 +100,11 @@ impl EnhancedBacktestEngine {
         }
     }
 
-    pub fn run(&mut self, candles: &[Candle], strategy: &dyn Strategy) -> anyhow::Result<EnhancedBacktestResult> {
+    pub fn run(
+        &mut self,
+        candles: &[Candle],
+        strategy: &dyn Strategy,
+    ) -> anyhow::Result<EnhancedBacktestResult> {
         let signals = strategy.generate(candles);
         let mut trades: Vec<Trade> = Vec::new();
         let mut equity_curve = vec![self.config.initial_capital];
@@ -114,7 +117,7 @@ impl EnhancedBacktestEngine {
         let mut entry_idx: usize = 0;
         let mut entry_price = 0.0;
         let mut entry_quantity = 0.0;
-        let mut side = TradeSide::Buy;
+        let mut side = TradeSide::Long;
         let mut highest_price = 0.0;
         let mut lowest_price = f64::MAX;
         let mut exit_manager: Option<ExitManager> = None;
@@ -122,7 +125,8 @@ impl EnhancedBacktestEngine {
         let mut last_signal_idx = 0;
         let mut signal_queue: Vec<(usize, Signal)> = Vec::new();
         let mut regime_history: Vec<MarketRegime> = Vec::new();
-        let mut exit_reasons: std::collections::HashMap<String, (usize, f64)> = std::collections::HashMap::new();
+        let mut exit_reasons: std::collections::HashMap<String, (usize, f64)> =
+            std::collections::HashMap::new();
 
         println!(
             "   📊 增强回测: {} | 资金: ${:.2} | 滑点: {:.1}% | 延迟: {} bar",
@@ -139,7 +143,7 @@ impl EnhancedBacktestEngine {
         for i in 0..candles.len() {
             let price = candles[i].close;
             let atr = if i >= 14 {
-                let atr_values = crate::indicators::atr(&highs, &lows, &closes, 14);
+                let atr_values = super::indicators::atr(&highs, &lows, &closes, 14);
                 atr_values[i]
             } else {
                 0.0
@@ -175,16 +179,26 @@ impl EnhancedBacktestEngine {
 
                             if regime_ok {
                                 let position_pct = if self.config.enable_risk_management {
-                                    self.risk_manager.get_position_size(current_equity, candles, 14, 0.02)
+                                    self.risk_manager.get_position_size(
+                                        current_equity,
+                                        candles,
+                                        14,
+                                        0.02,
+                                    )
                                 } else {
                                     0.10
                                 };
 
                                 if position_pct > 0.0 {
-                                    let slippage = self.calculate_slippage(atr, price, self.config.base_slippage);
+                                    let slippage = self.calculate_slippage(
+                                        atr,
+                                        price,
+                                        self.config.base_slippage,
+                                    );
                                     let buy_price = price * (1.0 + slippage);
                                     let alloc = current_equity * position_pct;
-                                    let after_commission = alloc * (1.0 - self.config.commission_rate);
+                                    let after_commission =
+                                        alloc * (1.0 - self.config.commission_rate);
                                     let quantity = after_commission / buy_price;
                                     let cost = quantity * buy_price;
                                     let commission = cost * self.config.commission_rate;
@@ -194,7 +208,7 @@ impl EnhancedBacktestEngine {
                                     entry_idx = i;
                                     entry_price = buy_price;
                                     entry_quantity = quantity;
-                                    side = TradeSide::Buy;
+                                    side = TradeSide::Long;
                                     highest_price = price;
                                     lowest_price = price;
                                     breakeven_triggered = false;
@@ -210,18 +224,28 @@ impl EnhancedBacktestEngine {
                     Signal::Sell => {
                         if in_position && min_interval_ok {
                             let regime_ok = if self.config.enable_regime_filter {
-                                regime.is_suitable_for_mean_reversion() || regime == MarketRegime::Ranging
+                                regime.is_suitable_for_mean_reversion()
+                                    || regime == MarketRegime::Ranging
                             } else {
                                 true
                             };
 
                             if regime_ok {
                                 Self::close_position_fn(
-                                    price, i, candles, &mut trades,
-                                    &mut current_equity, &mut in_position,
-                                    entry_idx, entry_price, entry_quantity, side,
-                                    "Signal Sell", &mut exit_reasons,
-                                    self.config.base_slippage, self.config.commission_rate,
+                                    price,
+                                    i,
+                                    candles,
+                                    &mut trades,
+                                    &mut current_equity,
+                                    &mut in_position,
+                                    entry_idx,
+                                    entry_price,
+                                    entry_quantity,
+                                    side,
+                                    "Signal Sell",
+                                    &mut exit_reasons,
+                                    self.config.base_slippage,
+                                    self.config.commission_rate,
                                 );
                                 last_signal_idx = i;
                             }
@@ -256,11 +280,20 @@ impl EnhancedBacktestEngine {
                         let exit_signal = exit_mgr.check_exit(price, atr, breakeven_triggered);
                         if exit_signal.should_exit {
                             Self::close_position_fn(
-                                exit_signal.exit_price, i, candles, &mut trades,
-                                &mut current_equity, &mut in_position,
-                                entry_idx, entry_price, entry_quantity, side,
-                                &exit_signal.reason, &mut exit_reasons,
-                                self.config.base_slippage, self.config.commission_rate,
+                                exit_signal.exit_price,
+                                i,
+                                candles,
+                                &mut trades,
+                                &mut current_equity,
+                                &mut in_position,
+                                entry_idx,
+                                entry_price,
+                                entry_quantity,
+                                side,
+                                &exit_signal.reason,
+                                &mut exit_reasons,
+                                self.config.base_slippage,
+                                self.config.commission_rate,
                             );
                             exit_manager = None;
                         }
@@ -277,7 +310,11 @@ impl EnhancedBacktestEngine {
             let drawdown = peak_equity - total_equity;
             if drawdown > max_drawdown {
                 max_drawdown = drawdown;
-                max_drawdown_pct = if peak_equity > 0.0 { drawdown / peak_equity } else { 0.0 };
+                max_drawdown_pct = if peak_equity > 0.0 {
+                    drawdown / peak_equity
+                } else {
+                    0.0
+                };
             }
         }
 
@@ -285,29 +322,51 @@ impl EnhancedBacktestEngine {
             let last_idx = candles.len() - 1;
             let last_price = candles[last_idx].close;
             Self::close_position_fn(
-                last_price, last_idx, candles, &mut trades,
-                &mut current_equity, &mut in_position,
-                entry_idx, entry_price, entry_quantity, side,
-                "End of Data", &mut exit_reasons,
-                self.config.base_slippage, self.config.commission_rate,
+                last_price,
+                last_idx,
+                candles,
+                &mut trades,
+                &mut current_equity,
+                &mut in_position,
+                entry_idx,
+                entry_price,
+                entry_quantity,
+                side,
+                "End of Data",
+                &mut exit_reasons,
+                self.config.base_slippage,
+                self.config.commission_rate,
             );
         }
 
         let final_equity = current_equity;
-        let total_return_pct = (final_equity - self.config.initial_capital) / self.config.initial_capital * 100.0;
+        let total_return_pct =
+            (final_equity - self.config.initial_capital) / self.config.initial_capital * 100.0;
 
         // Compute stats BEFORE moving trades into result
-        let win_rate = if trades.is_empty() { 0.0 } else {
+        let win_rate = if trades.is_empty() {
+            0.0
+        } else {
             trades.iter().filter(|t| t.pnl > 0.0).count() as f64 / trades.len() as f64
         };
         let gross_profit: f64 = trades.iter().filter(|t| t.pnl > 0.0).map(|t| t.pnl).sum();
-        let gross_loss: f64 = trades.iter().filter(|t| t.pnl < 0.0).map(|t| t.pnl.abs()).sum();
+        let gross_loss: f64 = trades
+            .iter()
+            .filter(|t| t.pnl < 0.0)
+            .map(|t| t.pnl.abs())
+            .sum();
         let profit_factor = if gross_loss == 0.0 {
-            if gross_profit > 0.0 { f64::INFINITY } else { 0.0 }
+            if gross_profit > 0.0 {
+                f64::INFINITY
+            } else {
+                0.0
+            }
         } else {
             gross_profit / gross_loss
         };
-        let avg_bars_held = if trades.is_empty() { 0.0 } else {
+        let avg_bars_held = if trades.is_empty() {
+            0.0
+        } else {
             trades.iter().map(|t| t.bars_held).sum::<usize>() as f64 / trades.len() as f64
         };
 
@@ -315,7 +374,10 @@ impl EnhancedBacktestEngine {
         let regime_dist = Self::compute_regime_distribution(&regime_history);
         let regime_perf = Self::compute_regime_performance(&regime_history, &trades);
         let mc_stats = if self.config.monte_carlo_iterations > 0 {
-            Some(Self::run_monte_carlo(&trades, self.config.monte_carlo_iterations))
+            Some(Self::run_monte_carlo(
+                &trades,
+                self.config.monte_carlo_iterations,
+            ))
         } else {
             None
         };
@@ -333,7 +395,9 @@ impl EnhancedBacktestEngine {
             total_return_pct,
             sharpe_ratio: if risk_metrics.daily_return_std > 1e-10 {
                 risk_metrics.daily_return_mean / risk_metrics.daily_return_std * (252.0_f64.sqrt())
-            } else { 0.0 },
+            } else {
+                0.0
+            },
             max_drawdown_pct: max_drawdown_pct * 100.0,
             win_rate,
             profit_factor,
@@ -384,7 +448,9 @@ impl EnhancedBacktestEngine {
             0.0
         };
 
-        let entry = exit_reasons.entry(exit_reason.to_string()).or_insert((0, 0.0));
+        let entry = exit_reasons
+            .entry(exit_reason.to_string())
+            .or_insert((0, 0.0));
         entry.0 += 1;
         entry.1 += pnl;
 
@@ -402,25 +468,43 @@ impl EnhancedBacktestEngine {
         });
     }
 
-    fn compute_risk_metrics(&self, equity_curve: &[f64], trades: &[Trade], avg_bars_held: f64) -> RiskMetrics {
+    fn compute_risk_metrics(
+        &self,
+        equity_curve: &[f64],
+        trades: &[Trade],
+        avg_bars_held: f64,
+    ) -> RiskMetrics {
         if equity_curve.len() < 2 {
             return RiskMetrics {
-                daily_return_mean: 0.0, daily_return_std: 0.0, downside_deviation: 0.0,
-                var_95: 0.0, cvar_95: 0.0, max_consecutive_losses: 0,
-                max_consecutive_wins: 0, avg_bars_held, kelly_position: 0.0,
+                daily_return_mean: 0.0,
+                daily_return_std: 0.0,
+                downside_deviation: 0.0,
+                var_95: 0.0,
+                cvar_95: 0.0,
+                max_consecutive_losses: 0,
+                max_consecutive_wins: 0,
+                avg_bars_held,
+                kelly_position: 0.0,
             };
         }
 
-        let returns: Vec<f64> = equity_curve.windows(2).map(|w| (w[1] - w[0]) / w[0]).collect();
+        let returns: Vec<f64> = equity_curve
+            .windows(2)
+            .map(|w| (w[1] - w[0]) / w[0])
+            .collect();
         let mean: f64 = returns.iter().sum::<f64>() / returns.len() as f64;
-        let variance: f64 = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
+        let variance: f64 =
+            returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
         let std = variance.sqrt();
 
         let downside_returns: Vec<f64> = returns.iter().filter(|&&r| r < 0.0).copied().collect();
         let downside_dev = if !downside_returns.is_empty() {
-            let dd_var: f64 = downside_returns.iter().map(|r| r.powi(2)).sum::<f64>() / returns.len() as f64;
+            let dd_var: f64 =
+                downside_returns.iter().map(|r| r.powi(2)).sum::<f64>() / returns.len() as f64;
             dd_var.sqrt()
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         let mut sorted_returns = returns.clone();
         sorted_returns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -428,23 +512,40 @@ impl EnhancedBacktestEngine {
         let var_95 = sorted_returns.get(var_idx).copied().unwrap_or(0.0);
         let cvar_95 = if var_idx > 0 {
             sorted_returns[..=var_idx].iter().sum::<f64>() / (var_idx + 1) as f64
-        } else { var_95 };
+        } else {
+            var_95
+        };
 
         let (max_consec_wins, max_consec_losses) = Self::compute_consecutive(trades);
 
         RiskMetrics {
-            daily_return_mean: mean, daily_return_std: std, downside_deviation: downside_dev,
-            var_95, cvar_95, max_consecutive_losses: max_consec_losses,
-            max_consecutive_wins: max_consec_wins, avg_bars_held, kelly_position: 0.0,
+            daily_return_mean: mean,
+            daily_return_std: std,
+            downside_deviation: downside_dev,
+            var_95,
+            cvar_95,
+            max_consecutive_losses: max_consec_losses,
+            max_consecutive_wins: max_consec_wins,
+            avg_bars_held,
+            kelly_position: 0.0,
         }
     }
 
     fn compute_consecutive(trades: &[Trade]) -> (usize, usize) {
-        let mut max_wins = 0; let mut max_losses = 0;
-        let mut cur_wins = 0; let mut cur_losses = 0;
+        let mut max_wins = 0;
+        let mut max_losses = 0;
+        let mut cur_wins = 0;
+        let mut cur_losses = 0;
         for t in trades {
-            if t.pnl > 0.0 { cur_wins += 1; cur_losses = 0; max_wins = max_wins.max(cur_wins); }
-            else { cur_losses += 1; cur_wins = 0; max_losses = max_losses.max(cur_losses); }
+            if t.pnl > 0.0 {
+                cur_wins += 1;
+                cur_losses = 0;
+                max_wins = max_wins.max(cur_wins);
+            } else {
+                cur_losses += 1;
+                cur_wins = 0;
+                max_losses = max_losses.max(cur_losses);
+            }
         }
         (max_wins, max_losses)
     }
@@ -452,9 +553,14 @@ impl EnhancedBacktestEngine {
     fn compute_regime_distribution(regimes: &[MarketRegime]) -> Vec<(MarketRegime, f64)> {
         use std::collections::HashMap;
         let mut counts: HashMap<MarketRegime, usize> = HashMap::new();
-        for r in regimes { *counts.entry(*r).or_insert(0) += 1; }
+        for r in regimes {
+            *counts.entry(*r).or_insert(0) += 1;
+        }
         let total = regimes.len() as f64;
-        counts.into_iter().map(|(r, c)| (r, c as f64 / total * 100.0)).collect()
+        counts
+            .into_iter()
+            .map(|(r, c)| (r, c as f64 / total * 100.0))
+            .collect()
     }
 
     fn compute_regime_performance(
@@ -467,9 +573,14 @@ impl EnhancedBacktestEngine {
     fn run_monte_carlo(trades: &[Trade], iterations: usize) -> MonteCarloStats {
         if trades.is_empty() {
             return MonteCarloStats {
-                mean_return: 0.0, median_return: 0.0, std_return: 0.0,
-                worst_return: 0.0, best_return: 0.0, pct_positive: 0.0,
-                value_at_risk_95: 0.0, conditional_var_95: 0.0,
+                mean_return: 0.0,
+                median_return: 0.0,
+                std_return: 0.0,
+                worst_return: 0.0,
+                best_return: 0.0,
+                pct_positive: 0.0,
+                value_at_risk_95: 0.0,
+                conditional_var_95: 0.0,
             };
         }
 
@@ -482,7 +593,9 @@ impl EnhancedBacktestEngine {
             let mut shuffled = pnl_pcts.clone();
             shuffled.shuffle(&mut rng);
             let mut equity = 1.0;
-            for pnl in &shuffled { equity *= 1.0 + pnl / 100.0; }
+            for pnl in &shuffled {
+                equity *= 1.0 + pnl / 100.0;
+            }
             total_returns.push((equity - 1.0) * 100.0);
         }
 
@@ -495,13 +608,26 @@ impl EnhancedBacktestEngine {
         let positive = total_returns.iter().filter(|&&r| r > 0.0).count() as f64 / n as f64 * 100.0;
         let var_idx = (n as f64 * 0.05) as usize;
         let var_95 = total_returns.get(var_idx).copied().unwrap_or(0.0);
-        let cvar_95 = if var_idx > 0 { total_returns[..=var_idx].iter().sum::<f64>() / (var_idx + 1) as f64 } else { var_95 };
-        let variance: f64 = total_returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n as f64;
+        let cvar_95 = if var_idx > 0 {
+            total_returns[..=var_idx].iter().sum::<f64>() / (var_idx + 1) as f64
+        } else {
+            var_95
+        };
+        let variance: f64 = total_returns
+            .iter()
+            .map(|r| (r - mean).powi(2))
+            .sum::<f64>()
+            / n as f64;
 
         MonteCarloStats {
-            mean_return: mean, median_return: median, std_return: variance.sqrt(),
-            worst_return: worst, best_return: best, pct_positive: positive,
-            value_at_risk_95: var_95, conditional_var_95: cvar_95,
+            mean_return: mean,
+            median_return: median,
+            std_return: variance.sqrt(),
+            worst_return: worst,
+            best_return: best,
+            pct_positive: positive,
+            value_at_risk_95: var_95,
+            conditional_var_95: cvar_95,
         }
     }
 }

@@ -33,24 +33,29 @@ struct SecurityIssue {
 
 // Pre-compiled security patterns
 static RE_SQL_INJECTION: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?x)
+    Regex::new(
+        r#"(?x)
         (?:query|execute|exec)\s*\(\s*
         (?:format!\s*!\s*\(.*?%.*?
         |".*?\{.*\}.*"
         |&?\s*format!\s*\()
-    "#).expect("valid regex")
+    "#,
+    )
+    .expect("valid regex")
 });
 
 static RE_CMD_INJECTION: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?x)
+    Regex::new(
+        r#"(?x)
         (?:Command::new|std::process::Command)
         .*?(?:format!|concat!|\+.*user|\.arg\(.*\{)
-    "#).expect("valid regex")
+    "#,
+    )
+    .expect("valid regex")
 });
 
-static RE_PATH_TRAVERSAL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"File::open\s*\([^)]*(?:\{|\+|format!)"#).expect("valid regex")
-});
+static RE_PATH_TRAVERSAL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"File::open\s*\([^)]*(?:\{|\+|format!)"#).expect("valid regex"));
 
 #[allow(dead_code)]
 static RE_HARDCODED_SECRET: Lazy<Regex> = Lazy::new(|| {
@@ -71,21 +76,17 @@ static RE_UNWRAP_ON_IO: Lazy<Regex> = Lazy::new(|| {
 
 #[allow(dead_code)]
 static RE_PANIC_UNWRAP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\.expect\("[^"]*panic|\.unwrap\(\)\s*//\s*should not"#)
-        .expect("valid regex")
+    Regex::new(r#"\.expect\("[^"]*panic|\.unwrap\(\)\s*//\s*should not"#).expect("valid regex")
 });
 
-static RE_DEPRECATED_CRYPTO: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:md5|sha1|DES|RC4|ECB)"#).expect("valid regex")
-});
+static RE_DEPRECATED_CRYPTO: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:md5|sha1|DES|RC4|ECB)"#).expect("valid regex"));
 
-static RE_TAR_BOMBING: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"Archive::new.*unpack"#).expect("valid regex")
-});
+static RE_TAR_BOMBING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"Archive::new.*unpack"#).expect("valid regex"));
 
-static RE_RACE_CONDITION: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:fs::exists|Path::exists).*\n.*fs::"#).expect("valid regex")
-});
+static RE_RACE_CONDITION: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:fs::exists|Path::exists).*\n.*fs::"#).expect("valid regex"));
 
 static RE_LOG_SENSITIVE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?:info!|debug!|warn!|error!|println!).*\{.*(?:password|secret|token|key)"#)
@@ -135,7 +136,8 @@ impl Tool for SecurityScannerTool {
             },
             ToolParameter {
                 name: "severity".to_string(),
-                description: "Minimum severity: critical, high, medium, low (default: low)".to_string(),
+                description: "Minimum severity: critical, high, medium, low (default: low)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -148,10 +150,7 @@ impl Tool for SecurityScannerTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: action")?;
 
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let recursive = params
             .get("recursive")
@@ -175,7 +174,12 @@ impl Tool for SecurityScannerTool {
 // File Collection
 // ============================================================================
 
-fn collect_files(dir: &Path, files: &mut Vec<String>, recursive: bool, extensions: &[&str]) -> Result<(), String> {
+fn collect_files(
+    dir: &Path,
+    files: &mut Vec<String>,
+    recursive: bool,
+    extensions: &[&str],
+) -> Result<(), String> {
     if !dir.exists() {
         return Err(format!("Path does not exist: {}", dir.display()));
     }
@@ -184,8 +188,12 @@ fn collect_files(dir: &Path, files: &mut Vec<String>, recursive: bool, extension
     for entry in read_dir.filter_map(|e| e.ok()) {
         let p = entry.path();
         if p.is_dir() {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            if name.starts_with('.') || name == "target" || name == "node_modules" || name == ".git" {
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if name.starts_with('.') || name == "target" || name == "node_modules" || name == ".git"
+            {
                 continue;
             }
             if recursive {
@@ -471,18 +479,59 @@ fn check_hardcoded_secrets(path: &str, recursive: bool) -> Result<Value, String>
     let scan_path = Path::new(path);
     let mut files: Vec<String> = Vec::new();
     // Scan .rs, .toml, .env, .yaml, .yml, .json, .cfg, .conf
-    collect_files(scan_path, &mut files, recursive, &["rs", "toml", "env", "yaml", "yml", "json", "cfg", "conf"])?;
+    collect_files(
+        scan_path,
+        &mut files,
+        recursive,
+        &["rs", "toml", "env", "yaml", "yml", "json", "cfg", "conf"],
+    )?;
 
     let secret_patterns: Vec<(&str, &str, &str)> = vec![
-        (r#"(?i)(?:password|passwd|pwd)\s*[=:]\s*["'][^"']{4,}["']"#, "hardcoded_password", "Hardcoded password detected"),
-        (r#"(?i)(?:api_key|apikey|api_secret)\s*[=:]\s*["'][A-Za-z0-9]{16,}["']"#, "hardcoded_api_key", "Hardcoded API key detected"),
-        (r#"(?i)(?:secret_key|secret)\s*[=:]\s*["'][^"']{8,}["']"#, "hardcoded_secret", "Hardcoded secret detected"),
-        (r#"(?i)(?:token|access_token|auth_token)\s*[=:]\s*["'][A-Za-z0-9]{16,}["']"#, "hardcoded_token", "Hardcoded token detected"),
-        (r#"(?i)(?:private_key|priv_key)\s*[=:]\s*["']-----BEGIN"#, "hardcoded_private_key", "Hardcoded private key detected"),
-        (r#"(?i)aws_access_key_id\s*[=:]\s*["']AKIA"#, "aws_access_key", "AWS access key detected"),
-        (r#"(?i)aws_secret_access_key\s*[=:]\s*["'][A-Za-z0-9/+=]{40}"#, "aws_secret_key", "AWS secret key detected"),
-        (r#"sk-[a-zA-Z0-9]{20,}"#, "openai_key", "OpenAI API key detected"),
-        (r#"ghp_[a-zA-Z0-9]{36}"#, "github_token", "GitHub personal access token detected"),
+        (
+            r#"(?i)(?:password|passwd|pwd)\s*[=:]\s*["'][^"']{4,}["']"#,
+            "hardcoded_password",
+            "Hardcoded password detected",
+        ),
+        (
+            r#"(?i)(?:api_key|apikey|api_secret)\s*[=:]\s*["'][A-Za-z0-9]{16,}["']"#,
+            "hardcoded_api_key",
+            "Hardcoded API key detected",
+        ),
+        (
+            r#"(?i)(?:secret_key|secret)\s*[=:]\s*["'][^"']{8,}["']"#,
+            "hardcoded_secret",
+            "Hardcoded secret detected",
+        ),
+        (
+            r#"(?i)(?:token|access_token|auth_token)\s*[=:]\s*["'][A-Za-z0-9]{16,}["']"#,
+            "hardcoded_token",
+            "Hardcoded token detected",
+        ),
+        (
+            r#"(?i)(?:private_key|priv_key)\s*[=:]\s*["']-----BEGIN"#,
+            "hardcoded_private_key",
+            "Hardcoded private key detected",
+        ),
+        (
+            r#"(?i)aws_access_key_id\s*[=:]\s*["']AKIA"#,
+            "aws_access_key",
+            "AWS access key detected",
+        ),
+        (
+            r#"(?i)aws_secret_access_key\s*[=:]\s*["'][A-Za-z0-9/+=]{40}"#,
+            "aws_secret_key",
+            "AWS secret key detected",
+        ),
+        (
+            r#"sk-[a-zA-Z0-9]{20,}"#,
+            "openai_key",
+            "OpenAI API key detected",
+        ),
+        (
+            r#"ghp_[a-zA-Z0-9]{36}"#,
+            "github_token",
+            "GitHub personal access token detected",
+        ),
     ];
 
     let mut findings: Vec<Value> = Vec::new();

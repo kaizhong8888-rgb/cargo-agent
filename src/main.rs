@@ -39,7 +39,14 @@ async fn main() -> anyhow::Result<()> {
 
         let start = Instant::now();
         let mut gateway = Gateway::new(config);
+
+        let mut indicator = ui::StatusIndicator::new(
+            gateway.agent().current_status.clone(),
+            gateway.agent().current_tool.clone(),
+        );
+        indicator.start();
         let result = gateway.handle_message(&prompt).await;
+        indicator.stop();
         let elapsed = start.elapsed();
         let usage = gateway.agent().token_usage();
 
@@ -140,6 +147,12 @@ async fn main() -> anyhow::Result<()> {
             model_info, msg_count,
         ));
 
+        let mut indicator = ui::StatusIndicator::new(
+            gateway.agent().current_status.clone(),
+            gateway.agent().current_tool.clone(),
+        );
+        indicator.start();
+
         let mut spinner = ui::Spinner::new("Thinking...");
         spinner.start();
         let start = Instant::now();
@@ -147,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
         let result = gateway.handle_message(input).await;
 
         spinner.stop();
+        indicator.stop();
 
         let elapsed = start.elapsed();
         let usage = gateway.agent().token_usage();

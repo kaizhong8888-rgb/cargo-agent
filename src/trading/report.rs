@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 回测结果报告
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BacktestResult {
     pub engine: BacktestResultData,
     pub trades: Vec<Trade>,
@@ -89,6 +90,177 @@ pub struct TradePnlDistribution {
 }
 
 impl BacktestResult {
+    /// 从交易列表直接构建结果（用于优化器等场景）
+    pub fn from_trades(trades: &[Trade], initial_capital: f64) -> Self {
+        let total_trades = trades.len();
+        let mut equity = initial_capital;
+        let mut peak = initial_capital;
+        let mut max_dd = 0.0;
+        let mut max_dd_pct = 0.0;
+        let mut winning = 0;
+        let mut losing = 0;
+        let mut total_pnl = 0.0;
+        let mut wins = Vec::new();
+        let mut losses = Vec::new();
+        let mut bars_held = Vec::new();
+
+        for t in trades {
+            let pnl = t.pnl;
+            total_pnl += pnl;
+            equity += pnl;
+            if pnl > 0.0 {
+                winning += 1;
+                wins.push(pnl);
+            } else {
+                losing += 1;
+                losses.push(pnl.abs());
+            }
+            if equity > peak {
+                peak = equity;
+            }
+            let dd = peak - equity;
+            let dd_pct = if peak > 0.0 { dd / peak } else { 0.0 };
+            if dd_pct > max_dd_pct {
+                max_dd = dd;
+                max_dd_pct = dd_pct;
+            }
+            bars_held.push(t.bars_held);
+        }
+
+        let win_rate = if total_trades > 0 {
+            winning as f64 / total_trades as f64 * 100.0
+        } else {
+            0.0
+        };
+        let avg_win = if !wins.is_empty() {
+            wins.iter().sum::<f64>() / wins.len() as f64
+        } else {
+            0.0
+        };
+        let avg_loss = if !losses.is_empty() {
+            losses.iter().sum::<f64>() / losses.len() as f64
+        } else {
+            0.0
+        };
+        let profit_factor = if avg_loss > 0.0 {
+            (avg_win * winning as f64) / (avg_loss * losing as f64)
+        } else if winning > 0 {
+            f64::INFINITY
+        } else {
+            0.0
+        };
+        let total_return_pct = if initial_capital > 0.0 {
+            (equity - initial_capital) / initial_capital * 100.0
+        } else {
+            0.0
+        };
+
+        // Sharpe (简化：基于每日收益)
+        let returns: Vec<f64> = trades.iter().map(|t| t.pnl / initial_capital).collect();
+        let mean_ret: f64 = if returns.is_empty() {
+            0.0
+        } else {
+            returns.iter().sum::<f64>() / returns.len() as f64
+        };
+        let var: f64 = if returns.is_empty() {
+            0.0
+        } else {
+            returns.iter().map(|r| (r - mean_ret).powi(2)).sum::<f64>() / returns.len() as f64
+        };
+        let sharpe_ratio = if var.sqrt() > 1e-10 {
+            mean_ret / var.sqrt() * (252.0_f64).sqrt()
+        } else {
+            0.0
+        };
+
+        let avg_bars_held = if bars_held.is_empty() {
+            0.0
+        } else {
+            bars_held.iter().sum::<usize>() as f64 / bars_held.len() as f64
+        };
+
+        let calmar_ratio = if max_dd_pct > 0.0 {
+            (total_return_pct / 100.0) / max_dd_pct
+        } else {
+            0.0
+        };
+        let sortino_ratio = {
+            let downside: Vec<f64> = returns.iter().filter(|&&r| r < 0.0).copied().collect();
+            let down_std = if downside.is_empty() {
+                0.0
+            } else {
+                let dm: f64 = downside.iter().sum::<f64>() / downside.len() as f64;
+                (downside.iter().map(|r| (r - dm).powi(2)).sum::<f64>() / downside.len() as f64)
+                    .sqrt()
+            };
+            if down_std > 1e-10 {
+                mean_ret / down_std * (252.0_f64).sqrt()
+            } else {
+                0.0
+            }
+        };
+
+        Self {
+            engine: BacktestResultData {
+                initial_capital,
+                final_equity: equity,
+                total_return_pct,
+                total_trades,
+                winning_trades: winning,
+                losing_trades: losing,
+                win_rate,
+                max_drawdown: max_dd,
+                max_drawdown_pct: max_dd_pct * 100.0,
+                total_pnl,
+                avg_win,
+                avg_loss,
+                profit_factor,
+                sharpe_ratio,
+                avg_bars_held,
+                calmar_ratio,
+                sortino_ratio,
+                recovery_factor: if max_dd_pct > 0.0 {
+                    (total_return_pct / 100.0) / max_dd_pct
+                } else {
+                    0.0
+                },
+                expectancy: if total_trades > 0 {
+                    total_pnl / total_trades as f64
+                } else {
+                    0.0
+                },
+                max_consecutive_losses: 0,
+                max_consecutive_wins: 0,
+                max_bars_held: *bars_held.iter().max().unwrap_or(&0),
+                min_bars_held: *bars_held.iter().min().unwrap_or(&0),
+                long_trades: 0,
+                short_trades: 0,
+                long_win_rate: 0.0,
+                short_win_rate: 0.0,
+                return_std: if var > 0.0 { var.sqrt() } else { 0.0 },
+                downside_std: 0.0,
+            },
+            trades: trades.to_vec(),
+            total_bars: 0,
+            monthly_returns: HashMap::new(),
+            trade_pnl_distribution: TradePnlDistribution {
+                wins: winning,
+                losses: losing,
+                max_win: wins.iter().cloned().fold(0.0_f64, f64::max),
+                max_loss: losses.iter().cloned().fold(0.0_f64, f64::max),
+                avg_win,
+                avg_loss,
+                win_loss_ratio: if avg_loss > 0.0 {
+                    avg_win / avg_loss
+                } else {
+                    0.0
+                },
+                win_buckets: vec![],
+                loss_buckets: vec![],
+            },
+        }
+    }
+
     pub fn new(engine: &BacktestEngine, candles: &[Candle], trades: &[Trade]) -> Self {
         let total_trades = trades.len();
         let winning_trades = engine.winning_trades;
@@ -101,74 +273,147 @@ impl BacktestResult {
 
         let total_pnl = engine.total_equity() - engine.initial_capital;
 
-        let (avg_win, avg_loss, profit_factor) = if total_trades > 0 {
-            let wins: Vec<f64> = trades
-                .iter()
-                .filter(|t| t.pnl > 0.0)
-                .map(|t| t.pnl)
-                .collect();
-            let losses: Vec<f64> = trades
-                .iter()
-                .filter(|t| t.pnl <= 0.0)
-                .map(|t| t.pnl)
-                .collect();
-            let avg_w = if !wins.is_empty() {
-                wins.iter().sum::<f64>() / wins.len() as f64
+        // P2: 单次遍历替代多次 filter 遍历（原代码遍历 trades 6+ 次）
+        let (
+            avg_win,
+            avg_loss,
+            profit_factor,
+            long_trades,
+            short_trades,
+            long_wins,
+            short_wins,
+            max_bars_held,
+            min_bars_held,
+            max_consecutive_wins,
+            max_consecutive_losses,
+            avg_bars_held,
+        ) = if total_trades > 0 {
+            let mut sum_win = 0.0;
+            let mut sum_loss = 0.0;
+            let mut cnt_win = 0usize;
+            let mut cnt_loss = 0usize;
+            let mut long_trades = 0usize;
+            let mut short_trades = 0usize;
+            let mut long_wins = 0usize;
+            let mut short_wins = 0usize;
+            let mut max_bars = 0usize;
+            let mut min_bars = usize::MAX;
+            let mut sum_bars = 0usize;
+
+            let mut cur_wins = 0usize;
+            let mut cur_losses = 0usize;
+            let mut max_w = 0usize;
+            let mut max_l = 0usize;
+
+            for t in trades {
+                if t.pnl > 0.0 {
+                    sum_win += t.pnl;
+                    cnt_win += 1;
+                    cur_wins += 1;
+                    cur_losses = 0;
+                    max_w = max_w.max(cur_wins);
+                } else {
+                    sum_loss += t.pnl;
+                    cnt_loss += 1;
+                    cur_losses += 1;
+                    cur_wins = 0;
+                    max_l = max_l.max(cur_losses);
+                }
+                match t.side {
+                    TradeSide::Long => {
+                        long_trades += 1;
+                        if t.pnl > 0.0 {
+                            long_wins += 1;
+                        }
+                    }
+                    TradeSide::Short => {
+                        short_trades += 1;
+                        if t.pnl > 0.0 {
+                            short_wins += 1;
+                        }
+                    }
+                }
+                sum_bars += t.bars_held;
+                if t.bars_held > max_bars {
+                    max_bars = t.bars_held;
+                }
+                if t.bars_held < min_bars {
+                    min_bars = t.bars_held;
+                }
+            }
+
+            let avg_w = if cnt_win > 0 {
+                sum_win / cnt_win as f64
             } else {
                 0.0
             };
-            let avg_l = if !losses.is_empty() {
-                losses.iter().sum::<f64>() / losses.len() as f64
+            let avg_l = if cnt_loss > 0 {
+                sum_loss / cnt_loss as f64
             } else {
                 0.0
             };
             let pf = if avg_l.abs() > 0.0 {
-                (avg_w * wins.len() as f64) / (avg_l.abs() * losses.len() as f64)
-            } else if !wins.is_empty() {
+                (avg_w * cnt_win as f64) / (avg_l.abs() * cnt_loss as f64)
+            } else if cnt_win > 0 {
                 f64::INFINITY
             } else {
                 0.0
             };
-            (avg_w, avg_l, pf)
+            let avg_bh = sum_bars as f64 / total_trades as f64;
+
+            (
+                avg_w,
+                avg_l,
+                pf,
+                long_trades,
+                short_trades,
+                long_wins,
+                short_wins,
+                max_bars,
+                min_bars,
+                max_w,
+                max_l,
+                avg_bh,
+            )
         } else {
-            (0.0, 0.0, 0.0)
+            (0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0)
         };
 
         // === Sharpe Ratio ===
         let (sharpe_ratio, return_std, downside_std) = if engine.equity_curve.len() > 1 {
-            let returns: Vec<f64> = engine
-                .equity_curve
-                .windows(2)
-                .map(|w| (w[1] - w[0]) / w[0])
-                .filter(|r| r.is_finite())
-                .collect();
-            if !returns.is_empty() {
-                let mean = returns.iter().sum::<f64>() / returns.len() as f64;
-                let variance =
-                    returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
-                let std = variance.sqrt();
+            let mut sum_r = 0.0;
+            let mut count_r = 0usize;
 
-                // 下行标准差 (仅负收益)
-                let downside_variance = returns
-                    .iter()
-                    .filter(|r| **r < 0.0)
-                    .map(|r| (r - mean).powi(2))
-                    .sum::<f64>()
-                    / returns.len() as f64;
-                let d_std = downside_variance.sqrt();
+            for w in engine.equity_curve.windows(2) {
+                let r = (w[1] - w[0]) / w[0];
+                if !r.is_finite() {
+                    continue;
+                }
+                sum_r += r;
+                count_r += 1;
+            }
 
+            if count_r > 0 {
+                let mean = sum_r / count_r as f64;
+                let mut var_sum = 0.0;
+                let mut down_var_sum = 0.0;
+                for w in engine.equity_curve.windows(2) {
+                    let r = (w[1] - w[0]) / w[0];
+                    if !r.is_finite() {
+                        continue;
+                    }
+                    var_sum += (r - mean).powi(2);
+                    if r < 0.0 {
+                        down_var_sum += (r - mean).powi(2);
+                    }
+                }
+                let std = (var_sum / count_r as f64).sqrt();
+                let d_std = (down_var_sum / count_r as f64).sqrt();
                 let sharpe = if std > 0.0 {
                     mean / std * (252.0_f64).sqrt()
                 } else {
                     0.0
                 };
-
-                let _sortino = if d_std > 0.0 {
-                    mean / d_std * (252.0_f64).sqrt()
-                } else {
-                    0.0
-                };
-
                 (sharpe, std, d_std)
             } else {
                 (0.0, 0.0, 0.0)
@@ -177,17 +422,10 @@ impl BacktestResult {
             (0.0, 0.0, 0.0)
         };
 
-        let avg_bars_held = if !trades.is_empty() {
-            trades.iter().map(|t| t.bars_held as f64).sum::<f64>() / trades.len() as f64
-        } else {
-            0.0
-        };
-
         // === Calmar Ratio = 年化收益率 / 最大回撤 ===
         let annualized_return = if engine.initial_capital > 0.0 && candles.len() > 1 {
-            // 简单年化: 假设日线数据252个交易日
             let periods_per_year = 252.0;
-            let total_return = engine.total_return() / 100.0; // 转小数
+            let total_return = engine.total_return() / 100.0;
             let n_periods = candles.len() as f64;
             if n_periods > 0.0 && total_return > -1.0 {
                 ((1.0 + total_return).powf(periods_per_year / n_periods) - 1.0) * 100.0
@@ -204,7 +442,6 @@ impl BacktestResult {
             0.0
         };
 
-        // === Recovery Factor ===
         let recovery_factor = if engine.max_drawdown > 0.0 {
             total_pnl / engine.max_drawdown
         } else if total_pnl > 0.0 {
@@ -213,54 +450,11 @@ impl BacktestResult {
             0.0
         };
 
-        // === 期望值 ===
         let expectancy = if total_trades > 0 {
-            trades.iter().map(|t| t.pnl).sum::<f64>() / total_trades as f64
+            total_pnl / total_trades as f64
         } else {
             0.0
         };
-
-        // === 连续盈亏 ===
-        let (max_consecutive_wins, max_consecutive_losses) = {
-            let mut cur_wins = 0;
-            let mut cur_losses = 0;
-            let mut max_w = 0;
-            let mut max_l = 0;
-            for t in trades {
-                if t.pnl > 0.0 {
-                    cur_wins += 1;
-                    cur_losses = 0;
-                    max_w = max_w.max(cur_wins);
-                } else {
-                    cur_losses += 1;
-                    cur_wins = 0;
-                    max_l = max_l.max(cur_losses);
-                }
-            }
-            (max_w, max_l)
-        };
-
-        // === 持仓周期 ===
-        let max_bars_held = trades.iter().map(|t| t.bars_held).max().unwrap_or(0);
-        let min_bars_held = trades.iter().map(|t| t.bars_held).min().unwrap_or(0);
-
-        // === 多空统计 ===
-        let long_trades = trades
-            .iter()
-            .filter(|t| matches!(t.side, TradeSide::Long))
-            .count();
-        let short_trades = trades
-            .iter()
-            .filter(|t| matches!(t.side, TradeSide::Short))
-            .count();
-        let long_wins = trades
-            .iter()
-            .filter(|t| matches!(t.side, TradeSide::Long) && t.pnl > 0.0)
-            .count();
-        let short_wins = trades
-            .iter()
-            .filter(|t| matches!(t.side, TradeSide::Short) && t.pnl > 0.0)
-            .count();
 
         let long_win_rate = if long_trades > 0 {
             long_wins as f64 / long_trades as f64 * 100.0
@@ -417,22 +611,156 @@ fn compute_monthly_returns(equity_curve: &[f64], candles: &[Candle]) -> HashMap<
     }
 
     let n = equity_curve.len().min(candles.len());
-    let mut last_equity = equity_curve[0];
+    let mut start_equity = equity_curve[0];
 
     for i in 1..n {
         let month_key = candles[i - 1].timestamp.format("%Y-%m").to_string();
         let current_equity = equity_curve[i];
-        let monthly_return = if last_equity > 0.0 {
-            (current_equity - last_equity) / last_equity * 100.0
+        let monthly_return = if start_equity > 0.0 {
+            (current_equity - start_equity) / start_equity * 100.0
         } else {
             0.0
         };
 
-        *monthly.entry(month_key).or_insert(0.0) += monthly_return;
-        last_equity = current_equity;
+        let already_set = monthly.contains_key(&month_key);
+        monthly.entry(month_key.clone()).or_insert(monthly_return);
+        // 如果下一根是不同月份，重置起点
+        if i + 1 < n && !already_set {
+            let next_month = candles[i].timestamp.format("%Y-%m").to_string();
+            if next_month != month_key {
+                start_equity = current_equity;
+            }
+        } else if !already_set {
+            // 已经是该月最后一点，更新起点
+            start_equity = current_equity;
+        }
     }
 
     monthly
+}
+
+/// P1: 蒙特卡洛模拟 - 对交易序列进行随机重排来检验策略稳健性
+pub struct MonteCarloResult {
+    pub num_simulations: usize,
+    pub final_equity_percentiles: [f64; 5],
+    pub max_drawdown_percentiles: [f64; 5],
+    pub profit_probability: f64,
+    pub avg_final_return_pct: f64,
+    pub std_final_return_pct: f64,
+}
+
+/// 运行蒙特卡洛模拟
+pub fn run_monte_carlo(
+    trades: &[Trade],
+    initial_capital: f64,
+    num_simulations: usize,
+) -> MonteCarloResult {
+    let pnls: Vec<f64> = trades.iter().map(|t| t.pnl).collect();
+    let n_trades = pnls.len();
+
+    if n_trades == 0 {
+        return MonteCarloResult {
+            num_simulations,
+            final_equity_percentiles: [initial_capital; 5],
+            max_drawdown_percentiles: [0.0; 5],
+            profit_probability: 0.0,
+            avg_final_return_pct: 0.0,
+            std_final_return_pct: 0.0,
+        };
+    }
+
+    fn shuffle(data: &mut [f64], seed: u64) {
+        let mut rng = seed;
+        for i in (1..data.len()).rev() {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let j = (rng >> 33) as usize % (i + 1);
+            data.swap(i, j);
+        }
+    }
+
+    fn percentile(sorted: &[f64], p: f64) -> f64 {
+        if sorted.is_empty() {
+            return 0.0;
+        }
+        let idx = (p * (sorted.len() - 1) as f64) as usize;
+        sorted[idx]
+    }
+
+    let mut final_equities = Vec::with_capacity(num_simulations);
+    let mut max_drawdowns = Vec::with_capacity(num_simulations);
+    let mut final_returns = Vec::with_capacity(num_simulations);
+    let mut profits = 0usize;
+
+    for sim in 0..num_simulations {
+        let mut shuffled = pnls.clone();
+        shuffle(&mut shuffled, sim as u64 * 7919 + 104729);
+
+        let mut equity = initial_capital;
+        let mut peak = initial_capital;
+        let mut max_dd = 0.0;
+
+        for pnl in &shuffled {
+            equity += pnl;
+            if equity > peak {
+                peak = equity;
+            }
+            let dd = (peak - equity) / peak * 100.0;
+            if dd > max_dd {
+                max_dd = dd;
+            }
+        }
+
+        final_equities.push(equity);
+        max_drawdowns.push(max_dd);
+
+        let ret_pct = (equity - initial_capital) / initial_capital * 100.0;
+        final_returns.push(ret_pct);
+
+        if equity > initial_capital {
+            profits += 1;
+        }
+    }
+
+    let mut sorted_equities = final_equities.clone();
+    sorted_equities
+        .sort_by(|a: &f64, b: &f64| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut sorted_dd = max_drawdowns.clone();
+    sorted_dd.sort_by(|a: &f64, b: &f64| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let final_equity_percentiles = [
+        percentile(&sorted_equities, 0.05),
+        percentile(&sorted_equities, 0.25),
+        percentile(&sorted_equities, 0.50),
+        percentile(&sorted_equities, 0.75),
+        percentile(&sorted_equities, 0.95),
+    ];
+
+    let max_drawdown_percentiles = [
+        percentile(&sorted_dd, 0.05),
+        percentile(&sorted_dd, 0.25),
+        percentile(&sorted_dd, 0.50),
+        percentile(&sorted_dd, 0.75),
+        percentile(&sorted_dd, 0.95),
+    ];
+
+    let profit_probability = profits as f64 / num_simulations as f64 * 100.0;
+
+    let avg_final_return = final_returns.iter().sum::<f64>() / num_simulations as f64;
+    let variance = final_returns
+        .iter()
+        .map(|r| (r - avg_final_return).powi(2))
+        .sum::<f64>()
+        / num_simulations as f64;
+
+    MonteCarloResult {
+        num_simulations,
+        final_equity_percentiles,
+        max_drawdown_percentiles,
+        profit_probability,
+        avg_final_return_pct: avg_final_return,
+        std_final_return_pct: variance.sqrt(),
+    }
 }
 
 /// 计算交易盈亏分布

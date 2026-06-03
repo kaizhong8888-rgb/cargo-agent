@@ -33,9 +33,10 @@ static RE_LOOP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?m)^\s*(?:for|while|loop)\s"#).expect("valid regex"));
 
 #[allow(dead_code)]
-static RE_NESTED_LOOP: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?m)^\s*(?:for|while|loop)\s.*\{[\s\S]*?(?:for|while|loop)\s"#)
-        .expect("valid regex"));
+static RE_NESTED_LOOP: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^\s*(?:for|while|loop)\s.*\{[\s\S]*?(?:for|while|loop)\s"#)
+        .expect("valid regex")
+});
 
 #[allow(dead_code)]
 static RE_RECURSIVE: Lazy<Regex> = Lazy::new(|| {
@@ -46,8 +47,7 @@ static RE_RECURSIVE: Lazy<Regex> = Lazy::new(|| {
 static RE_COLLECT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"\.collect::<Vec"#).expect("valid regex"));
 
-static RE_CLONE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"\.clone\(\)"#).expect("valid regex"));
+static RE_CLONE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\.clone\(\)"#).expect("valid regex"));
 
 static RE_ALLOC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?:String::new|Vec::new|Box::new|HashMap::new|BTreeMap::new)\s*\(?\s*\)"#)
@@ -58,8 +58,7 @@ static RE_FORMAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:format!|println!|eprintln!)\s*\("#).expect("valid regex"));
 
 #[allow(dead_code)]
-static RE_UNWRAP: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"\.unwrap\(\)"#).expect("valid regex"));
+static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\.unwrap\(\)"#).expect("valid regex"));
 
 #[allow(dead_code)]
 static RE_REF: Lazy<Regex> =
@@ -183,9 +182,8 @@ impl BenchmarkTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(10_000);
 
-        let implementations: Vec<(String, String)> =
-            serde_json::from_str(implementations_str)
-                .map_err(|e| format!("Invalid JSON for implementations: {e}"))?;
+        let implementations: Vec<(String, String)> = serde_json::from_str(implementations_str)
+            .map_err(|e| format!("Invalid JSON for implementations: {e}"))?;
 
         if implementations.is_empty() {
             return Ok(json!({
@@ -207,7 +205,9 @@ impl BenchmarkTool {
                         "elapsed_ns": elapsed,
                         "elapsed_ms": elapsed as f64 / 1_000_000.0,
                     }));
-                    if fastest.is_none() || elapsed < fastest.as_ref().map_or(u128::MAX, |(_, t)| *t) {
+                    if fastest.is_none()
+                        || elapsed < fastest.as_ref().map_or(u128::MAX, |(_, t)| *t)
+                    {
                         fastest = Some((name.clone(), elapsed));
                     }
                 }
@@ -244,10 +244,7 @@ impl BenchmarkTool {
 
     /// Generate criterion benchmark code.
     fn action_generate_criterion(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let output = params.get("output").and_then(|v| v.as_str());
 
@@ -264,7 +261,9 @@ impl BenchmarkTool {
         bench_code.push_str("//! [dev-dependencies]\n");
         bench_code.push_str("//! criterion = \"0.5\"\n");
         bench_code.push_str("//! ```\n\n");
-        bench_code.push_str("use criterion::{black_box, criterion_group, criterion_main, Criterion};\n\n");
+        bench_code.push_str(
+            "use criterion::{black_box, criterion_group, criterion_main, Criterion};\n\n",
+        );
 
         let path = Path::new(path);
         let mut pub_fns = Vec::new();
@@ -330,8 +329,8 @@ impl BenchmarkTool {
         let mut hotspots = Vec::new();
 
         for file in &files {
-            let content = std::fs::read_to_string(file)
-                .map_err(|e| format!("Failed to read {file}: {e}"))?;
+            let content =
+                std::fs::read_to_string(file).map_err(|e| format!("Failed to read {file}: {e}"))?;
 
             let mut file_hotspots = Vec::new();
 
@@ -425,7 +424,10 @@ impl BenchmarkTool {
             }
         }
 
-        let total_issues: usize = hotspots.iter().map(|h| h["total_issues"].as_u64().unwrap_or(0) as usize).sum();
+        let total_issues: usize = hotspots
+            .iter()
+            .map(|h| h["total_issues"].as_u64().unwrap_or(0) as usize)
+            .sum();
 
         Ok(json!({
             "status": "ok",
@@ -573,7 +575,11 @@ fn main() {{
     }
 
     /// Collect public functions from a Rust project.
-    fn collect_pub_functions(&self, path: &Path, functions: &mut Vec<(String, String)>) -> Result<(), String> {
+    fn collect_pub_functions(
+        &self,
+        path: &Path,
+        functions: &mut Vec<(String, String)>,
+    ) -> Result<(), String> {
         if path.is_file() && path.extension().is_some_and(|e| e == "rs") {
             let content = std::fs::read_to_string(path)
                 .map_err(|e| format!("Failed to read {path:?}: {e}"))?;
@@ -610,12 +616,15 @@ fn main() {{
         if depth > 10 {
             return Ok(());
         }
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| format!("Failed to read dir {:?}: {e}", dir))?;
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| format!("Failed to read dir {:?}: {e}", dir))?;
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.is_dir() {
-                let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy())
+                    .unwrap_or_default();
                 if name == "target" || name.starts_with('.') {
                     continue;
                 }
@@ -642,7 +651,10 @@ fn count_nested_loops(content: &str) -> usize {
 
     for line in &lines {
         let trimmed = line.trim();
-        if trimmed.starts_with("for ") || trimmed.starts_with("while ") || trimmed.starts_with("loop") {
+        if trimmed.starts_with("for ")
+            || trimmed.starts_with("while ")
+            || trimmed.starts_with("loop")
+        {
             if in_loop && brace_depth > 0 {
                 count += 1;
             }
@@ -802,7 +814,10 @@ fn build_string() -> String {
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown action"));
     }
 
     #[tokio::test]
@@ -842,7 +857,10 @@ fn build_string() -> String {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("compare".to_string()));
-        params.insert("implementations".to_string(), Value::String("[]".to_string()));
+        params.insert(
+            "implementations".to_string(),
+            Value::String("[]".to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
@@ -996,10 +1014,8 @@ let c = vec.clone();
     fn test_collect_pub_functions_on_file() {
         let tool = make_tool();
         let mut functions = Vec::new();
-        let result = tool.collect_pub_functions(
-            Path::new("src/tools/builtin/hello_tool.rs"),
-            &mut functions,
-        );
+        let result = tool
+            .collect_pub_functions(Path::new("src/tools/builtin/hello_tool.rs"), &mut functions);
         assert!(result.is_ok());
     }
 
@@ -1007,8 +1023,7 @@ let c = vec.clone();
     fn test_collect_pub_functions_on_dir() {
         let tool = make_tool();
         let mut functions = Vec::new();
-        let result =
-            tool.collect_pub_functions(Path::new("src/tools/builtin"), &mut functions);
+        let result = tool.collect_pub_functions(Path::new("src/tools/builtin"), &mut functions);
         assert!(result.is_ok());
         assert!(!functions.is_empty());
     }

@@ -121,7 +121,11 @@ impl Tool for LlmChatTool {
                 .map(String::from);
             let p = p.or_else(|| {
                 let default = load_config_key("llm_default_provider");
-                if !default.is_empty() { Some(default) } else { None }
+                if !default.is_empty() {
+                    Some(default)
+                } else {
+                    None
+                }
             });
             p.as_deref().unwrap_or("openai").to_lowercase()
         };
@@ -640,7 +644,12 @@ mod tests {
         let provider_param = params.iter().find(|p| p.name == "provider").unwrap();
         assert!(!provider_param.required);
         let desc = &provider_param.description;
-        assert!(desc.contains("openai") || desc.contains("anthropic") || desc.contains("ollama") || desc.contains("bailian"));
+        assert!(
+            desc.contains("openai")
+                || desc.contains("anthropic")
+                || desc.contains("ollama")
+                || desc.contains("bailian")
+        );
     }
 
     #[test]

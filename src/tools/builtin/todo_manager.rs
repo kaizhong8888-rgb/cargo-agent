@@ -16,8 +16,13 @@ struct TodoManager {
 impl TodoManager {
     fn new() -> Result<Self, String> {
         let db_path = Self::db_path()?;
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| format!("Failed to open todo database '{}': {}", db_path.display(), e))?;
+        let conn = rusqlite::Connection::open(&db_path).map_err(|e| {
+            format!(
+                "Failed to open todo database '{}': {}",
+                db_path.display(),
+                e
+            )
+        })?;
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS todos (
@@ -236,7 +241,10 @@ fn action_add(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Res
     }))
 }
 
-fn action_list(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Result<Value, String> {
+fn action_list(
+    db: &rusqlite::Connection,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let status_filter = params.get("status").and_then(|v| v.as_str());
     let category_filter = params.get("category").and_then(|v| v.as_str());
     let priority_filter = params.get("priority").and_then(|v| v.as_str());
@@ -256,15 +264,16 @@ fn action_list(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Re
         sort_order,
         limit,
     )?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_owned.iter().map(|b| b.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        params_owned.iter().map(|b| b.as_ref()).collect();
 
     // Execute and map to JSON
     let todos = execute_and_map_todos(db, &query, &param_refs)?;
     let count = todos.len();
 
     // Compute stats
-    let active_count = count_todos_by_status(db, "pending")
-        + count_todos_by_status(db, "in_progress");
+    let active_count =
+        count_todos_by_status(db, "pending") + count_todos_by_status(db, "in_progress");
     let completed_count = count_todos_by_status(db, "completed");
 
     Ok(serde_json::json!({
@@ -291,7 +300,12 @@ fn build_sql_query(
 ) -> Result<(String, Vec<Box<dyn rusqlite::types::ToSql>>), String> {
     // Validate sort_by
     let valid_sort_fields = [
-        "created_at", "updated_at", "due_date", "priority", "title", "status",
+        "created_at",
+        "updated_at",
+        "due_date",
+        "priority",
+        "title",
+        "status",
     ];
     let sort_col = if valid_sort_fields.contains(&sort_by) {
         sort_by
@@ -405,7 +419,10 @@ fn action_get(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Res
     }))
 }
 
-fn action_update(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Result<Value, String> {
+fn action_update(
+    db: &rusqlite::Connection,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let id = params
         .get("id")
         .and_then(|v| v.as_str())
@@ -487,7 +504,8 @@ fn action_update(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> 
     );
     param_values.push(Box::new(id.to_string()));
 
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        param_values.iter().map(|p| p.as_ref()).collect();
 
     db.execute(&query, param_refs.as_slice())
         .map_err(|e| format!("Failed to update todo: {}", e))?;
@@ -500,7 +518,10 @@ fn action_update(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> 
     }))
 }
 
-fn action_delete(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Result<Value, String> {
+fn action_delete(
+    db: &rusqlite::Connection,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let id = params
         .get("id")
         .and_then(|v| v.as_str())
@@ -521,7 +542,10 @@ fn action_delete(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> 
     }))
 }
 
-fn action_complete(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Result<Value, String> {
+fn action_complete(
+    db: &rusqlite::Connection,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let id = params
         .get("id")
         .and_then(|v| v.as_str())
@@ -545,7 +569,10 @@ fn action_complete(db: &rusqlite::Connection, params: &HashMap<String, Value>) -
     }))
 }
 
-fn action_pending(db: &rusqlite::Connection, params: &HashMap<String, Value>) -> Result<Value, String> {
+fn action_pending(
+    db: &rusqlite::Connection,
+    params: &HashMap<String, Value>,
+) -> Result<Value, String> {
     let id = params
         .get("id")
         .and_then(|v| v.as_str())
@@ -607,7 +634,11 @@ fn action_stats(db: &rusqlite::Connection) -> Result<Value, String> {
         )
         .unwrap_or(0);
 
-    let urgent_count = by_priority.iter().find(|(k, _)| k == "urgent").map(|(_, c)| *c).unwrap_or(0);
+    let urgent_count = by_priority
+        .iter()
+        .find(|(k, _)| k == "urgent")
+        .map(|(_, c)| *c)
+        .unwrap_or(0);
 
     Ok(serde_json::json!({
         "status": "ok",
@@ -788,7 +819,13 @@ mod tests {
         conn
     }
 
-    fn insert_test_todo(conn: &rusqlite::Connection, title: &str, priority: &str, category: &str, status: &str) -> String {
+    fn insert_test_todo(
+        conn: &rusqlite::Connection,
+        title: &str,
+        priority: &str,
+        category: &str,
+        status: &str,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -828,7 +865,10 @@ mod tests {
         let conn = create_test_db();
         let mut params = HashMap::new();
         params.insert("title".into(), Value::String("Full todo".into()));
-        params.insert("description".into(), Value::String("A detailed description".into()));
+        params.insert(
+            "description".into(),
+            Value::String("A detailed description".into()),
+        );
         params.insert("priority".into(), Value::String("high".into()));
         params.insert("category".into(), Value::String("work".into()));
         params.insert("tags".into(), Value::String("rust,backend,api".into()));
@@ -837,7 +877,10 @@ mod tests {
         assert_eq!(result["todo"]["priority"], "high");
         assert_eq!(result["todo"]["category"], "work");
         assert_eq!(result["todo"]["tags"], "rust,backend,api");
-        assert_eq!(result["todo"]["due_date"], Value::String("2025-12-31".into()));
+        assert_eq!(
+            result["todo"]["due_date"],
+            Value::String("2025-12-31".into())
+        );
     }
 
     #[test]

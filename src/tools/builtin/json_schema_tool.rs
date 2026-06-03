@@ -15,7 +15,9 @@ struct JsonSchemaTool;
 
 #[async_trait::async_trait]
 impl Tool for JsonSchemaTool {
-    fn name(&self) -> &str { "json_schema" }
+    fn name(&self) -> &str {
+        "json_schema"
+    }
 
     fn description(&self) -> &str {
         "Generate and validate JSON Schema from JSON data. \
@@ -25,10 +27,30 @@ impl Tool for JsonSchemaTool {
 
     fn parameters(&self) -> Vec<ToolParameter> {
         vec![
-            ToolParameter { name: "action".to_string(), parameter_type: "string".to_string(), description: "Action: generate, validate, info, merge".to_string(), required: true },
-            ToolParameter { name: "data".to_string(), parameter_type: "string".to_string(), description: "JSON data (for generate)".to_string(), required: false },
-            ToolParameter { name: "schema".to_string(), parameter_type: "string".to_string(), description: "JSON Schema (for validate/info)".to_string(), required: false },
-            ToolParameter { name: "schema2".to_string(), parameter_type: "string".to_string(), description: "Second JSON Schema (for merge)".to_string(), required: false },
+            ToolParameter {
+                name: "action".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Action: generate, validate, info, merge".to_string(),
+                required: true,
+            },
+            ToolParameter {
+                name: "data".to_string(),
+                parameter_type: "string".to_string(),
+                description: "JSON data (for generate)".to_string(),
+                required: false,
+            },
+            ToolParameter {
+                name: "schema".to_string(),
+                parameter_type: "string".to_string(),
+                description: "JSON Schema (for validate/info)".to_string(),
+                required: false,
+            },
+            ToolParameter {
+                name: "schema2".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Second JSON Schema (for merge)".to_string(),
+                required: false,
+            },
         ]
     }
 
@@ -39,40 +61,69 @@ impl Tool for JsonSchemaTool {
             "validate" => validate_json(params),
             "info" => schema_info(params),
             "merge" => merge_schemas(params),
-            _ => Err(format!("Unknown action: {action}. Valid: generate, validate, info, merge")),
+            _ => Err(format!(
+                "Unknown action: {action}. Valid: generate, validate, info, merge"
+            )),
         }
     }
 }
 
 fn generate_schema(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let data_str = params.get("data").and_then(|v| v.as_str()).ok_or("'data' (JSON string) is required for generate action")?;
+    let data_str = params
+        .get("data")
+        .and_then(|v| v.as_str())
+        .ok_or("'data' (JSON string) is required for generate action")?;
     let data: Value = serde_json::from_str(data_str).map_err(|e| format!("Invalid JSON: {e}"))?;
     let schema = infer_schema(&data);
     Ok(serde_json::json!({ "schema": schema, "input_type": get_json_type(&data) }))
 }
 
 fn validate_json(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let data_str = params.get("data").and_then(|v| v.as_str()).ok_or("'data' (JSON string) is required for validate action")?;
-    let schema_str = params.get("schema").and_then(|v| v.as_str()).ok_or("'schema' (JSON Schema string) is required for validate action")?;
-    let data: Value = serde_json::from_str(data_str).map_err(|e| format!("Invalid JSON data: {e}"))?;
-    let schema: Value = serde_json::from_str(schema_str).map_err(|e| format!("Invalid JSON Schema: {e}"))?;
+    let data_str = params
+        .get("data")
+        .and_then(|v| v.as_str())
+        .ok_or("'data' (JSON string) is required for validate action")?;
+    let schema_str = params
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .ok_or("'schema' (JSON Schema string) is required for validate action")?;
+    let data: Value =
+        serde_json::from_str(data_str).map_err(|e| format!("Invalid JSON data: {e}"))?;
+    let schema: Value =
+        serde_json::from_str(schema_str).map_err(|e| format!("Invalid JSON Schema: {e}"))?;
     let (valid, errors) = simple_validate(&data, &schema, "$");
     let error_count = errors.len();
-    Ok(serde_json::json!({ "valid": valid, "errors": if valid { Value::Null } else { Value::Array(errors) }, "error_count": error_count }))
+    Ok(
+        serde_json::json!({ "valid": valid, "errors": if valid { Value::Null } else { Value::Array(errors) }, "error_count": error_count }),
+    )
 }
 
 fn schema_info(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let schema_str = params.get("schema").and_then(|v| v.as_str()).ok_or("'schema' (JSON Schema string) is required for info action")?;
-    let schema: Value = serde_json::from_str(schema_str).map_err(|e| format!("Invalid JSON Schema: {e}"))?;
+    let schema_str = params
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .ok_or("'schema' (JSON Schema string) is required for info action")?;
+    let schema: Value =
+        serde_json::from_str(schema_str).map_err(|e| format!("Invalid JSON Schema: {e}"))?;
     let info = analyze_schema(&schema, 0);
-    Ok(serde_json::json!({ "schema_type": schema.get("type").and_then(|v| v.as_str()).unwrap_or("unknown"), "info": info }))
+    Ok(
+        serde_json::json!({ "schema_type": schema.get("type").and_then(|v| v.as_str()).unwrap_or("unknown"), "info": info }),
+    )
 }
 
 fn merge_schemas(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let schema1_str = params.get("schema").and_then(|v| v.as_str()).ok_or("'schema' (first JSON Schema) is required for merge action")?;
-    let schema2_str = params.get("schema2").and_then(|v| v.as_str()).ok_or("'schema2' (second JSON Schema) is required for merge action")?;
-    let schema1: Value = serde_json::from_str(schema1_str).map_err(|e| format!("Invalid first schema: {e}"))?;
-    let schema2: Value = serde_json::from_str(schema2_str).map_err(|e| format!("Invalid second schema: {e}"))?;
+    let schema1_str = params
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .ok_or("'schema' (first JSON Schema) is required for merge action")?;
+    let schema2_str = params
+        .get("schema2")
+        .and_then(|v| v.as_str())
+        .ok_or("'schema2' (second JSON Schema) is required for merge action")?;
+    let schema1: Value =
+        serde_json::from_str(schema1_str).map_err(|e| format!("Invalid first schema: {e}"))?;
+    let schema2: Value =
+        serde_json::from_str(schema2_str).map_err(|e| format!("Invalid second schema: {e}"))?;
     let merged = merge_schema_values(&schema1, &schema2);
     Ok(serde_json::json!({ "merged": merged, "source_schemas": 2 }))
 }
@@ -87,24 +138,32 @@ fn infer_schema(value: &Value) -> Value {
         }
         Value::String(s) => {
             let mut schema = serde_json::json!({ "type": "string" });
-            if is_iso_date(s) { schema["format"] = Value::String("date-time".to_string()); }
-            else if is_email(s) { schema["format"] = Value::String("email".to_string()); }
-            else if is_url(s) { schema["format"] = Value::String("uri".to_string()); }
+            if is_iso_date(s) {
+                schema["format"] = Value::String("date-time".to_string());
+            } else if is_email(s) {
+                schema["format"] = Value::String("email".to_string());
+            } else if is_url(s) {
+                schema["format"] = Value::String("uri".to_string());
+            }
             schema["minLength"] = Value::Number(0.into());
             schema["maxLength"] = Value::Number(s.len().into());
             schema
         }
         Value::Array(arr) => {
-            let mut schema = serde_json::json!({ "type": "array", "minItems": 0, "maxItems": arr.len() });
+            let mut schema =
+                serde_json::json!({ "type": "array", "minItems": 0, "maxItems": arr.len() });
             if !arr.is_empty() {
                 schema["items"] = infer_schema(&arr[0]);
                 let ft = get_json_type(&arr[0]);
                 schema["uniformItems"] = Value::Bool(arr.iter().all(|v| get_json_type(v) == ft));
-            } else { schema["items"] = serde_json::json!({}); }
+            } else {
+                schema["items"] = serde_json::json!({});
+            }
             schema
         }
         Value::Object(obj) => {
-            let mut schema = serde_json::json!({ "type": "object", "properties": {}, "required": [] });
+            let mut schema =
+                serde_json::json!({ "type": "object", "properties": {}, "required": [] });
             let mut properties: Map<String, Value> = Map::new();
             let mut required = Vec::new();
             for (key, val) in obj {
@@ -134,8 +193,11 @@ fn simple_validate(data: &Value, schema: &Value, path: &str) -> (bool, Vec<Value
     if let (Value::Object(obj), Some(Value::Object(props))) = (data, schema.get("properties")) {
         for (key, prop_schema) in props {
             if let Some(value) = obj.get(key) {
-                let (valid, sub_errors) = simple_validate(value, prop_schema, &format!("{path}.{key}"));
-                if !valid { errors.extend(sub_errors); }
+                let (valid, sub_errors) =
+                    simple_validate(value, prop_schema, &format!("{path}.{key}"));
+                if !valid {
+                    errors.extend(sub_errors);
+                }
             } else if let Some(Value::Array(required)) = schema.get("required") {
                 if required.iter().any(|r| r.as_str() == Some(key)) {
                     errors.push(serde_json::json!({ "path": path, "error": format!("Missing required property '{key}'") }));
@@ -146,31 +208,45 @@ fn simple_validate(data: &Value, schema: &Value, path: &str) -> (bool, Vec<Value
     if let (Value::Array(arr), Some(item_schema)) = (data, schema.get("items")) {
         for (i, item) in arr.iter().enumerate() {
             let (valid, sub_errors) = simple_validate(item, item_schema, &format!("{path}[{i}]"));
-            if !valid { errors.extend(sub_errors); }
+            if !valid {
+                errors.extend(sub_errors);
+            }
         }
     }
     if let Value::String(s) = data {
         if let Some(min) = schema.get("minLength").and_then(|v| v.as_u64()) {
-            if s.len() < min as usize { errors.push(serde_json::json!({ "path": path, "error": format!("String length {} < minimum {}", s.len(), min) })); }
+            if s.len() < min as usize {
+                errors.push(serde_json::json!({ "path": path, "error": format!("String length {} < minimum {}", s.len(), min) }));
+            }
         }
         if let Some(max) = schema.get("maxLength").and_then(|v| v.as_u64()) {
-            if s.len() > max as usize { errors.push(serde_json::json!({ "path": path, "error": format!("String length {} > maximum {}", s.len(), max) })); }
+            if s.len() > max as usize {
+                errors.push(serde_json::json!({ "path": path, "error": format!("String length {} > maximum {}", s.len(), max) }));
+            }
         }
     }
     if let Value::Array(arr) = data {
         if let Some(min) = schema.get("minItems").and_then(|v| v.as_u64()) {
-            if arr.len() < min as usize { errors.push(serde_json::json!({ "path": path, "error": format!("Array length {} < minimum {}", arr.len(), min) })); }
+            if arr.len() < min as usize {
+                errors.push(serde_json::json!({ "path": path, "error": format!("Array length {} < minimum {}", arr.len(), min) }));
+            }
         }
         if let Some(max) = schema.get("maxItems").and_then(|v| v.as_u64()) {
-            if arr.len() > max as usize { errors.push(serde_json::json!({ "path": path, "error": format!("Array length {} > maximum {}", arr.len(), max) })); }
+            if arr.len() > max as usize {
+                errors.push(serde_json::json!({ "path": path, "error": format!("Array length {} > maximum {}", arr.len(), max) }));
+            }
         }
     }
     if let Value::Number(n) = data {
         if let Some(min) = schema.get("minimum").and_then(|v| v.as_f64()) {
-            if n.as_f64().unwrap_or(0.0) < min { errors.push(serde_json::json!({ "path": path, "error": format!("Value {} < minimum {}", n, min) })); }
+            if n.as_f64().unwrap_or(0.0) < min {
+                errors.push(serde_json::json!({ "path": path, "error": format!("Value {} < minimum {}", n, min) }));
+            }
         }
         if let Some(max) = schema.get("maximum").and_then(|v| v.as_f64()) {
-            if n.as_f64().unwrap_or(0.0) > max { errors.push(serde_json::json!({ "path": path, "error": format!("Value {} > maximum {}", n, max) })); }
+            if n.as_f64().unwrap_or(0.0) > max {
+                errors.push(serde_json::json!({ "path": path, "error": format!("Value {} > maximum {}", n, max) }));
+            }
         }
     }
     (errors.is_empty(), errors)
@@ -183,24 +259,38 @@ fn analyze_schema(schema: &Value, depth: usize) -> Map<String, Value> {
     }
     if let Some(Value::Object(props)) = schema.get("properties") {
         let prop_count = props.len();
-        result.insert("property_count".to_string(), Value::Number(prop_count.into()));
+        result.insert(
+            "property_count".to_string(),
+            Value::Number(prop_count.into()),
+        );
         let mut prop_names = Vec::with_capacity(prop_count);
-        for key in props.keys() { prop_names.push(Value::String(key.clone())); }
+        for key in props.keys() {
+            prop_names.push(Value::String(key.clone()));
+        }
         result.insert("properties".to_string(), Value::Array(prop_names));
         if depth < 5 {
             let mut nested: Map<String, Value> = Map::new();
             for (key, prop_schema) in props {
-                nested.insert(key.clone(), Value::Object(analyze_schema(prop_schema, depth + 1)));
+                nested.insert(
+                    key.clone(),
+                    Value::Object(analyze_schema(prop_schema, depth + 1)),
+                );
             }
             result.insert("nested_schemas".to_string(), Value::Object(nested));
         }
     }
     if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
-        result.insert("required_count".to_string(), Value::Number(required.len().into()));
+        result.insert(
+            "required_count".to_string(),
+            Value::Number(required.len().into()),
+        );
     }
     if let Some(items) = schema.get("items") {
         result.insert("has_items_schema".to_string(), Value::Bool(true));
-        result.insert("items_type".to_string(), Value::Object(analyze_schema(items, depth + 1)));
+        result.insert(
+            "items_type".to_string(),
+            Value::Object(analyze_schema(items, depth + 1)),
+        );
     }
     if let Some(format) = schema.get("format").and_then(|v| v.as_str()) {
         result.insert("format".to_string(), Value::String(format.to_string()));
@@ -213,8 +303,11 @@ fn merge_schema_values(s1: &Value, s2: &Value) -> Value {
         (Value::Object(o1), Value::Object(o2)) => {
             let mut merged = o1.clone();
             for (key, v2) in o2 {
-                if let Some(v1) = merged.get(key) { merged.insert(key.clone(), merge_schema_values(v1, v2)); }
-                else { merged.insert(key.clone(), v2.clone()); }
+                if let Some(v1) = merged.get(key) {
+                    merged.insert(key.clone(), merge_schema_values(v1, v2));
+                } else {
+                    merged.insert(key.clone(), v2.clone());
+                }
             }
             Value::Object(merged)
         }
@@ -231,7 +324,13 @@ fn get_json_type(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
-        Value::Number(n) => { if n.is_i64() { "integer" } else { "number" } }
+        Value::Number(n) => {
+            if n.is_i64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
         Value::String(_) => "string",
         Value::Array(_) => "array",
         Value::Object(_) => "object",
@@ -280,16 +379,28 @@ mod tests {
     }
 
     #[test]
-    fn test_infer_integer() { let s = infer_schema(&Value::Number(42.into())); assert_eq!(s["type"], "integer"); }
+    fn test_infer_integer() {
+        let s = infer_schema(&Value::Number(42.into()));
+        assert_eq!(s["type"], "integer");
+    }
 
     #[test]
-    fn test_infer_float() { let s = infer_schema(&Value::Number(serde_json::Number::from_f64(3.14).unwrap())); assert_eq!(s["type"], "number"); }
+    fn test_infer_float() {
+        let s = infer_schema(&Value::Number(serde_json::Number::from_f64(3.14).unwrap()));
+        assert_eq!(s["type"], "number");
+    }
 
     #[test]
-    fn test_infer_boolean() { let s = infer_schema(&Value::Bool(true)); assert_eq!(s["type"], "boolean"); }
+    fn test_infer_boolean() {
+        let s = infer_schema(&Value::Bool(true));
+        assert_eq!(s["type"], "boolean");
+    }
 
     #[test]
-    fn test_infer_null() { let s = infer_schema(&Value::Null); assert_eq!(s["type"], "null"); }
+    fn test_infer_null() {
+        let s = infer_schema(&Value::Null);
+        assert_eq!(s["type"], "null");
+    }
 
     #[test]
     fn test_infer_array_uniform() {
@@ -302,7 +413,10 @@ mod tests {
 
     #[test]
     fn test_infer_array_mixed() {
-        let arr = Value::Array(vec![Value::Number(1.into()), Value::String("x".to_string())]);
+        let arr = Value::Array(vec![
+            Value::Number(1.into()),
+            Value::String("x".to_string()),
+        ]);
         let s = infer_schema(&arr);
         assert_eq!(s["uniformItems"], false);
     }
@@ -341,7 +455,9 @@ mod tests {
         let schema: Value = serde_json::from_str(r#"{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}"#).unwrap();
         let (valid, errors) = simple_validate(&data, &schema, "$");
         assert!(!valid);
-        assert!(errors.iter().any(|e| e["error"].as_str().unwrap().contains("age")));
+        assert!(errors
+            .iter()
+            .any(|e| e["error"].as_str().unwrap().contains("age")));
     }
 
     #[test]
@@ -355,7 +471,8 @@ mod tests {
     #[test]
     fn test_validate_array_items() {
         let data: Value = serde_json::from_str(r#"[1,2,"three"]"#).unwrap();
-        let schema: Value = serde_json::from_str(r#"{"type":"array","items":{"type":"integer"}}"#).unwrap();
+        let schema: Value =
+            serde_json::from_str(r#"{"type":"array","items":{"type":"integer"}}"#).unwrap();
         let (valid, _) = simple_validate(&data, &schema, "$");
         assert!(!valid);
     }
@@ -363,7 +480,10 @@ mod tests {
     #[test]
     fn test_generate_schema() {
         let mut p = HashMap::new();
-        p.insert("data".to_string(), Value::String(r#"{"name":"test","age":30}"#.to_string()));
+        p.insert(
+            "data".to_string(),
+            Value::String(r#"{"name":"test","age":30}"#.to_string()),
+        );
         let r = generate_schema(&p).unwrap();
         assert_eq!(r["schema"]["type"], "object");
     }
@@ -378,8 +498,17 @@ mod tests {
     #[test]
     fn test_validate_json() {
         let mut p = HashMap::new();
-        p.insert("data".to_string(), Value::String(r#"{"name":"test"}"#.to_string()));
-        p.insert("schema".to_string(), Value::String(r#"{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"#.to_string()));
+        p.insert(
+            "data".to_string(),
+            Value::String(r#"{"name":"test"}"#.to_string()),
+        );
+        p.insert(
+            "schema".to_string(),
+            Value::String(
+                r#"{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"#
+                    .to_string(),
+            ),
+        );
         let r = validate_json(&p).unwrap();
         assert_eq!(r["valid"], true);
     }
@@ -387,7 +516,10 @@ mod tests {
     #[test]
     fn test_schema_info() {
         let mut p = HashMap::new();
-        p.insert("schema".to_string(), Value::String(r#"{"type":"object","properties":{"a":{"type":"string"}}}"#.to_string()));
+        p.insert(
+            "schema".to_string(),
+            Value::String(r#"{"type":"object","properties":{"a":{"type":"string"}}}"#.to_string()),
+        );
         let r = schema_info(&p).unwrap();
         assert_eq!(r["schema_type"], "object");
     }
@@ -395,8 +527,14 @@ mod tests {
     #[test]
     fn test_merge_schemas() {
         let mut p = HashMap::new();
-        p.insert("schema".to_string(), Value::String(r#"{"type":"object"}"#.to_string()));
-        p.insert("schema2".to_string(), Value::String(r#"{"description":"test"}"#.to_string()));
+        p.insert(
+            "schema".to_string(),
+            Value::String(r#"{"type":"object"}"#.to_string()),
+        );
+        p.insert(
+            "schema2".to_string(),
+            Value::String(r#"{"description":"test"}"#.to_string()),
+        );
         let r = merge_schemas(&p).unwrap();
         assert_eq!(r["merged"]["type"], "object");
         assert_eq!(r["merged"]["description"], "test");

@@ -44,7 +44,8 @@ impl Tool for HashTool {
             ToolParameter {
                 name: "algorithm".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Hash algorithm: md5, sha1, sha256 (default), sha512, blake3".to_string(),
+                description: "Hash algorithm: md5, sha1, sha256 (default), sha512, blake3"
+                    .to_string(),
                 required: false,
             },
             ToolParameter {
@@ -68,7 +69,8 @@ impl Tool for HashTool {
             ToolParameter {
                 name: "expected".to_string(),
                 parameter_type: "string".to_string(),
-                description: "Expected hash value to compare against (for verify action)".to_string(),
+                description: "Expected hash value to compare against (for verify action)"
+                    .to_string(),
                 required: false,
             },
         ]
@@ -82,7 +84,9 @@ impl Tool for HashTool {
             "string" => hash_string_action(params),
             "verify" => verify_hash(params),
             "batch" => batch_hash(params),
-            _ => Err(format!("Unknown action: {action}. Valid: file, string, verify, batch")),
+            _ => Err(format!(
+                "Unknown action: {action}. Valid: file, string, verify, batch"
+            )),
         }
     }
 }
@@ -106,7 +110,9 @@ fn hash_file_action(params: &HashMap<String, Value>) -> Result<Value, String> {
     }
 
     let (hash_hex, hash_bytes) = compute_file_hash(path, algorithm)?;
-    let metadata = path.metadata().map_err(|e| format!("Failed to get file metadata: {e}"))?;
+    let metadata = path
+        .metadata()
+        .map_err(|e| format!("Failed to get file metadata: {e}"))?;
 
     Ok(serde_json::json!({
         "algorithm": algorithm,
@@ -194,7 +200,9 @@ fn batch_hash(params: &HashMap<String, Value>) -> Result<Value, String> {
             continue;
         }
         match compute_file_hash(path, algorithm) {
-            Ok((hash_hex, _)) => results.push(serde_json::json!({"path": file_path, "hash": hash_hex})),
+            Ok((hash_hex, _)) => {
+                results.push(serde_json::json!({"path": file_path, "hash": hash_hex}))
+            }
             Err(e) => errors.push(serde_json::json!({"path": file_path, "error": e})),
         }
     }
@@ -232,8 +240,12 @@ fn compute_file_hash(path: &Path, algorithm: &str) -> Result<(String, usize), St
         "md5" => {
             let mut hasher = Md5Hasher::new();
             loop {
-                let n = reader.read(&mut buffer).map_err(|e| format!("Read error: {e}"))?;
-                if n == 0 { break; }
+                let n = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Read error: {e}"))?;
+                if n == 0 {
+                    break;
+                }
                 hasher.update(&buffer[..n]);
             }
             let result = hasher.finalize();
@@ -242,8 +254,12 @@ fn compute_file_hash(path: &Path, algorithm: &str) -> Result<(String, usize), St
         "sha1" => {
             let mut hasher = Sha1Hasher::new();
             loop {
-                let n = reader.read(&mut buffer).map_err(|e| format!("Read error: {e}"))?;
-                if n == 0 { break; }
+                let n = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Read error: {e}"))?;
+                if n == 0 {
+                    break;
+                }
                 hasher.update(&buffer[..n]);
             }
             let result = hasher.finalize();
@@ -252,8 +268,12 @@ fn compute_file_hash(path: &Path, algorithm: &str) -> Result<(String, usize), St
         "sha256" => {
             let mut hasher = Sha256::new();
             loop {
-                let n = reader.read(&mut buffer).map_err(|e| format!("Read error: {e}"))?;
-                if n == 0 { break; }
+                let n = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Read error: {e}"))?;
+                if n == 0 {
+                    break;
+                }
                 hasher.update(&buffer[..n]);
             }
             let result = hasher.finalize();
@@ -262,8 +282,12 @@ fn compute_file_hash(path: &Path, algorithm: &str) -> Result<(String, usize), St
         "sha512" => {
             let mut hasher = Sha512::new();
             loop {
-                let n = reader.read(&mut buffer).map_err(|e| format!("Read error: {e}"))?;
-                if n == 0 { break; }
+                let n = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Read error: {e}"))?;
+                if n == 0 {
+                    break;
+                }
                 hasher.update(&buffer[..n]);
             }
             let result = hasher.finalize();
@@ -272,14 +296,20 @@ fn compute_file_hash(path: &Path, algorithm: &str) -> Result<(String, usize), St
         "blake3" => {
             let mut hasher = blake3::Hasher::new();
             loop {
-                let n = reader.read(&mut buffer).map_err(|e| format!("Read error: {e}"))?;
-                if n == 0 { break; }
+                let n = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Read error: {e}"))?;
+                if n == 0 {
+                    break;
+                }
                 hasher.update(&buffer[..n]);
             }
             let result = hasher.finalize();
             Ok((result.to_hex().to_string(), result.as_bytes().len()))
         }
-        _ => Err(format!("Unsupported algorithm: {algorithm}. Supported: md5, sha1, sha256, sha512, blake3")),
+        _ => Err(format!(
+            "Unsupported algorithm: {algorithm}. Supported: md5, sha1, sha256, sha512, blake3"
+        )),
     }
 }
 
@@ -336,7 +366,10 @@ mod tests {
     #[test]
     fn test_sha256_hello() {
         let h = compute_string_hash("hello", "sha256").unwrap();
-        assert_eq!(h, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(
+            h,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
     }
 
     #[test]
@@ -370,10 +403,22 @@ mod tests {
 
     #[test]
     fn test_detect_algorithm() {
-        assert_eq!(detect_algorithm_from_length(&"a".repeat(32)).unwrap(), "md5");
-        assert_eq!(detect_algorithm_from_length(&"a".repeat(40)).unwrap(), "sha1");
-        assert_eq!(detect_algorithm_from_length(&"a".repeat(64)).unwrap(), "sha256");
-        assert_eq!(detect_algorithm_from_length(&"a".repeat(128)).unwrap(), "sha512");
+        assert_eq!(
+            detect_algorithm_from_length(&"a".repeat(32)).unwrap(),
+            "md5"
+        );
+        assert_eq!(
+            detect_algorithm_from_length(&"a".repeat(40)).unwrap(),
+            "sha1"
+        );
+        assert_eq!(
+            detect_algorithm_from_length(&"a".repeat(64)).unwrap(),
+            "sha256"
+        );
+        assert_eq!(
+            detect_algorithm_from_length(&"a".repeat(128)).unwrap(),
+            "sha512"
+        );
         assert!(detect_algorithm_from_length("abc").is_err());
     }
 
@@ -391,7 +436,10 @@ mod tests {
         let tmp = std::env::temp_dir().join("hash_test.txt");
         std::fs::write(&tmp, "hello").unwrap();
         let (h, _) = compute_file_hash(&tmp, "sha256").unwrap();
-        assert_eq!(h, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(
+            h,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
         std::fs::remove_file(&tmp).ok();
     }
 
@@ -406,7 +454,10 @@ mod tests {
         p.insert("text".to_string(), Value::String("hello".to_string()));
         p.insert("algorithm".to_string(), Value::String("md5".to_string()));
         let r = hash_string_action(&p).unwrap();
-        assert_eq!(r["hash"].as_str().unwrap(), "5d41402abc4b2a76b9719d911017c592");
+        assert_eq!(
+            r["hash"].as_str().unwrap(),
+            "5d41402abc4b2a76b9719d911017c592"
+        );
     }
 
     #[test]
@@ -421,9 +472,10 @@ mod tests {
         std::fs::write(&t1, "hello").unwrap();
         std::fs::write(&t2, "world").unwrap();
         let mut p = HashMap::new();
-        p.insert("paths".to_string(), serde_json::json!([
-            t1.to_str().unwrap(), t2.to_str().unwrap(), "/nonexistent"
-        ]));
+        p.insert(
+            "paths".to_string(),
+            serde_json::json!([t1.to_str().unwrap(), t2.to_str().unwrap(), "/nonexistent"]),
+        );
         let r = batch_hash(&p).unwrap();
         assert_eq!(r["total"].as_u64().unwrap(), 3);
         assert_eq!(r["successful"].as_u64().unwrap(), 2);

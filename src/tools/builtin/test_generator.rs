@@ -72,9 +72,8 @@ static RE_PARAM: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^,]+)"#).expect("valid regex"));
 
 #[allow(dead_code)]
-static RE_OPTION: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:^|[\s<,])Option\s*<\s*([^>]+)\s*>"#).expect("valid regex")
-});
+static RE_OPTION: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:^|[\s<,])Option\s*<\s*([^>]+)\s*>"#).expect("valid regex"));
 
 #[allow(dead_code)]
 static RE_RESULT: Lazy<Regex> = Lazy::new(|| {
@@ -82,9 +81,8 @@ static RE_RESULT: Lazy<Regex> = Lazy::new(|| {
 });
 
 #[allow(dead_code)]
-static RE_VEC: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:^|[\s<,])Vec\s*<\s*([^>]+)\s*>"#).expect("valid regex")
-});
+static RE_VEC: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:^|[\s<,])Vec\s*<\s*([^>]+)\s*>"#).expect("valid regex"));
 
 static RE_STRING: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:^|[\s<,&])&?\s*str\b"#).expect("valid regex"));
@@ -105,7 +103,8 @@ static RE_TEST_ATTR: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?m)^\s*#\[(test|should_panic)"#).expect("valid regex"));
 
 static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#).expect("valid regex")
+    Regex::new(r#"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#)
+        .expect("valid regex")
 });
 
 pub struct TestGeneratorTool;
@@ -167,10 +166,7 @@ impl Tool for TestGeneratorTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: path")?;
 
-        let mode = params
-            .get("mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("all");
+        let mode = params.get("mode").and_then(|v| v.as_str()).unwrap_or("all");
 
         let test_type = params
             .get("test_type")
@@ -210,13 +206,16 @@ impl Tool for TestGeneratorTool {
             match m {
                 "function" => {
                     generated_tests.extend(generate_function_tests(
-                        &content, path, test_type, coverage, include_doc_tests,
+                        &content,
+                        path,
+                        test_type,
+                        coverage,
+                        include_doc_tests,
                     )?);
                 }
                 "struct" => {
-                    generated_tests.extend(generate_struct_tests(
-                        &content, path, test_type, coverage,
-                    )?);
+                    generated_tests
+                        .extend(generate_struct_tests(&content, path, test_type, coverage)?);
                 }
                 "trait_impl" => {
                     generated_tests.extend(generate_trait_impl_tests(
@@ -224,9 +223,8 @@ impl Tool for TestGeneratorTool {
                     )?);
                 }
                 "module" => {
-                    generated_tests.extend(generate_module_tests(
-                        &content, path, test_type, coverage,
-                    )?);
+                    generated_tests
+                        .extend(generate_module_tests(&content, path, test_type, coverage)?);
                 }
                 _ => {
                     return Ok(json!({
@@ -303,7 +301,9 @@ fn generate_function_tests(
                 panic_test.push_str("#[should_panic]\n");
                 panic_test.push_str(&format!("fn {test_name}_error() {{\n"));
                 panic_test.push_str(&generate_test_args(&fn_info, "error"));
-                panic_test.push_str(&format!("    {fn_name}(...); // TODO: trigger error case\n"));
+                panic_test.push_str(&format!(
+                    "    {fn_name}(...); // TODO: trigger error case\n"
+                ));
                 panic_test.push_str("}\n");
                 tests.push(panic_test);
             }
@@ -314,24 +314,18 @@ fn generate_function_tests(
             test.push_str(&format!("fn {test_name}() {{\n"));
             test.push_str(&generate_test_args(&fn_info, "normal"));
             if fn_info.return_type.contains("Result") {
-                test.push_str(&format!(
-                    "    let result = {fn_name}(...);\n"
-                ));
+                test.push_str(&format!("    let result = {fn_name}(...);\n"));
                 test.push_str("    assert!(result.is_ok());\n");
                 test.push_str("    // TODO: verify result value\n");
             } else if !fn_info.return_type.is_empty() && fn_info.return_type != "()" {
-                test.push_str(&format!(
-                    "    let result = {fn_name}(...);\n"
-                ));
+                test.push_str(&format!("    let result = {fn_name}(...);\n"));
                 test.push_str(&format!(
                     "    // TODO: assert expected value for {test_name}\n"
                 ));
                 test.push_str("    // let expected = ...;\n");
                 test.push_str("    // assert_eq!(result, expected);\n");
             } else {
-                test.push_str(&format!(
-                    "    {fn_name}(...);\n"
-                ));
+                test.push_str(&format!("    {fn_name}(...);\n"));
                 test.push_str("    // TODO: add assertions\n");
             }
             test.push('}');
@@ -496,13 +490,17 @@ fn generate_module_tests(
     }
 
     let mut test = String::new();
-    test.push_str(&format!("// Integration tests for module '{module_name}'\n"));
+    test.push_str(&format!(
+        "// Integration tests for module '{module_name}'\n"
+    ));
     test.push_str(&format!("use crate::{module_name};\n\n"));
 
     for fn_name in &pub_fns {
         test.push_str("#[test]\n");
         test.push_str(&format!("fn test_{module_name}_{fn_name}() {{\n"));
-        test.push_str(&format!("    let result = {module_name}::{fn_name}(...);\n"));
+        test.push_str(&format!(
+            "    let result = {module_name}::{fn_name}(...);\n"
+        ));
         test.push_str("    // TODO: add assertions\n");
         test.push_str("}\n\n");
     }
@@ -525,8 +523,14 @@ struct StructInfo {
 fn parse_params(params_str: &str) -> Vec<(String, String)> {
     let mut params = Vec::new();
     for cap in RE_PARAM.captures_iter(params_str) {
-        let name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-        let ptype = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+        let name = cap
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let ptype = cap
+            .get(2)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
         if !name.is_empty() {
             params.push((name, ptype));
         }
@@ -599,15 +603,13 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             "edge_cases" | "error" => "None".to_string(),
             _ => "None".to_string(),
         }
-    }
-    else if type_str.starts_with("Result") {
+    } else if type_str.starts_with("Result") {
         if let Some(inner) = extract_inner_type(type_str, "Result") {
             format!("Ok({})", generate_default_value(&inner, case))
         } else {
             "Ok(Default::default())".to_string()
         }
-    }
-    else if type_str.starts_with("Vec") {
+    } else if type_str.starts_with("Vec") {
         match case {
             "normal" => {
                 if let Some(inner) = extract_inner_type(type_str, "Vec") {
@@ -619,16 +621,14 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             "edge_cases" => "vec![]".to_string(),
             _ => "vec![]".to_string(),
         }
-    }
-    else if RE_STRING.is_match(type_str) || type_str.contains("String") {
+    } else if RE_STRING.is_match(type_str) || type_str.contains("String") {
         match case {
             "normal" => r#""test".to_string()"#.to_string(),
             "edge_cases" => r#""".to_string()"#.to_string(),
             "error" => r#""".to_string()"#.to_string(),
             _ => r#""test".to_string()"#.to_string(),
         }
-    }
-    else if RE_INT_TYPES.is_match(type_str) {
+    } else if RE_INT_TYPES.is_match(type_str) {
         match case {
             "normal" => "0".to_string(),
             "edge_cases" => {
@@ -641,22 +641,19 @@ fn generate_default_value(type_str: &str, case: &str) -> String {
             "error" => "0".to_string(),
             _ => "0".to_string(),
         }
-    }
-    else if RE_FLOAT_TYPES.is_match(type_str) {
+    } else if RE_FLOAT_TYPES.is_match(type_str) {
         match case {
             "normal" => "0.0".to_string(),
             "edge_cases" => "f64::INFINITY".to_string(),
             _ => "0.0".to_string(),
         }
-    }
-    else if RE_BOOL.is_match(type_str) {
+    } else if RE_BOOL.is_match(type_str) {
         match case {
             "normal" => "true".to_string(),
             "edge_cases" => "false".to_string(),
             _ => "true".to_string(),
         }
-    }
-    else {
+    } else {
         "Default::default()".to_string()
     }
 }
@@ -697,10 +694,7 @@ fn generate_property_test_stub(fn_info: &FunctionInfo) -> String {
     let mut body = String::new();
     body.push_str("proptest! {\n");
     body.push_str("    #[test]\n");
-    body.push_str(&format!(
-        "    fn prop_{}(\n",
-        fn_info.name
-    ));
+    body.push_str(&format!("    fn prop_{}(\n", fn_info.name));
     for (name, ptype) in &fn_info.params {
         let strat = generate_prop_strategy(ptype);
         body.push_str(&format!("        {name} in {strat},\n"));
@@ -734,7 +728,10 @@ fn generate_prop_strategy(type_str: &str) -> String {
         }
     } else if type_str.starts_with("Vec") {
         if let Some(inner) = extract_inner_type(type_str, "Vec") {
-            format!("prop::collection::vec({}, 0..10)", generate_prop_strategy(&inner))
+            format!(
+                "prop::collection::vec({}, 0..10)",
+                generate_prop_strategy(&inner)
+            )
         } else {
             "prop::collection::vec(any::<String>(), 0..10)".to_string()
         }
@@ -754,10 +751,7 @@ fn generate_prop_strategy(type_str: &str) -> String {
 fn generate_doc_test_stub(fn_info: &FunctionInfo) -> String {
     let mut doc = String::new();
     doc.push_str("/// ```\n");
-    doc.push_str(&format!(
-        "/// use my_crate::{};\n",
-        fn_info.name
-    ));
+    doc.push_str(&format!("/// use my_crate::{};\n", fn_info.name));
 
     let args: Vec<String> = fn_info
         .params
@@ -773,11 +767,7 @@ fn generate_doc_test_stub(fn_info: &FunctionInfo) -> String {
         ));
         doc.push_str("/// assert!(true); // TODO: verify result\n");
     } else {
-        doc.push_str(&format!(
-            "/// {}({});\n",
-            fn_info.name,
-            args.join(", ")
-        ));
+        doc.push_str(&format!("/// {}({});\n", fn_info.name, args.join(", ")));
     }
 
     doc.push_str("/// ```\n");

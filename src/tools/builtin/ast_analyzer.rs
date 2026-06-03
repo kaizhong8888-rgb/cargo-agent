@@ -11,11 +11,11 @@ use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use syn::spanned::Spanned;
 use syn::{
     visit::Visit, ExprIf, ExprLoop, ExprMatch, ExprWhile, File, FnArg, Item, ItemFn, Pat, UseTree,
     Visibility,
 };
-use syn::spanned::Spanned;
 
 // ============================================================================
 // AstAnalyzerTool
@@ -148,10 +148,9 @@ fn collect_rust_files(
 }
 
 fn parse_file(path: &str) -> Result<File, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read '{path}': {e}"))?;
-    syn::parse_file(&content)
-        .map_err(|e| format!("Failed to parse '{path}': {e}"))
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read '{path}': {e}"))?;
+    syn::parse_file(&content).map_err(|e| format!("Failed to parse '{path}': {e}"))
 }
 
 // ============================================================================
@@ -463,8 +462,16 @@ fn extract_public_api(ast: &File) -> Vec<Value> {
                     syn::ReturnType::Type(_, ty) => quote::quote!(#ty).to_string(),
                 };
 
-                let async_kw = if sig.asyncness.is_some() { "async " } else { "" };
-                let unsafe_kw = if sig.unsafety.is_some() { "unsafe " } else { "" };
+                let async_kw = if sig.asyncness.is_some() {
+                    "async "
+                } else {
+                    ""
+                };
+                let unsafe_kw = if sig.unsafety.is_some() {
+                    "unsafe "
+                } else {
+                    ""
+                };
 
                 items.push(json!({
                     "kind": "function",
@@ -514,11 +521,8 @@ fn extract_public_api(ast: &File) -> Vec<Value> {
                 }));
             }
             Item::Enum(e) if is_pub(&e.vis) => {
-                let variants: Vec<String> = e
-                    .variants
-                    .iter()
-                    .map(|v| v.ident.to_string())
-                    .collect();
+                let variants: Vec<String> =
+                    e.variants.iter().map(|v| v.ident.to_string()).collect();
 
                 items.push(json!({
                     "kind": "enum",
@@ -574,7 +578,8 @@ fn action_dependencies(files: &[String]) -> Result<Value, String> {
                     if let UseTree::Path(path) = &use_item.tree {
                         let crate_name = path.ident.to_string();
                         // Filter out std and common internal paths
-                        if !["std", "core", "self", "super", "crate"].contains(&crate_name.as_str()) {
+                        if !["std", "core", "self", "super", "crate"].contains(&crate_name.as_str())
+                        {
                             all_crates.insert(crate_name.clone());
                             if !file_crates.contains(&crate_name) {
                                 file_crates.push(crate_name);
@@ -934,15 +939,13 @@ fn main() {
 
     #[test]
     fn test_action_public_api_on_real_file() {
-        let result =
-            action_public_api(&["src/tools/builtin/hello_tool.rs".to_string()]);
+        let result = action_public_api(&["src/tools/builtin/hello_tool.rs".to_string()]);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_action_complexity_on_real_file() {
-        let result =
-            action_complexity(&["src/tools/builtin/hello_tool.rs".to_string()]);
+        let result = action_complexity(&["src/tools/builtin/hello_tool.rs".to_string()]);
         assert!(result.is_ok());
     }
 

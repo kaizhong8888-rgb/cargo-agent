@@ -20,52 +20,47 @@ use std::path::Path;
 // ============================================================================
 
 static RE_IF_ELSE_BOOL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)if\s+.+\s+\{\s*\n?\s*true\s*\n?\s*\}\s*else\s*\n?\s*\{\s*\n?\s*false\s*\n?\s*\}")
-        .expect("valid regex")
+    Regex::new(
+        r"(?m)if\s+.+\s+\{\s*\n?\s*true\s*\n?\s*\}\s*else\s*\n?\s*\{\s*\n?\s*false\s*\n?\s*\}",
+    )
+    .expect("valid regex")
 });
 
-static RE_BOOL_LITERAL_COMPARISON: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)(\w+)\s*==\s*(true|false)\b").expect("valid regex")
-});
+static RE_BOOL_LITERAL_COMPARISON: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)(\w+)\s*==\s*(true|false)\b").expect("valid regex"));
 
-static RE_FORMAT_STRING: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"format!\s*\(\s*"\{[^}]*\}""#).expect("valid regex")
-});
+static RE_FORMAT_STRING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"format!\s*\(\s*"\{[^}]*\}""#).expect("valid regex"));
 
 #[allow(dead_code)]
-static RE_STRING_PUSH: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(\w+)\s*=\s*format!\s*\(\s*""#).expect("valid regex")
-});
+static RE_STRING_PUSH: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(\w+)\s*=\s*format!\s*\(\s*""#).expect("valid regex"));
 
 static RE_UNWRAP_OR_ELSE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)(\w+)\s*\.unwrap_or_else\(\s*\|[^|]*\|\s*[^)]+\)")
-        .expect("valid regex")
+    Regex::new(r"(?m)(\w+)\s*\.unwrap_or_else\(\s*\|[^|]*\|\s*[^)]+\)").expect("valid regex")
 });
 
 #[allow(dead_code)]
-static RE_CLONE_ON_COPY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)(\w+)\s*\.clone\(\)\s*;\s*//.*Copy").expect("valid regex")
-});
+static RE_CLONE_ON_COPY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)(\w+)\s*\.clone\(\)\s*;\s*//.*Copy").expect("valid regex"));
 
-static RE_VEC_NEW_LOOP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)let\s+mut\s+(\w+)\s*=\s*Vec::new\(\)").expect("valid regex")
-});
+static RE_VEC_NEW_LOOP: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)let\s+mut\s+(\w+)\s*=\s*Vec::new\(\)").expect("valid regex"));
 
-static RE_HASHMAP_NEW_LOOP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)let\s+mut\s+(\w+)\s*=\s*HashMap::new\(\)").expect("valid regex")
-});
+static RE_HASHMAP_NEW_LOOP: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)let\s+mut\s+(\w+)\s*=\s*HashMap::new\(\)").expect("valid regex"));
 
-static RE_PANIC_IN_FN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)panic!\s*\(").expect("valid regex")
-});
+static RE_PANIC_IN_FN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)panic!\s*\(").expect("valid regex"));
 
-static RE_MATCH_SINGLE_ARM: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)match\s+\w+\s*\{\s*\n?\s*_\s*=>").expect("valid regex")
-});
+static RE_MATCH_SINGLE_ARM: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)match\s+\w+\s*\{\s*\n?\s*_\s*=>").expect("valid regex"));
 
 static RE_IF_LET_SOME: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)if\s+let\s+Some\(\w+\)\s*=\s*\w+\s*\{\s*\n?\s*return\s+Some\(\w+\)\s*;\s*\n?\s*\}")
-        .expect("valid regex")
+    Regex::new(
+        r"(?m)if\s+let\s+Some\(\w+\)\s*=\s*\w+\s*\{\s*\n?\s*return\s+Some\(\w+\)\s*;\s*\n?\s*\}",
+    )
+    .expect("valid regex")
 });
 
 static RE_ITER_COLLECT: Lazy<Regex> = Lazy::new(|| {
@@ -73,21 +68,17 @@ static RE_ITER_COLLECT: Lazy<Regex> = Lazy::new(|| {
 });
 
 #[allow(dead_code)]
-static RE_EMPTY_STRING: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"if\s+\w+\s*==\s*""|if\s+\w+\.is_empty\(\)"#).expect("valid regex")
-});
+static RE_EMPTY_STRING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"if\s+\w+\s*==\s*""|if\s+\w+\.is_empty\(\)"#).expect("valid regex"));
 
-static RE_AS_REF_DEREF: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)\.as_ref\(\)\.unwrap\(\)|\.deref\(\)").expect("valid regex")
-});
+static RE_AS_REF_DEREF: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)\.as_ref\(\)\.unwrap\(\)|\.deref\(\)").expect("valid regex"));
 
-static RE_UNNECESSARY_RETURN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)return\s+([^;]+);\s*\n?\s*\}").expect("valid regex")
-});
+static RE_UNNECESSARY_RETURN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)return\s+([^;]+);\s*\n?\s*\}").expect("valid regex"));
 
-static RE_TO_OWNED_STRING: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)\.to_owned\(\)|\.to_string\(\)").expect("valid regex")
-});
+static RE_TO_OWNED_STRING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)\.to_owned\(\)|\.to_string\(\)").expect("valid regex"));
 
 // ============================================================================
 // Refactoring Suggestion
@@ -124,7 +115,8 @@ impl Tool for SmartRefactorTool {
         vec![
             ToolParameter {
                 name: "action".to_string(),
-                description: "Action: analyze, simplify_bool, modernize, optimize, idiomatic".to_string(),
+                description: "Action: analyze, simplify_bool, modernize, optimize, idiomatic"
+                    .to_string(),
                 required: true,
                 parameter_type: "string".to_string(),
             },
@@ -239,13 +231,9 @@ impl Tool for SmartRefactorTool {
                 md.push_str("No refactoring suggestions found. Code looks idiomatic! \u{2728}\n");
             } else {
                 // Group by category
-                let mut by_category: HashMap<String, Vec<&RefactorSuggestion>> =
-                    HashMap::new();
+                let mut by_category: HashMap<String, Vec<&RefactorSuggestion>> = HashMap::new();
                 for s in &suggestions {
-                    by_category
-                        .entry(s.category.clone())
-                        .or_default()
-                        .push(s);
+                    by_category.entry(s.category.clone()).or_default().push(s);
                 }
 
                 for (category, items) in &by_category {
@@ -286,8 +274,8 @@ fn collect_rust_files(
     if depth > 10 {
         return Ok(());
     }
-    let read_dir = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read '{}': {e}", dir.display()))?;
+    let read_dir =
+        std::fs::read_dir(dir).map_err(|e| format!("Failed to read '{}': {e}", dir.display()))?;
     for entry in read_dir.filter_map(|e| e.ok()) {
         let p = entry.path();
         if p.is_dir() {
@@ -348,9 +336,7 @@ fn full_analysis(files: &[String]) -> Result<Vec<RefactorSuggestion>, String> {
 // Boolean Simplification
 // ============================================================================
 
-fn check_boolean_simplification(
-    files: &[String],
-) -> Result<Vec<RefactorSuggestion>, String> {
+fn check_boolean_simplification(files: &[String]) -> Result<Vec<RefactorSuggestion>, String> {
     let mut suggestions = Vec::new();
 
     for file_path in files {
@@ -501,7 +487,10 @@ fn check_optimization(files: &[String]) -> Result<Vec<RefactorSuggestion>, Strin
                 let mut in_loop = false;
                 let start = i.saturating_sub(5);
                 for prev_line in &lines[start..i] {
-                    if prev_line.contains("for ") || prev_line.contains(".iter().") || prev_line.contains(".into_iter().") {
+                    if prev_line.contains("for ")
+                        || prev_line.contains(".iter().")
+                        || prev_line.contains(".into_iter().")
+                    {
                         in_loop = true;
                         break;
                     }
@@ -526,7 +515,10 @@ fn check_optimization(files: &[String]) -> Result<Vec<RefactorSuggestion>, Strin
                 let mut in_loop = false;
                 let start = i.saturating_sub(5);
                 for prev_line in &lines[start..i] {
-                    if prev_line.contains("for ") || prev_line.contains(".iter().") || prev_line.contains(".into_iter().") {
+                    if prev_line.contains("for ")
+                        || prev_line.contains(".iter().")
+                        || prev_line.contains(".into_iter().")
+                    {
                         in_loop = true;
                         break;
                     }
@@ -634,8 +626,9 @@ fn check_idiomatic(files: &[String]) -> Result<Vec<RefactorSuggestion>, String> 
                     description: "Replace as_ref().unwrap() with ? operator or if let".to_string(),
                     before: matched.trim().to_string(),
                     after: "opt.as_ref()? or if let Some(v) = opt".to_string(),
-                    explanation: "Using `?` or `if let` is more idiomatic than chaining `as_ref().unwrap()`."
-                        .to_string(),
+                    explanation:
+                        "Using `?` or `if let` is more idiomatic than chaining `as_ref().unwrap()`."
+                            .to_string(),
                 });
             }
         }

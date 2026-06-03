@@ -567,7 +567,10 @@ fn generate_table_from_json(
 
     // Collect all keys in order
     let mut headers: Vec<String> = Vec::with_capacity(
-        arr.first().and_then(|item| item.as_object()).map(|m| m.len()).unwrap_or(0),
+        arr.first()
+            .and_then(|item| item.as_object())
+            .map(|m| m.len())
+            .unwrap_or(0),
     );
     for item in arr {
         if let Value::Object(map) = item {

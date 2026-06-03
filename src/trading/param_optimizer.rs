@@ -1,9 +1,8 @@
 /// 参数优化框架
 /// 包括：网格搜索、Walk-Forward Analysis、过拟合检测、参数敏感性分析
-
-use crate::data::Candle;
-use crate::report::BacktestResult;
-use crate::strategy::Strategy;
+use super::data::Candle;
+use super::report::BacktestResult;
+use super::strategy::Strategy;
 use std::collections::HashMap;
 
 /// 参数网格定义
@@ -35,6 +34,12 @@ impl ParameterGrid {
 #[derive(Debug, Clone)]
 pub struct ParameterSet {
     pub parameters: HashMap<String, f64>,
+}
+
+impl Default for ParameterSet {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ParameterSet {
@@ -124,6 +129,12 @@ pub enum OptimizationTarget {
     ProfitFactor,
 }
 
+impl Default for GridSearchOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GridSearchOptimizer {
     pub fn new() -> Self {
         Self {
@@ -169,11 +180,8 @@ impl GridSearchOptimizer {
             let strategy = strategy_builder(param_set);
 
             // 回测
-            let mut engine = crate::backtest::BacktestEngine::new(
-                initial_capital,
-                commission_rate,
-                slippage,
-            );
+            let mut engine =
+                super::backtest::BacktestEngine::new(initial_capital, commission_rate, slippage);
 
             if let Ok(trades) = engine.run(candles, strategy.as_ref()) {
                 let result = BacktestResult::from_trades(&trades, initial_capital);
@@ -184,7 +192,7 @@ impl GridSearchOptimizer {
         // 过滤不满足条件的结果
         let valid_results: Vec<_> = results
             .into_iter()
-            .filter(|(_, r)| r.max_drawdown_pct < self.max_drawdown_threshold)
+            .filter(|(_, r)| r.engine.max_drawdown_pct < self.max_drawdown_threshold)
             .collect();
 
         if valid_results.is_empty() {
@@ -384,7 +392,8 @@ impl GridSearchOptimizer {
         // 参数稳定性: 前10%结果中参数值的变异系数
         let mut sorted_results = results.to_vec();
         sorted_results.sort_by(|a, b| {
-            b.1.engine.sharpe_ratio
+            b.1.engine
+                .sharpe_ratio
                 .partial_cmp(&a.1.engine.sharpe_ratio)
                 .unwrap()
         });
@@ -460,7 +469,12 @@ pub struct WalkForwardAnalyzer {
 }
 
 impl WalkForwardAnalyzer {
-    pub fn new(in_sample: usize, out_of_sample: usize, step: usize, grids: Vec<ParameterGrid>) -> Self {
+    pub fn new(
+        in_sample: usize,
+        out_of_sample: usize,
+        step: usize,
+        grids: Vec<ParameterGrid>,
+    ) -> Self {
         Self {
             in_sample_window: in_sample,
             out_of_sample_window: out_of_sample,
@@ -502,8 +516,7 @@ impl WalkForwardAnalyzer {
 
             // 样本内优化
             let is_candles = &candles[is_start..is_end_idx];
-            let optimizer = GridSearchOptimizer::new()
-                .with_target(OptimizationTarget::SharpeRatio);
+            let optimizer = GridSearchOptimizer::new().with_target(OptimizationTarget::SharpeRatio);
 
             let opt_result = optimizer.optimize(
                 is_candles,
@@ -518,11 +531,8 @@ impl WalkForwardAnalyzer {
             let oos_candles = &candles[oos_start..oos_end];
             let oos_strategy = strategy_builder(&opt_result.best_parameters);
 
-            let mut oos_engine = crate::backtest::BacktestEngine::new(
-                initial_capital,
-                commission_rate,
-                slippage,
-            );
+            let mut oos_engine =
+                super::backtest::BacktestEngine::new(initial_capital, commission_rate, slippage);
 
             let oos_trades = oos_engine
                 .run(oos_candles, oos_strategy.as_ref())
@@ -530,7 +540,7 @@ impl WalkForwardAnalyzer {
             let oos_result = BacktestResult::from_trades(&oos_trades, initial_capital);
 
             // 计算样本内样本外差异
-            let gap = opt_result.best_result.sharpe_ratio - oos_result.sharpe_ratio;
+            let gap = opt_result.best_result.engine.sharpe_ratio - oos_result.engine.sharpe_ratio;
 
             period_results.push(WfaPeriodResult {
                 period_start: is_start,
@@ -575,18 +585,30 @@ impl OptimizationReport {
 
         report.push_str("# 参数优化报告\n\n");
 
-        report.push_str(&format!("## 最优参数\n"));
+        report.push_str("## 最优参数\n");
         report.push_str(&format!("{}\n\n", result.best_parameters.display()));
 
-        report.push_str(&format!("### 最优结果\n"));
-        report.push_str(&format!("- 夏普比率: {:.2}\n", result.best_result.sharpe_ratio));
-        report.push_str(&format!("- 总收益率: {:.2}%\n", result.best_result.total_return_pct));
+        report.push_str("### 最优结果\n");
+        report.push_str(&format!(
+            "- 夏普比率: {:.2}\n",
+            result.best_result.engine.sharpe_ratio
+        ));
+        report.push_str(&format!(
+            "- 总收益率: {:.2}%\n",
+            result.best_result.engine.total_return_pct
+        ));
         report.push_str(&format!(
             "- 最大回撤: {:.2}%\n",
-            result.best_result.max_drawdown_pct
+            result.best_result.engine.max_drawdown_pct
         ));
-        report.push_str(&format!("- 胜率: {:.2}%\n", result.best_result.win_rate * 100.0));
-        report.push_str(&format!("- 盈利因子: {:.2}\n", result.best_result.profit_factor));
+        report.push_str(&format!(
+            "- 胜率: {:.2}%\n",
+            result.best_result.engine.win_rate * 100.0
+        ));
+        report.push_str(&format!(
+            "- 盈利因子: {:.2}\n",
+            result.best_result.engine.profit_factor
+        ));
 
         report.push_str("\n## 过拟合检测\n\n");
         let m = &result.overfitting_metrics;
@@ -624,8 +646,9 @@ impl OptimizationReport {
 
         let mut sorted = result.results.clone();
         sorted.sort_by(|a, b| {
-            b.1.sharpe_ratio
-                .partial_cmp(&a.1.sharpe_ratio)
+            b.1.engine
+                .sharpe_ratio
+                .partial_cmp(&a.1.engine.sharpe_ratio)
                 .unwrap()
         });
 
@@ -634,10 +657,10 @@ impl OptimizationReport {
                 "| {} | {} | {:.2} | {:.2} | {:.2} | {:.1} |\n",
                 i + 1,
                 params.display(),
-                r.sharpe_ratio,
-                r.total_return_pct,
-                r.max_drawdown_pct,
-                r.win_rate * 100.0
+                r.engine.sharpe_ratio,
+                r.engine.total_return_pct,
+                r.engine.max_drawdown_pct,
+                r.engine.win_rate * 100.0
             ));
         }
 

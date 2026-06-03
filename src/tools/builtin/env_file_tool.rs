@@ -17,7 +17,9 @@ struct EnvFileTool;
 
 #[async_trait::async_trait]
 impl Tool for EnvFileTool {
-    fn name(&self) -> &str { "env_file" }
+    fn name(&self) -> &str {
+        "env_file"
+    }
 
     fn description(&self) -> &str {
         "Parse, validate, generate, and manipulate .env files. \
@@ -28,11 +30,36 @@ impl Tool for EnvFileTool {
 
     fn parameters(&self) -> Vec<ToolParameter> {
         vec![
-            ToolParameter { name: "action".to_string(), parameter_type: "string".to_string(), description: "Action: parse, validate, generate, merge, diff".to_string(), required: true },
-            ToolParameter { name: "path".to_string(), parameter_type: "string".to_string(), description: "Path to .env file (for parse/validate)".to_string(), required: false },
-            ToolParameter { name: "paths".to_string(), parameter_type: "array".to_string(), description: "JSON array of .env file paths (for merge/diff)".to_string(), required: false },
-            ToolParameter { name: "variables".to_string(), parameter_type: "object".to_string(), description: "JSON object of key-value pairs (for generate)".to_string(), required: false },
-            ToolParameter { name: "output".to_string(), parameter_type: "string".to_string(), description: "Output file path (for generate/merge)".to_string(), required: false },
+            ToolParameter {
+                name: "action".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Action: parse, validate, generate, merge, diff".to_string(),
+                required: true,
+            },
+            ToolParameter {
+                name: "path".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Path to .env file (for parse/validate)".to_string(),
+                required: false,
+            },
+            ToolParameter {
+                name: "paths".to_string(),
+                parameter_type: "array".to_string(),
+                description: "JSON array of .env file paths (for merge/diff)".to_string(),
+                required: false,
+            },
+            ToolParameter {
+                name: "variables".to_string(),
+                parameter_type: "object".to_string(),
+                description: "JSON object of key-value pairs (for generate)".to_string(),
+                required: false,
+            },
+            ToolParameter {
+                name: "output".to_string(),
+                parameter_type: "string".to_string(),
+                description: "Output file path (for generate/merge)".to_string(),
+                required: false,
+            },
         ]
     }
 
@@ -44,14 +71,20 @@ impl Tool for EnvFileTool {
             "generate" => generate_env_file(params),
             "merge" => merge_env_files(params),
             "diff" => diff_env_files(params),
-            _ => Err(format!("Unknown action: {action}. Valid: parse, validate, generate, merge, diff")),
+            _ => Err(format!(
+                "Unknown action: {action}. Valid: parse, validate, generate, merge, diff"
+            )),
         }
     }
 }
 
 fn parse_env_file(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let path = params.get("path").and_then(|v| v.as_str()).ok_or("'path' is required for parse action")?;
-    let content = std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
+    let path = params
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or("'path' is required for parse action")?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
     let (vars, errors) = parse_env_content(&content);
     Ok(serde_json::json!({
         "path": path, "variables": vars, "count": vars.len(),
@@ -60,8 +93,12 @@ fn parse_env_file(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn validate_env_file(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let path = params.get("path").and_then(|v| v.as_str()).ok_or("'path' is required for validate action")?;
-    let content = std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
+    let path = params
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or("'path' is required for validate action")?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}"))?;
     let (_, errors) = parse_env_content(&content);
     let is_valid = errors.is_empty();
     let error_count = errors.len();
@@ -73,29 +110,51 @@ fn validate_env_file(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn generate_env_file(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let variables = params.get("variables").and_then(|v| v.as_object()).ok_or("'variables' (JSON object) is required for generate action")?;
-    let output_path = params.get("output").and_then(|v| v.as_str()).unwrap_or(".env");
+    let variables = params
+        .get("variables")
+        .and_then(|v| v.as_object())
+        .ok_or("'variables' (JSON object) is required for generate action")?;
+    let output_path = params
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or(".env");
     let mut sorted: Vec<(&String, &Value)> = variables.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(b.0));
     let mut content = String::with_capacity(sorted.len() * 40);
     content.push_str("# Auto-generated .env file\n\n");
     for (key, value) in &sorted {
         let val_str = value.as_str().unwrap_or("");
-        if val_str.is_empty() || val_str.contains(char::is_whitespace) || val_str.contains('=') || val_str.contains('#') {
+        if val_str.is_empty()
+            || val_str.contains(char::is_whitespace)
+            || val_str.contains('=')
+            || val_str.contains('#')
+        {
             content.push_str(&format!("{key}=\"{val_str}\"\n"));
         } else {
             content.push_str(&format!("{key}={val_str}\n"));
         }
     }
-    std::fs::write(output_path, &content).map_err(|e| format!("Failed to write to '{output_path}': {e}"))?;
-    Ok(serde_json::json!({ "success": true, "output": output_path, "variables_count": sorted.len() }))
+    std::fs::write(output_path, &content)
+        .map_err(|e| format!("Failed to write to '{output_path}': {e}"))?;
+    Ok(
+        serde_json::json!({ "success": true, "output": output_path, "variables_count": sorted.len() }),
+    )
 }
 
 fn merge_env_files(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let paths: Vec<String> = params.get("paths").and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+    let paths: Vec<String> = params
+        .get("paths")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
         .ok_or("'paths' (JSON array) is required for merge action")?;
-    let output_path = params.get("output").and_then(|v| v.as_str()).unwrap_or(".env.merged");
+    let output_path = params
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or(".env.merged");
     let mut merged: BTreeMap<String, String> = BTreeMap::new();
     let mut errors = Vec::new();
     let mut sources: BTreeMap<String, String> = BTreeMap::new();
@@ -106,14 +165,25 @@ fn merge_env_files(params: &HashMap<String, Value>) -> Result<Value, String> {
         }
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
-            Err(e) => { errors.push(serde_json::json!({ "path": path, "error": format!("Read error: {e}") })); continue; }
+            Err(e) => {
+                errors
+                    .push(serde_json::json!({ "path": path, "error": format!("Read error: {e}") }));
+                continue;
+            }
         };
         let (vars, parse_errors) = parse_env_content(&content);
-        for err in parse_errors { errors.push(serde_json::json!({ "path": path, "error": err })); }
+        for err in parse_errors {
+            errors.push(serde_json::json!({ "path": path, "error": err }));
+        }
         for (key, value) in vars {
             if let Some(existing) = merged.get(&key) {
-                sources.insert(key.clone(), format!("overridden (was '{existing}') by '{path}'"));
-            } else { sources.insert(key.clone(), path.clone()); }
+                sources.insert(
+                    key.clone(),
+                    format!("overridden (was '{existing}') by '{path}'"),
+                );
+            } else {
+                sources.insert(key.clone(), path.clone());
+            }
             merged.insert(key, value);
         }
     }
@@ -122,19 +192,31 @@ fn merge_env_files(params: &HashMap<String, Value>) -> Result<Value, String> {
     for (key, value) in &merged {
         if value.is_empty() || value.contains(char::is_whitespace) || value.contains('=') {
             content.push_str(&format!("{key}=\"{value}\"\n"));
-        } else { content.push_str(&format!("{key}={value}\n")); }
+        } else {
+            content.push_str(&format!("{key}={value}\n"));
+        }
     }
-    std::fs::write(output_path, &content).map_err(|e| format!("Failed to write to '{output_path}': {e}"))?;
-    Ok(serde_json::json!({ "success": true, "output": output_path, "total_variables": merged.len(), "sources": sources, "errors": if errors.is_empty() { Value::Null } else { Value::Array(errors) } }))
+    std::fs::write(output_path, &content)
+        .map_err(|e| format!("Failed to write to '{output_path}': {e}"))?;
+    Ok(
+        serde_json::json!({ "success": true, "output": output_path, "total_variables": merged.len(), "sources": sources, "errors": if errors.is_empty() { Value::Null } else { Value::Array(errors) } }),
+    )
 }
 
 fn diff_env_files(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let paths = params.get("paths").and_then(|v| v.as_array()).ok_or("'paths' (JSON array) is required for diff action")?;
-    if paths.len() != 2 { return Err("Exactly 2 paths are required for diff action".to_string()); }
+    let paths = params
+        .get("paths")
+        .and_then(|v| v.as_array())
+        .ok_or("'paths' (JSON array) is required for diff action")?;
+    if paths.len() != 2 {
+        return Err("Exactly 2 paths are required for diff action".to_string());
+    }
     let path1 = paths[0].as_str().ok_or("Invalid path in array")?;
     let path2 = paths[1].as_str().ok_or("Invalid path in array")?;
-    let content1 = std::fs::read_to_string(path1).map_err(|e| format!("Failed to read '{path1}': {e}"))?;
-    let content2 = std::fs::read_to_string(path2).map_err(|e| format!("Failed to read '{path2}': {e}"))?;
+    let content1 =
+        std::fs::read_to_string(path1).map_err(|e| format!("Failed to read '{path1}': {e}"))?;
+    let content2 =
+        std::fs::read_to_string(path2).map_err(|e| format!("Failed to read '{path2}': {e}"))?;
     let (vars1, _) = parse_env_content(&content1);
     let (vars2, _) = parse_env_content(&content2);
     let mut only_in_first = BTreeMap::new();
@@ -142,20 +224,26 @@ fn diff_env_files(params: &HashMap<String, Value>) -> Result<Value, String> {
     let mut different = BTreeMap::new();
     for (key, value) in &vars1 {
         match vars2.get(key) {
-            Some(v2) if v2 != value => { different.insert(key.clone(), (value.clone(), v2.clone())); }
-            None => { only_in_first.insert(key.clone(), value.clone()); }
+            Some(v2) if v2 != value => {
+                different.insert(key.clone(), (value.clone(), v2.clone()));
+            }
+            None => {
+                only_in_first.insert(key.clone(), value.clone());
+            }
             _ => {}
         }
     }
     for (key, value) in &vars2 {
-        if !vars1.contains_key(key) { only_in_second.insert(key.clone(), value.clone()); }
+        if !vars1.contains_key(key) {
+            only_in_second.insert(key.clone(), value.clone());
+        }
     }
     Ok(serde_json::json!({
         "path1": path1, "path2": path2,
-        "only_in_first": if only_in_first.is_empty() { Value::Null } else { serde_json::to_value(&only_in_first).unwrap() },
-        "only_in_second": if only_in_second.is_empty() { Value::Null } else { serde_json::to_value(&only_in_second).unwrap() },
+        "only_in_first": if only_in_first.is_empty() { Value::Null } else { serde_json::to_value(&only_in_first).map_err(|e| format!("Failed to serialize diff result: {e}"))? },
+        "only_in_second": if only_in_second.is_empty() { Value::Null } else { serde_json::to_value(&only_in_second).map_err(|e| format!("Failed to serialize diff result: {e}"))? },
         "different_values": if different.is_empty() { Value::Null } else {
-            serde_json::to_value(different.iter().map(|(k, (v1, v2))| (k, serde_json::json!({"old": v1, "new": v2}))).collect::<BTreeMap<_, _>>()).unwrap()
+            serde_json::to_value(different.iter().map(|(k, (v1, v2))| (k, serde_json::json!({"old": v1, "new": v2}))).collect::<BTreeMap<_, _>>()).map_err(|e| format!("Failed to serialize diff result: {e}"))?
         },
         "summary": {
             "only_in_first_count": only_in_first.len(),
@@ -171,7 +259,9 @@ fn parse_env_content(content: &str) -> (BTreeMap<String, String>, Vec<Value>) {
     let mut errors = Vec::new();
     for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
         if let Some(eq_pos) = trimmed.find('=') {
             let key = trimmed[..eq_pos].trim().to_string();
             let mut value = trimmed[eq_pos + 1..].trim().to_string();
@@ -185,12 +275,19 @@ fn parse_env_content(content: &str) -> (BTreeMap<String, String>, Vec<Value>) {
             }
             if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
                 value = value[1..value.len() - 1].to_string();
-                value = value.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\");
+                value = value
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t")
+                    .replace("\\\\", "\\");
             } else if value.starts_with('\'') && value.ends_with('\'') && value.len() >= 2 {
                 value = value[1..value.len() - 1].to_string();
             }
-            if !trimmed[eq_pos + 1..].trim().starts_with('"') && !trimmed[eq_pos + 1..].trim().starts_with('\'') {
-                if let Some(hash_pos) = value.find('#') { value = value[..hash_pos].trim().to_string(); }
+            if !trimmed[eq_pos + 1..].trim().starts_with('"')
+                && !trimmed[eq_pos + 1..].trim().starts_with('\'')
+            {
+                if let Some(hash_pos) = value.find('#') {
+                    value = value[..hash_pos].trim().to_string();
+                }
             }
             vars.insert(key, value);
         } else {
@@ -268,7 +365,10 @@ mod tests {
         let tmp = std::env::temp_dir().join("env_test.env");
         std::fs::write(&tmp, "DB_HOST=localhost\nDB_PORT=5432\n").unwrap();
         let mut p = HashMap::new();
-        p.insert("path".to_string(), Value::String(tmp.to_str().unwrap().to_string()));
+        p.insert(
+            "path".to_string(),
+            Value::String(tmp.to_str().unwrap().to_string()),
+        );
         let r = parse_env_file(&p).unwrap();
         assert_eq!(r["count"].as_u64().unwrap(), 2);
         std::fs::remove_file(&tmp).ok();
@@ -277,7 +377,10 @@ mod tests {
     #[test]
     fn test_parse_file_not_found() {
         let mut p = HashMap::new();
-        p.insert("path".to_string(), Value::String("/nonexistent/.env".to_string()));
+        p.insert(
+            "path".to_string(),
+            Value::String("/nonexistent/.env".to_string()),
+        );
         assert!(parse_env_file(&p).is_err());
     }
 
@@ -286,7 +389,10 @@ mod tests {
         let tmp = std::env::temp_dir().join("env_valid.env");
         std::fs::write(&tmp, "FOO=bar\n").unwrap();
         let mut p = HashMap::new();
-        p.insert("path".to_string(), Value::String(tmp.to_str().unwrap().to_string()));
+        p.insert(
+            "path".to_string(),
+            Value::String(tmp.to_str().unwrap().to_string()),
+        );
         let r = validate_env_file(&p).unwrap();
         assert_eq!(r["valid"], true);
         std::fs::remove_file(&tmp).ok();
@@ -297,7 +403,10 @@ mod tests {
         let tmp = std::env::temp_dir().join("env_invalid.env");
         std::fs::write(&tmp, "bad-key=val\n").unwrap();
         let mut p = HashMap::new();
-        p.insert("path".to_string(), Value::String(tmp.to_str().unwrap().to_string()));
+        p.insert(
+            "path".to_string(),
+            Value::String(tmp.to_str().unwrap().to_string()),
+        );
         let r = validate_env_file(&p).unwrap();
         assert_eq!(r["valid"], false);
         std::fs::remove_file(&tmp).ok();
@@ -307,8 +416,14 @@ mod tests {
     fn test_generate() {
         let tmp = std::env::temp_dir().join("env_gen.env");
         let mut p = HashMap::new();
-        p.insert("output".to_string(), Value::String(tmp.to_str().unwrap().to_string()));
-        p.insert("variables".to_string(), serde_json::json!({"DB_HOST": "localhost", "DB_PORT": "5432"}));
+        p.insert(
+            "output".to_string(),
+            Value::String(tmp.to_str().unwrap().to_string()),
+        );
+        p.insert(
+            "variables".to_string(),
+            serde_json::json!({"DB_HOST": "localhost", "DB_PORT": "5432"}),
+        );
         let r = generate_env_file(&p).unwrap();
         assert_eq!(r["variables_count"], 2);
         let c = std::fs::read_to_string(&tmp).unwrap();
@@ -320,8 +435,14 @@ mod tests {
     fn test_generate_with_spaces() {
         let tmp = std::env::temp_dir().join("env_gen2.env");
         let mut p = HashMap::new();
-        p.insert("output".to_string(), Value::String(tmp.to_str().unwrap().to_string()));
-        p.insert("variables".to_string(), serde_json::json!({"MSG": "hello world"}));
+        p.insert(
+            "output".to_string(),
+            Value::String(tmp.to_str().unwrap().to_string()),
+        );
+        p.insert(
+            "variables".to_string(),
+            serde_json::json!({"MSG": "hello world"}),
+        );
         generate_env_file(&p).unwrap();
         let c = std::fs::read_to_string(&tmp).unwrap();
         assert!(c.contains("\"hello world\""));
@@ -341,13 +462,21 @@ mod tests {
         std::fs::write(&t1, "A=1\nB=2\n").unwrap();
         std::fs::write(&t2, "B=3\nC=4\n").unwrap();
         let mut p = HashMap::new();
-        p.insert("paths".to_string(), serde_json::json!([t1.to_str().unwrap(), t2.to_str().unwrap()]));
-        p.insert("output".to_string(), Value::String(out.to_str().unwrap().to_string()));
+        p.insert(
+            "paths".to_string(),
+            serde_json::json!([t1.to_str().unwrap(), t2.to_str().unwrap()]),
+        );
+        p.insert(
+            "output".to_string(),
+            Value::String(out.to_str().unwrap().to_string()),
+        );
         let r = merge_env_files(&p).unwrap();
         assert_eq!(r["total_variables"], 3);
         let c = std::fs::read_to_string(&out).unwrap();
         assert!(c.contains("B=3"));
-        std::fs::remove_file(&t1).ok(); std::fs::remove_file(&t2).ok(); std::fs::remove_file(&out).ok();
+        std::fs::remove_file(&t1).ok();
+        std::fs::remove_file(&t2).ok();
+        std::fs::remove_file(&out).ok();
     }
 
     #[test]
@@ -357,11 +486,15 @@ mod tests {
         std::fs::write(&t1, "A=1\nB=2\n").unwrap();
         std::fs::write(&t2, "A=1\nB=3\nC=4\n").unwrap();
         let mut p = HashMap::new();
-        p.insert("paths".to_string(), serde_json::json!([t1.to_str().unwrap(), t2.to_str().unwrap()]));
+        p.insert(
+            "paths".to_string(),
+            serde_json::json!([t1.to_str().unwrap(), t2.to_str().unwrap()]),
+        );
         let r = diff_env_files(&p).unwrap();
         assert_eq!(r["summary"]["different_count"], 1);
         assert_eq!(r["summary"]["only_in_second_count"], 1);
-        std::fs::remove_file(&t1).ok(); std::fs::remove_file(&t2).ok();
+        std::fs::remove_file(&t1).ok();
+        std::fs::remove_file(&t2).ok();
     }
 
     #[test]

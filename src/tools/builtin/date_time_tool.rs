@@ -14,7 +14,9 @@
 //! - **relative**: Generate relative time descriptions ("2 hours ago", "in 3 days")
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{
+    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
+};
 use chrono_tz::Tz;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -134,16 +136,28 @@ impl Tool for DateTimeTool {
 fn action_now(params: &HashMap<String, Value>) -> Result<Value, String> {
     let utc_now = Utc::now();
 
-    let tz = params.get("timezone").and_then(|v| v.as_str()).unwrap_or("UTC");
+    let tz = params
+        .get("timezone")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UTC");
     let formatted_tz = format_tz(&utc_now, tz)?;
 
     let mut zones = serde_json::Map::new();
-    for zone_name in ["UTC", "Asia/Shanghai", "America/New_York", "Europe/London", "Asia/Tokyo"] {
+    for zone_name in [
+        "UTC",
+        "Asia/Shanghai",
+        "America/New_York",
+        "Europe/London",
+        "Asia/Tokyo",
+    ] {
         if let Ok(formatted) = format_tz(&utc_now, zone_name) {
-            zones.insert(zone_name.to_string(), json!({
-                "time": formatted,
-                "offset": get_offset_str(zone_name),
-            }));
+            zones.insert(
+                zone_name.to_string(),
+                json!({
+                    "time": formatted,
+                    "offset": get_offset_str(zone_name),
+                }),
+            );
         }
     }
 
@@ -168,8 +182,14 @@ fn action_convert(params: &HashMap<String, Value>) -> Result<Value, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: date")?;
 
-    let from_tz = params.get("from_tz").and_then(|v| v.as_str()).unwrap_or("UTC");
-    let to_tz_name = params.get("to_tz").and_then(|v| v.as_str()).unwrap_or("UTC");
+    let from_tz = params
+        .get("from_tz")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UTC");
+    let to_tz_name = params
+        .get("to_tz")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UTC");
 
     let dt = parse_any_datetime(date_str)?;
     let from_tz_parsed = parse_tz(from_tz)?;
@@ -178,7 +198,10 @@ fn action_convert(params: &HashMap<String, Value>) -> Result<Value, String> {
     let source_dt = from_tz_parsed.from_utc_datetime(&dt.naive_utc());
     let target_dt = to_tz_parsed.from_utc_datetime(&dt.naive_utc());
 
-    let fmt = params.get("format").and_then(|v| v.as_str()).unwrap_or("%Y-%m-%d %H:%M:%S %Z");
+    let fmt = params
+        .get("format")
+        .and_then(|v| v.as_str())
+        .unwrap_or("%Y-%m-%d %H:%M:%S %Z");
     let from_str = source_dt.format(fmt).to_string();
     let to_str = target_dt.format(fmt).to_string();
 
@@ -198,7 +221,9 @@ fn action_format(params: &HashMap<String, Value>) -> Result<Value, String> {
         .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: date")?;
 
-    let fmt = params.get("format").and_then(|v| v.as_str())
+    let fmt = params
+        .get("format")
+        .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: format")?;
 
     let dt = parse_any_datetime(date_str)?;
@@ -206,12 +231,27 @@ fn action_format(params: &HashMap<String, Value>) -> Result<Value, String> {
     let mut results = serde_json::Map::new();
     results.insert("custom".to_string(), json!(dt.format(fmt).to_string()));
     results.insert("iso_8601".to_string(), json!(dt.to_rfc3339()));
-    results.insert("rfc_2822".to_string(), json!(dt.format("%a, %d %b %Y %H:%M:%S %z").to_string()));
+    results.insert(
+        "rfc_2822".to_string(),
+        json!(dt.format("%a, %d %b %Y %H:%M:%S %z").to_string()),
+    );
     results.insert("unix_timestamp".to_string(), json!(dt.timestamp()));
-    results.insert("date_only".to_string(), json!(dt.format("%Y-%m-%d").to_string()));
-    results.insert("time_only".to_string(), json!(dt.format("%H:%M:%S").to_string()));
-    results.insert("human_readable".to_string(), json!(dt.format("%B %d, %Y at %I:%M %p").to_string()));
-    results.insert("compact".to_string(), json!(dt.format("%Y%m%d%H%M%S").to_string()));
+    results.insert(
+        "date_only".to_string(),
+        json!(dt.format("%Y-%m-%d").to_string()),
+    );
+    results.insert(
+        "time_only".to_string(),
+        json!(dt.format("%H:%M:%S").to_string()),
+    );
+    results.insert(
+        "human_readable".to_string(),
+        json!(dt.format("%B %d, %Y at %I:%M %p").to_string()),
+    );
+    results.insert(
+        "compact".to_string(),
+        json!(dt.format("%Y%m%d%H%M%S").to_string()),
+    );
 
     Ok(json!({
         "status": "ok",
@@ -260,10 +300,13 @@ fn action_add(params: &HashMap<String, Value>) -> Result<Value, String> {
         .and_then(|v| v.as_str())
         .unwrap_or(&default_date);
 
-    let unit = params.get("unit").and_then(|v| v.as_str())
-        .ok_or("Missing required parameter: unit (years, months, weeks, days, hours, minutes, seconds)")?;
+    let unit = params.get("unit").and_then(|v| v.as_str()).ok_or(
+        "Missing required parameter: unit (years, months, weeks, days, hours, minutes, seconds)",
+    )?;
 
-    let amount = params.get("amount").and_then(|v| v.as_i64())
+    let amount = params
+        .get("amount")
+        .and_then(|v| v.as_i64())
         .ok_or("Missing required parameter: amount")?;
 
     let mut dt = parse_any_datetime(date_str)?;
@@ -271,7 +314,9 @@ fn action_add(params: &HashMap<String, Value>) -> Result<Value, String> {
     match unit {
         "years" => {
             let new_year = dt.year() + amount as i32;
-            dt = dt.with_year(new_year).ok_or("Invalid date after adding years")?;
+            dt = dt
+                .with_year(new_year)
+                .ok_or("Invalid date after adding years")?;
         }
         "months" => {
             let month_diff = (dt.year() * 12 + dt.month() as i32 - 1) + amount as i32;
@@ -285,7 +330,11 @@ fn action_add(params: &HashMap<String, Value>) -> Result<Value, String> {
         "hours" => dt += Duration::hours(amount),
         "minutes" => dt += Duration::minutes(amount),
         "seconds" => dt += Duration::seconds(amount),
-        _ => return Err(format!("Unknown unit: {unit}. Use: years, months, weeks, days, hours, minutes, seconds")),
+        _ => {
+            return Err(format!(
+                "Unknown unit: {unit}. Use: years, months, weeks, days, hours, minutes, seconds"
+            ))
+        }
     }
 
     Ok(json!({
@@ -304,9 +353,13 @@ fn action_add(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn action_diff(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let date1_str = params.get("date").and_then(|v| v.as_str())
+    let date1_str = params
+        .get("date")
+        .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: date")?;
-    let date2_str = params.get("date2").and_then(|v| v.as_str())
+    let date2_str = params
+        .get("date2")
+        .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: date2")?;
 
     let dt1 = parse_any_datetime(date1_str)?;
@@ -335,7 +388,9 @@ fn action_diff(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn action_duration(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let seconds = params.get("seconds").and_then(|v| v.as_f64())
+    let seconds = params
+        .get("seconds")
+        .and_then(|v| v.as_f64())
         .ok_or("Missing required parameter: seconds")?;
 
     let abs_seconds = seconds.abs();
@@ -363,7 +418,9 @@ fn action_duration(params: &HashMap<String, Value>) -> Result<Value, String> {
 
 fn action_calendar(params: &HashMap<String, Value>) -> Result<Value, String> {
     let default_date = Utc::now().format("%Y-%m-%d").to_string();
-    let date_str = params.get("date").and_then(|v| v.as_str())
+    let date_str = params
+        .get("date")
+        .and_then(|v| v.as_str())
         .unwrap_or(&default_date);
 
     let dt = parse_any_datetime(date_str)?;
@@ -400,11 +457,13 @@ fn action_calendar(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn action_timestamp(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let ts = params.get("timestamp").and_then(|v| v.as_i64())
+    let ts = params
+        .get("timestamp")
+        .and_then(|v| v.as_i64())
         .ok_or("Missing required parameter: timestamp")?;
 
-    let dt = DateTime::from_timestamp(ts, 0)
-        .ok_or_else(|| format!("Invalid Unix timestamp: {ts}"))?;
+    let dt =
+        DateTime::from_timestamp(ts, 0).ok_or_else(|| format!("Invalid Unix timestamp: {ts}"))?;
 
     Ok(json!({
         "status": "ok",
@@ -424,7 +483,9 @@ fn action_timestamp(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn action_relative(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let date_str = params.get("date").and_then(|v| v.as_str())
+    let date_str = params
+        .get("date")
+        .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: date")?;
 
     let dt = parse_any_datetime(date_str)?;
@@ -460,7 +521,8 @@ fn parse_tz(tz_name: &str) -> Result<Tz, String> {
     if tz_name.is_empty() || tz_name == "UTC" || tz_name == "utc" {
         return Ok(Tz::UTC);
     }
-    tz_name.parse()
+    tz_name
+        .parse()
         .map_err(|_| format!("Unknown timezone: {tz_name}. Use IANA format like 'Asia/Shanghai'"))
 }
 
@@ -472,7 +534,8 @@ fn get_offset_str(tz_name: &str) -> String {
         "America/New_York" => "UTC-5/UTC-4",
         "Europe/London" => "UTC+0/UTC+1",
         _ => tz_name,
-    }.to_string()
+    }
+    .to_string()
 }
 
 fn parse_any_datetime(s: &str) -> Result<DateTime<Utc>, String> {
@@ -489,7 +552,9 @@ fn parse_any_datetime(s: &str) -> Result<DateTime<Utc>, String> {
     if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
         return Ok(DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
     }
-    Err(format!("Unable to parse date: '{s}'. Supported formats: ISO 8601, YYYY-MM-DD HH:MM:SS, YYYY-MM-DD"))
+    Err(format!(
+        "Unable to parse date: '{s}'. Supported formats: ISO 8601, YYYY-MM-DD HH:MM:SS, YYYY-MM-DD"
+    ))
 }
 
 fn format_duration_hms(total_seconds: i64) -> String {
@@ -499,32 +564,67 @@ fn format_duration_hms(total_seconds: i64) -> String {
     let seconds = total_seconds % 60;
 
     let mut parts = Vec::new();
-    if days > 0 { parts.push(format!("{days} day{}", if days != 1 { "s" } else { "" })); }
-    if hours > 0 { parts.push(format!("{hours} hour{}", if hours != 1 { "s" } else { "" })); }
-    if minutes > 0 { parts.push(format!("{minutes} minute{}", if minutes != 1 { "s" } else { "" })); }
-    if seconds > 0 || parts.is_empty() { parts.push(format!("{seconds} second{}", if seconds != 1 { "s" } else { "" })); }
+    if days > 0 {
+        parts.push(format!("{days} day{}", if days != 1 { "s" } else { "" }));
+    }
+    if hours > 0 {
+        parts.push(format!("{hours} hour{}", if hours != 1 { "s" } else { "" }));
+    }
+    if minutes > 0 {
+        parts.push(format!(
+            "{minutes} minute{}",
+            if minutes != 1 { "s" } else { "" }
+        ));
+    }
+    if seconds > 0 || parts.is_empty() {
+        parts.push(format!(
+            "{seconds} second{}",
+            if seconds != 1 { "s" } else { "" }
+        ));
+    }
     parts.join(", ")
 }
 
 fn format_relative(abs_diff: i64, is_past: bool) -> String {
-    let ago = |s: &str| if is_past { format!("{s} ago") } else { format!("in {s}") };
+    let ago = |s: &str| {
+        if is_past {
+            format!("{s} ago")
+        } else {
+            format!("in {s}")
+        }
+    };
     if abs_diff < 60 {
-        ago(&format!("{abs_diff} second{}", if abs_diff != 1 { "s" } else { "" }))
+        ago(&format!(
+            "{abs_diff} second{}",
+            if abs_diff != 1 { "s" } else { "" }
+        ))
     } else if abs_diff < 3600 {
         let mins = abs_diff / 60;
-        ago(&format!("{mins} minute{}", if mins != 1 { "s" } else { "" }))
+        ago(&format!(
+            "{mins} minute{}",
+            if mins != 1 { "s" } else { "" }
+        ))
     } else if abs_diff < 86400 {
         let hours = abs_diff / 3600;
-        ago(&format!("{hours} hour{}", if hours != 1 { "s" } else { "" }))
+        ago(&format!(
+            "{hours} hour{}",
+            if hours != 1 { "s" } else { "" }
+        ))
     } else if abs_diff < 604800 {
         let days = abs_diff / 86400;
         ago(&format!("{days} day{}", if days != 1 { "s" } else { "" }))
     } else if abs_diff < 2592000 {
         let weeks = abs_diff / 604800;
-        ago(&format!("{weeks} week{}", if weeks != 1 { "s" } else { "" }))
+        ago(&format!(
+            "{weeks} week{}",
+            if weeks != 1 { "s" } else { "" }
+        ))
     } else {
         let months = (abs_diff as f64 / 2592000.0).floor() as i64;
-        ago(&format!("{months} month{}", if months != 1 { "s" } else { "" }))
+        ago(&format!(
+            "{months} month{}",
+            if months != 1 { "s" } else { "" }
+        ))
     }
 }
 
@@ -536,7 +636,13 @@ fn days_in_month(month: u32, leap: bool) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if leap { 29 } else { 28 },
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
         _ => 0,
     }
 }
@@ -559,7 +665,10 @@ mod tests {
         assert_eq!(format_duration_hms(1), "1 second");
         assert_eq!(format_duration_hms(60), "1 minute");
         assert_eq!(format_duration_hms(3661), "1 hour, 1 minute, 1 second");
-        assert_eq!(format_duration_hms(90061), "1 day, 1 hour, 1 minute, 1 second");
+        assert_eq!(
+            format_duration_hms(90061),
+            "1 day, 1 hour, 1 minute, 1 second"
+        );
     }
 
     #[test]
@@ -613,7 +722,10 @@ mod tests {
         assert_eq!(format_duration_hms(86400), "1 day");
         assert_eq!(format_duration_hms(3600), "1 hour");
         assert_eq!(format_duration_hms(60), "1 minute");
-        assert_eq!(format_duration_hms(86400 * 2 + 3600 * 3 + 60 * 4 + 5), "2 days, 3 hours, 4 minutes, 5 seconds");
+        assert_eq!(
+            format_duration_hms(86400 * 2 + 3600 * 3 + 60 * 4 + 5),
+            "2 days, 3 hours, 4 minutes, 5 seconds"
+        );
     }
 
     #[test]
@@ -723,7 +835,10 @@ mod tests {
         let _dt = parse_any_datetime("2024-06-15T12:00:00Z").unwrap();
         let result = action_add(&HashMap::from([
             ("action".to_string(), Value::String("add".into())),
-            ("date".to_string(), Value::String("2024-06-15T12:00:00Z".into())),
+            (
+                "date".to_string(),
+                Value::String("2024-06-15T12:00:00Z".into()),
+            ),
             ("unit".to_string(), Value::String("days".into())),
             ("amount".to_string(), Value::Number((-5i64).into())),
         ]));

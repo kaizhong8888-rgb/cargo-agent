@@ -98,16 +98,18 @@ impl CargoConfig {
             .ok()
             .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
 
-        let base_url = std::env::var("ANTHROPIC_BASE_URL")
-            .ok()
-            .unwrap_or_default();
+        let base_url = std::env::var("ANTHROPIC_BASE_URL").ok().unwrap_or_default();
 
         Some(Self {
             name: "agent-cargo".to_string(),
             version: "0.1.0".to_string(),
             model: ModelConfig {
                 name: model,
-                base_url: if base_url.is_empty() { None } else { Some(base_url) },
+                base_url: if base_url.is_empty() {
+                    None
+                } else {
+                    Some(base_url)
+                },
             },
             api_key: Some(api_key),
         })
@@ -155,7 +157,12 @@ impl CargoConfig {
             }
         }
         // Fall back to environment variables
-        for var in ["CARGO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
+        for var in [
+            "CARGO_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+        ] {
             if let Ok(key) = std::env::var(var) {
                 if !key.is_empty() {
                     return Some(key);

@@ -1,8 +1,7 @@
 /// 市场状态识别模块
 /// 包括：ADX趋势/震荡过滤器、波动率regimes分类、多时间框架分析、市场状态机
-
-use crate::data::Candle;
-use crate::indicators;
+use super::data::Candle;
+use super::indicators;
 
 use serde::{Deserialize, Serialize};
 
@@ -92,8 +91,11 @@ pub struct MarketRegimeDetector {
     adx_strong_trend: f64,
     adx_weak_trend: f64,
     /// 波动率分位阈值
+    #[allow(dead_code)]
     vol_low_pct: f64,
+    #[allow(dead_code)]
     vol_high_pct: f64,
+    #[allow(dead_code)]
     vol_extreme_pct: f64,
     /// ATR 周期
     atr_period: usize,
@@ -101,6 +103,12 @@ pub struct MarketRegimeDetector {
     adx_period: usize,
     /// 布林带周期
     bb_period: usize,
+}
+
+impl Default for MarketRegimeDetector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MarketRegimeDetector {
@@ -160,7 +168,13 @@ impl MarketRegimeDetector {
         let is_squeeze = Self::detect_bollinger_squeeze(&closes, self.bb_period);
 
         // 6. 综合判断
-        self.classify_regime(current_adx, current_di_plus, current_di_minus, vol_regime, is_squeeze)
+        self.classify_regime(
+            current_adx,
+            current_di_plus,
+            current_di_minus,
+            vol_regime,
+            is_squeeze,
+        )
     }
 
     /// 计算 ADX (Average Directional Index)
@@ -243,8 +257,10 @@ impl MarketRegimeDetector {
             smooth_tr[period] = sum_tr;
 
             for i in (period + 1)..len {
-                smooth_plus_dm[i] = smooth_plus_dm[i - 1] - smooth_plus_dm[i - 1] / period as f64 + plus_dm[i];
-                smooth_minus_dm[i] = smooth_minus_dm[i - 1] - smooth_minus_dm[i - 1] / period as f64 + minus_dm[i];
+                smooth_plus_dm[i] =
+                    smooth_plus_dm[i - 1] - smooth_plus_dm[i - 1] / period as f64 + plus_dm[i];
+                smooth_minus_dm[i] =
+                    smooth_minus_dm[i - 1] - smooth_minus_dm[i - 1] / period as f64 + minus_dm[i];
                 smooth_tr[i] = smooth_tr[i - 1] - smooth_tr[i - 1] / period as f64 + tr_values[i];
             }
         }
@@ -266,7 +282,11 @@ impl MarketRegimeDetector {
     /// 波动率分类
     fn classify_volatility(atr_values: &[f64], current_vol: f64) -> VolatilityRegime {
         // 过滤掉 NaN
-        let valid_atr: Vec<f64> = atr_values.iter().filter(|&&v| !v.is_nan()).copied().collect();
+        let valid_atr: Vec<f64> = atr_values
+            .iter()
+            .filter(|&&v| !v.is_nan())
+            .copied()
+            .collect();
 
         if valid_atr.len() < 20 {
             return VolatilityRegime::Medium;
@@ -478,7 +498,7 @@ impl HurstExponent {
             }
 
             // 计算累积偏差
-            let mut cum_dev = vec![0.0; returns.len() - lag + 1];
+            let cum_dev = vec![0.0; returns.len() - lag + 1];
             for i in 0..cum_dev.len() {
                 let segment = &returns[i..i + lag];
                 let mean: f64 = segment.iter().sum::<f64>() / segment.len() as f64;
@@ -496,7 +516,8 @@ impl HurstExponent {
                 let r_range = max_dev - min_dev;
 
                 // S = 标准差
-                let variance: f64 = segment.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / segment.len() as f64;
+                let variance: f64 =
+                    segment.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / segment.len() as f64;
                 let std = variance.sqrt();
 
                 if std > 0.0 {
@@ -516,7 +537,11 @@ impl HurstExponent {
 
         let sum_x: f64 = log_lags.iter().sum();
         let sum_y: f64 = rs_values.iter().sum();
-        let sum_xy: f64 = log_lags.iter().zip(rs_values.iter()).map(|(x, y)| x * y).sum();
+        let sum_xy: f64 = log_lags
+            .iter()
+            .zip(rs_values.iter())
+            .map(|(x, y)| x * y)
+            .sum();
         let sum_x2: f64 = log_lags.iter().map(|x| x * x).sum();
 
         let denominator = n * sum_x2 - sum_x * sum_x;
@@ -533,7 +558,11 @@ impl HurstExponent {
 pub struct StrategyRecommender;
 
 impl StrategyRecommender {
-    pub fn recommend(regime: MarketRegime, hurst: f64, volatility: VolatilityRegime) -> Vec<&'static str> {
+    pub fn recommend(
+        regime: MarketRegime,
+        hurst: f64,
+        _volatility: VolatilityRegime,
+    ) -> Vec<&'static str> {
         let mut recommendations = Vec::new();
 
         match regime {
@@ -581,8 +610,8 @@ impl StrategyRecommender {
 
 #[cfg(test)]
 mod tests {
+    use super::super::data::DataSource;
     use super::*;
-    use crate::data::DataSource;
 
     #[test]
     fn test_detect_regime() {
@@ -600,8 +629,14 @@ mod tests {
         let (long, mid, short, combined) = analyzer.analyze_trend(&closes);
 
         // 上涨趋势应该产生正值
-        assert!(combined > 0.0, "Combined trend should be positive for uptrend");
-        println!("Long: {:.3}, Mid: {:.3}, Short: {:.3}, Combined: {:.3}", long, mid, short, combined);
+        assert!(
+            combined > 0.0,
+            "Combined trend should be positive for uptrend"
+        );
+        println!(
+            "Long: {:.3}, Mid: {:.3}, Short: {:.3}, Combined: {:.3}",
+            long, mid, short, combined
+        );
     }
 
     #[test]
@@ -614,11 +649,8 @@ mod tests {
 
     #[test]
     fn test_strategy_recommendation() {
-        let recs = StrategyRecommender::recommend(
-            MarketRegime::Ranging,
-            0.5,
-            VolatilityRegime::Medium,
-        );
+        let recs =
+            StrategyRecommender::recommend(MarketRegime::Ranging, 0.5, VolatilityRegime::Medium);
         assert!(!recs.is_empty());
         println!("Recommended strategies for ranging market: {:?}", recs);
     }

@@ -16,7 +16,9 @@ struct PdfTool;
 
 #[async_trait::async_trait]
 impl Tool for PdfTool {
-    fn name(&self) -> &str { "pdf" }
+    fn name(&self) -> &str {
+        "pdf"
+    }
 
     fn description(&self) -> &str {
         "Generate PDF documents. Actions: text (from markdown text), \
@@ -26,7 +28,11 @@ impl Tool for PdfTool {
     fn parameters(&self) -> Vec<ToolParameter> {
         vec![
             tp("action", "Action: text, report", true),
-            tp("output", "Output PDF file path (default: output.pdf)", false),
+            tp(
+                "output",
+                "Output PDF file path (default: output.pdf)",
+                false,
+            ),
             tp("title", "Document title (for report)", false),
             tp("content", "Text content or JSON with sections/tables", true),
             tp("author", "Document author", false),
@@ -52,8 +58,14 @@ fn tp(name: &str, desc: &str, required: bool) -> ToolParameter {
 }
 
 fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let output = params.get("output").and_then(|v| v.as_str()).unwrap_or("output.pdf");
-    let content = params.get("content").and_then(|v| v.as_str()).ok_or("content is required")?;
+    let output = params
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or("output.pdf");
+    let content = params
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or("content is required")?;
 
     let family = load_fonts()?;
     let mut doc = Document::new(family);
@@ -124,7 +136,9 @@ fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
             continue;
         }
 
-        if has_content { para.push(" "); }
+        if has_content {
+            para.push(" ");
+        }
         para.push(line);
         has_content = true;
     }
@@ -137,9 +151,18 @@ fn text_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 fn report_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let output = params.get("output").and_then(|v| v.as_str()).unwrap_or("report.pdf");
-    let title = params.get("title").and_then(|v| v.as_str()).unwrap_or("Report");
-    let raw = params.get("content").and_then(|v| v.as_str()).unwrap_or("{}");
+    let output = params
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or("report.pdf");
+    let title = params
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Report");
+    let raw = params
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
 
     let json: Value = serde_json::from_str(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
 
@@ -156,7 +179,10 @@ fn report_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
     // Sections
     if let Some(sections) = json.get("sections").and_then(|v| v.as_array()) {
         for section in sections {
-            let st = section.get("title").and_then(|v| v.as_str()).unwrap_or("Section");
+            let st = section
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Section");
             let txt = section.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
             let mut h = elements::Paragraph::new(st);
@@ -171,23 +197,42 @@ fn report_pdf(params: &HashMap<String, Value>) -> Result<Value, String> {
 
             // Table rendering
             if let Some(table) = section.get("table") {
-                let headers: Vec<String> = table.get("headers")
+                let headers: Vec<String> = table
+                    .get("headers")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
-                let rows: Vec<Vec<String>> = table.get("rows")
+                let rows: Vec<Vec<String>> = table
+                    .get("rows")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().map(|r| {
-                        r.as_array().map(|c| c.iter().filter_map(|v| match v {
-                            Value::String(s) => Some(s.clone()),
-                            Value::Number(n) => Some(n.to_string()),
-                            _ => None,
-                        }).collect()).unwrap_or_default()
-                    }).collect())
+                    .map(|a| {
+                        a.iter()
+                            .map(|r| {
+                                r.as_array()
+                                    .map(|c| {
+                                        c.iter()
+                                            .filter_map(|v| match v {
+                                                Value::String(s) => Some(s.clone()),
+                                                Value::Number(n) => Some(n.to_string()),
+                                                _ => None,
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default()
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
 
                 if !headers.is_empty() {
-                    doc.push(elements::Paragraph::new(format!("[{}]", headers.join(" | "))));
+                    doc.push(elements::Paragraph::new(format!(
+                        "[{}]",
+                        headers.join(" | ")
+                    )));
                     for row in &rows {
                         doc.push(elements::Paragraph::new(format!("  {}", row.join(" | "))));
                     }
@@ -205,7 +250,8 @@ fn render_pdf(mut doc: Document, output: &str) -> Result<Value, String> {
     decorator.set_margins(10);
     doc.set_page_decorator(decorator);
     doc.set_font_size(11);
-    doc.render_to_file(output).map_err(|e| format!("Render error: {e}"))?;
+    doc.render_to_file(output)
+        .map_err(|e| format!("Render error: {e}"))?;
 
     let meta = std::fs::metadata(output).map_err(|e| format!("File error: {e}"))?;
     Ok(serde_json::json!({
@@ -222,20 +268,32 @@ fn load_fonts() -> Result<genpdf::fonts::FontFamily<genpdf::fonts::FontData>, St
         "/usr/local/share/fonts/liberation",
         "./fonts",
     ] {
-        if std::path::Path::new(dir).join("LiberationSans-Regular.ttf").exists() {
+        if std::path::Path::new(dir)
+            .join("LiberationSans-Regular.ttf")
+            .exists()
+        {
             return genpdf::fonts::from_files(dir, "LiberationSans", None)
                 .map_err(|e| format!("Font error: {e}"));
         }
     }
-    Err("LiberationSans not found. Install: sudo apt install fonts-liberation \
-         or brew install --cask font-liberation or place TTF in ./fonts/".into())
+    Err(
+        "LiberationSans not found. Install: sudo apt install fonts-liberation \
+         or brew install --cask font-liberation or place TTF in ./fonts/"
+            .into(),
+    )
 }
 
 fn fmt_size(bytes: u64) -> String {
     let units = ["B", "KB", "MB", "GB"];
     let mut s = bytes as f64;
     let mut i = 0;
-    while s >= 1024.0 && i < 3 { s /= 1024.0; i += 1; }
-    if i == 0 { format!("{} {}", bytes, units[i]) }
-    else { format!("{:.2} {}", s, units[i]) }
+    while s >= 1024.0 && i < 3 {
+        s /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{} {}", bytes, units[i])
+    } else {
+        format!("{:.2} {}", s, units[i])
+    }
 }

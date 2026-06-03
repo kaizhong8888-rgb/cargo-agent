@@ -92,14 +92,14 @@ impl Tool for ClippyLintTool {
 impl ClippyLintTool {
     /// Run cargo clippy with options.
     fn action_run(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let allow = params.get("allow").and_then(|v| v.as_str());
         let deny = params.get("deny").and_then(|v| v.as_str());
-        let include_tests = params.get("tests").and_then(|v| v.as_bool()).unwrap_or(true);
+        let include_tests = params
+            .get("tests")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         let do_fix = params.get("fix").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let mut cmd = Command::new("cargo");
@@ -187,8 +187,8 @@ impl ClippyLintTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: result_json (JSON array from clippy --message-format=json)")?;
 
-        let lints: Vec<Value> = serde_json::from_str(result_json)
-            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        let lints: Vec<Value> =
+            serde_json::from_str(result_json).map_err(|e| format!("Invalid JSON: {e}"))?;
 
         let categories = categorize_by_type(&lints);
         let by_severity = categorize_by_severity(&lints);
@@ -211,15 +211,15 @@ impl ClippyLintTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: result_json")?;
 
-        let lints: Vec<Value> = serde_json::from_str(result_json)
-            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        let lints: Vec<Value> =
+            serde_json::from_str(result_json).map_err(|e| format!("Invalid JSON: {e}"))?;
 
-        let suggestions: Vec<Value> = lints
+        let suggestions: Vec<Value> = lints.iter().filter_map(suggest_fix_for_lint).collect();
+
+        let auto_fixable = suggestions
             .iter()
-            .filter_map(suggest_fix_for_lint)
-            .collect();
-
-        let auto_fixable = suggestions.iter().filter(|s| s["auto_fixable"].as_bool().unwrap_or(false)).count();
+            .filter(|s| s["auto_fixable"].as_bool().unwrap_or(false))
+            .count();
 
         Ok(json!({
             "status": "ok",
@@ -232,13 +232,11 @@ impl ClippyLintTool {
 
     /// Calculate a quality score from lint results.
     fn action_score(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let result_json = params
-            .get("result_json")
-            .and_then(|v| v.as_str());
+        let result_json = params.get("result_json").and_then(|v| v.as_str());
 
         let (errors, warnings, notes) = if let Some(json_str) = result_json {
-            let lints: Vec<Value> = serde_json::from_str(json_str)
-                .map_err(|e| format!("Invalid JSON: {e}"))?;
+            let lints: Vec<Value> =
+                serde_json::from_str(json_str).map_err(|e| format!("Invalid JSON: {e}"))?;
             classify_lints(&lints)
         } else {
             // Run clippy to get fresh results
@@ -301,10 +299,7 @@ impl ClippyLintTool {
 
     /// Auto-fix common clippy patterns.
     fn action_auto_fix(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let _result_json = params.get("result_json").and_then(|v| v.as_str());
 
@@ -414,7 +409,11 @@ fn categorize_by_severity(lints: &[Value]) -> Value {
     let mut by_level: HashMap<String, usize> = HashMap::new();
 
     for lint in lints {
-        let level = lint.get("level").and_then(|l| l.as_str()).unwrap_or("note").to_string();
+        let level = lint
+            .get("level")
+            .and_then(|l| l.as_str())
+            .unwrap_or("note")
+            .to_string();
         *by_level.entry(level).or_insert(0) += 1;
     }
 
@@ -656,7 +655,9 @@ mod tests {
         let params = HashMap::new();
         let result = tool.execute(&params).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required parameter: action"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required parameter: action"));
     }
 
     #[tokio::test]
@@ -666,7 +667,10 @@ mod tests {
         params.insert("action".to_string(), json!("nonexistent"));
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown action"));
     }
 
     #[test]
@@ -761,7 +765,10 @@ mod tests {
         let suggestion = suggest_fix_for_lint(&lint).unwrap();
         assert_eq!(suggestion["code"], "clippy::unwrap_used");
         assert_eq!(suggestion["auto_fixable"], false);
-        assert!(suggestion["suggestion"].as_str().unwrap().contains("expect"));
+        assert!(suggestion["suggestion"]
+            .as_str()
+            .unwrap()
+            .contains("expect"));
         assert_eq!(suggestion["file"], "src/main.rs");
         assert_eq!(suggestion["line"], 10);
     }
@@ -776,7 +783,10 @@ mod tests {
 
         let suggestion = suggest_fix_for_lint(&lint).unwrap();
         assert_eq!(suggestion["auto_fixable"], true);
-        assert!(suggestion["suggestion"].as_str().unwrap().contains("copied"));
+        assert!(suggestion["suggestion"]
+            .as_str()
+            .unwrap()
+            .contains("copied"));
     }
 
     #[test]
@@ -789,7 +799,10 @@ mod tests {
 
         let suggestion = suggest_fix_for_lint(&lint).unwrap();
         assert_eq!(suggestion["auto_fixable"], false);
-        assert!(suggestion["suggestion"].as_str().unwrap().contains("try doing this"));
+        assert!(suggestion["suggestion"]
+            .as_str()
+            .unwrap()
+            .contains("try doing this"));
     }
 
     #[test]
@@ -809,10 +822,12 @@ mod tests {
     fn test_generate_recommendations_unwrap_heavy() {
         let errors = vec![];
         let warnings = (0..5)
-            .map(|_| json!({
-                "code": {"code": "clippy::unwrap_used"},
-                "message": {"0": "unwrap used"}
-            }))
+            .map(|_| {
+                json!({
+                    "code": {"code": "clippy::unwrap_used"},
+                    "message": {"0": "unwrap used"}
+                })
+            })
             .collect::<Vec<_>>();
 
         let recs = generate_recommendations(&errors, &warnings);
@@ -833,10 +848,12 @@ mod tests {
     fn test_generate_recommendations_multiple_lint_types() {
         let errors = vec![];
         let warnings: Vec<Value> = (0..11)
-            .map(|i| json!({
-                "code": {"code": format!("clippy::lint_{}", i)},
-                "message": {"0": "warning"}
-            }))
+            .map(|i| {
+                json!({
+                    "code": {"code": format!("clippy::lint_{}", i)},
+                    "message": {"0": "warning"}
+                })
+            })
             .collect();
 
         let recs = generate_recommendations(&errors, &warnings);
@@ -931,9 +948,7 @@ mod tests {
         let tool = ClippyLintTool;
         let mut params = HashMap::new();
         params.insert("action".to_string(), json!("score"));
-        let lints = vec![
-            json!({"level": "error", "message": {"0": "err1"}}),
-        ];
+        let lints = vec![json!({"level": "error", "message": {"0": "err1"}})];
         params.insert("result_json".to_string(), json!(lints));
         let result = tool.execute(&params).await.unwrap();
         // Each error is -15, so 100 - 15 = 85
@@ -986,7 +1001,10 @@ mod tests {
             });
             let suggestion = suggest_fix_for_lint(&lint);
             assert!(suggestion.is_some(), "No suggestion for {}", lint_code);
-            assert!(!suggestion.as_ref().unwrap()["suggestion"].as_str().unwrap().is_empty());
+            assert!(!suggestion.as_ref().unwrap()["suggestion"]
+                .as_str()
+                .unwrap()
+                .is_empty());
         }
     }
 }

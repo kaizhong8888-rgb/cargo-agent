@@ -81,7 +81,9 @@ impl Tool for ArchiveTool {
             "compress" => compress_archive(params).await,
             "decompress" => decompress_archive(params).await,
             "list" => list_archive(params).await,
-            _ => Err(format!("Unknown action: {action}. Valid: compress, decompress, list")),
+            _ => Err(format!(
+                "Unknown action: {action}. Valid: compress, decompress, list"
+            )),
         }
     }
 }
@@ -134,13 +136,35 @@ async fn compress_archive(params: &HashMap<String, Value>) -> Result<Value, Stri
     };
 
     match format.as_str() {
-        "zip" => create_zip(source_path, &destination, compression_level, &include_patterns, &exclude_patterns)?,
-        "tar" => create_tar(source_path, &destination, false, &include_patterns, &exclude_patterns)?,
-        "tar.gz" | "tgz" => create_tar(source_path, &destination, true, &include_patterns, &exclude_patterns)?,
+        "zip" => create_zip(
+            source_path,
+            &destination,
+            compression_level,
+            &include_patterns,
+            &exclude_patterns,
+        )?,
+        "tar" => create_tar(
+            source_path,
+            &destination,
+            false,
+            &include_patterns,
+            &exclude_patterns,
+        )?,
+        "tar.gz" | "tgz" => create_tar(
+            source_path,
+            &destination,
+            true,
+            &include_patterns,
+            &exclude_patterns,
+        )?,
         "tar.bz2" => {
             return Err("tar.bz2 format requires bzip2 library, use tar.gz instead".to_string());
         }
-        _ => return Err(format!("Unsupported format: {format}. Supported: zip, tar, tar.gz, tgz")),
+        _ => {
+            return Err(format!(
+                "Unsupported format: {format}. Supported: zip, tar, tar.gz, tgz"
+            ))
+        }
     }
 
     // Get file size info
@@ -315,11 +339,10 @@ fn create_zip(
 }
 
 fn extract_zip(source: &Path, destination: &str) -> Result<(), String> {
-    let file = std::fs::File::open(source)
-        .map_err(|e| format!("Failed to open zip file: {e}"))?;
+    let file = std::fs::File::open(source).map_err(|e| format!("Failed to open zip file: {e}"))?;
 
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read zip archive: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {e}"))?;
 
     std::fs::create_dir_all(destination)
         .map_err(|e| format!("Failed to create destination directory '{destination}': {e}"))?;
@@ -341,8 +364,9 @@ fn extract_zip(source: &Path, destination: &str) -> Result<(), String> {
                 .map_err(|e| format!("Failed to create directory '{:?}': {e}", outpath))?;
         } else {
             if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent directory '{:?}': {e}", parent))?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!("Failed to create parent directory '{:?}': {e}", parent)
+                })?;
             }
             let mut outfile = std::fs::File::create(&outpath)
                 .map_err(|e| format!("Failed to create file '{:?}': {e}", outpath))?;
@@ -355,11 +379,10 @@ fn extract_zip(source: &Path, destination: &str) -> Result<(), String> {
 }
 
 fn list_zip(source: &Path) -> Result<Value, String> {
-    let file = std::fs::File::open(source)
-        .map_err(|e| format!("Failed to open zip file: {e}"))?;
+    let file = std::fs::File::open(source).map_err(|e| format!("Failed to open zip file: {e}"))?;
 
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to read zip archive: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {e}"))?;
 
     let mut entries = Vec::new();
     let mut total_size = 0u64;
@@ -493,8 +516,7 @@ fn create_tar(
 }
 
 fn extract_tar(source: &Path, destination: &str) -> Result<(), String> {
-    let file = std::fs::File::open(source)
-        .map_err(|e| format!("Failed to open tar file: {e}"))?;
+    let file = std::fs::File::open(source).map_err(|e| format!("Failed to open tar file: {e}"))?;
 
     let mut archive = tar::Archive::new(file);
 
@@ -509,8 +531,8 @@ fn extract_tar(source: &Path, destination: &str) -> Result<(), String> {
 }
 
 fn extract_tar_gz(source: &Path, destination: &str) -> Result<(), String> {
-    let file = std::fs::File::open(source)
-        .map_err(|e| format!("Failed to open tar.gz file: {e}"))?;
+    let file =
+        std::fs::File::open(source).map_err(|e| format!("Failed to open tar.gz file: {e}"))?;
 
     let decoder = GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
@@ -526,8 +548,7 @@ fn extract_tar_gz(source: &Path, destination: &str) -> Result<(), String> {
 }
 
 fn list_tar(source: &Path, format: &str) -> Result<Value, String> {
-    let file = std::fs::File::open(source)
-        .map_err(|e| format!("Failed to open tar file: {e}"))?;
+    let file = std::fs::File::open(source).map_err(|e| format!("Failed to open tar file: {e}"))?;
 
     let archive: Box<dyn std::io::Read> = if format == "tar.gz" || format == "tgz" {
         Box::new(GzDecoder::new(file))
@@ -541,9 +562,15 @@ fn list_tar(source: &Path, format: &str) -> Result<Value, String> {
     let mut file_count = 0;
     let mut dir_count = 0;
 
-    for entry in tar_archive.entries().map_err(|e| format!("Failed to read tar entries: {e}"))? {
+    for entry in tar_archive
+        .entries()
+        .map_err(|e| format!("Failed to read tar entries: {e}"))?
+    {
         let entry = entry.map_err(|e| format!("Failed to read tar entry: {e}"))?;
-        let path = entry.path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let path = entry
+            .path()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
         let size = entry.size();
         let is_dir = entry.header().entry_type().is_dir();
 

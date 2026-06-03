@@ -87,11 +87,11 @@ impl Gateway {
         // Database: SQL queries, table management, CSV import/export, backup
         crate::tools::builtin::database_tool::register_all(&mut tool_registry);
 
+        // Database Migration: SQLx/Diesel/SeaORM migration generation, schema diff, mock data
+        crate::tools::builtin::db_migration::register_all(&mut tool_registry);
+
         // Cryptography: encrypt/decrypt, hash, sign/verify, JWT, password hashing
         crate::tools::builtin::crypto_tool::register_all(&mut tool_registry);
-
-        // Quantitative Trading: backtesting, strategy comparison, technical indicators
-        crate::tools::builtin::quantitative_trading_tool::register_all(&mut tool_registry);
 
         // Environment/Secret Management: manage API keys, tokens securely
         let agent_dir = PathBuf::from(&*crate::constants::AGENT_DIR);
@@ -101,8 +101,12 @@ impl Gateway {
         // Notifications: send alerts via webhooks (Slack, DingTalk, custom)
         crate::tools::builtin::notify::register_all(&mut tool_registry);
 
+        // License Audit: scan dependency licenses, compliance reports, NOTICE generation
+        crate::tools::builtin::license_audit::register_all(&mut tool_registry);
+
         // Image: analyze and manipulate images (info, resize, thumbnail, convert)
         crate::tools::builtin::image_tool::register_all(&mut tool_registry);
+        crate::tools::builtin::container_tool::register_all(&mut tool_registry);
         crate::tools::builtin::mail_tool::register_all(&mut tool_registry);
         crate::tools::builtin::archive_tool::register_all(&mut tool_registry);
         crate::tools::builtin::pdf_tool::register_all(&mut tool_registry);
@@ -139,6 +143,15 @@ impl Gateway {
 
         // AST Analyzer: AST-level code analysis using syn (analyze, unused_imports, public_api, dependencies, complexity)
         crate::tools::builtin::ast_analyzer::register_all(&mut tool_registry);
+
+        // Async Profiler: detect blocking I/O in async contexts, analyze tokio::spawn patterns, runtime config
+        crate::tools::builtin::async_profiler::register_all(&mut tool_registry);
+
+        // Cross Compile: target management, cross-build config, Wasm analysis, embedded device config
+        crate::tools::builtin::cross_compile::register_all(&mut tool_registry);
+
+        // Fuzz Driver: cargo-fuzz target generation, corpus management, crash analysis, strategies
+        crate::tools::builtin::fuzz_driver::register_all(&mut tool_registry);
 
         // Benchmark: performance analysis, micro-benchmarks, criterion code generation, hotspot detection
         crate::tools::builtin::benchmark_tool::register_all(&mut tool_registry);
@@ -221,11 +234,19 @@ impl Gateway {
             Use scheduler to manage recurring tasks. \
             Use llm to call LLM APIs (OpenAI/Anthropic/Ollama) for code generation, review, explanation, and Q&A. \
             Use database for SQL queries, table management, CSV import/export. \
+            Use db_migration for database migrations: generate SQLx/Diesel/SeaORM migration files, \
+            diff schema with code models, generate mock data for testing, and list existing migrations. \
             Use crypto for encrypt/decrypt, hash, sign/verify, JWT, password hashing. \
             Use quantitative_trading for backtesting, strategy comparison, technical indicators. \
             Use env_secret to manage environment variables and secrets (list, get, set, remove). \
             Use notify to send notifications via webhooks (Slack, DingTalk, custom URLs). \
             Use image to analyze and manipulate images (info, resize, thumbnail, convert). \
+            Use container for containerization: generate Dockerfiles (multi-stage, MUSL static builds), \
+            docker-compose configs, multi-arch build scripts, and analyze Rust projects for containerization. \
+            Use cross_compile for cross-compilation: target management, cross-build config generation, \
+            Wasm size analysis/optimization, and embedded device configuration. \
+            Use fuzz_driver for fuzzing: generate cargo-fuzz targets, manage corpus, parse crash reports, \
+            recommend fuzzing strategies, and initialize fuzzing in projects. \
             Use data_processor for CSV/JSON data processing: parse, filter, sort, aggregate, \
             stats (mean/median/std_dev), merge/join, head/tail, unique, rename, add_column. \
             Use chart_generator to visualize data: pie (pie chart), bar (horizontal bar), \
@@ -316,6 +337,17 @@ impl Gateway {
     pub fn clear_conversation(&mut self) {
         self.agent.clear_conversation();
         self.reset_token_usage();
+        self.agent.session_metrics().reset();
+    }
+
+    /// Return a reference to the session metrics.
+    pub fn session_metrics(&self) -> &std::sync::Arc<crate::metrics::SessionMetrics> {
+        self.agent.session_metrics()
+    }
+
+    /// Return a reference to the hook manager.
+    pub fn hook_manager(&self) -> &crate::hooks::HookManager {
+        self.agent.hook_manager()
     }
 
     // ── Tool commands ──────────────────────────────────────
@@ -344,8 +376,8 @@ impl Gateway {
             let desc = tool.description();
             let cat = match name {
                 "code_analyze" | "code_analyzer" | "code_transform" | "code_review"
-                | "code_execute" | "scaffold" | "dep_manager" | "self_modify"
-                | "test_generate" | "benchmark" => 0,
+                | "code_execute" | "scaffold" | "dep_manager" | "self_modify" | "test_generate"
+                | "benchmark" => 0,
                 "git_status" | "git_diff" | "git_log" | "git_clone" | "git_commit" | "git_push" => {
                     1
                 }
@@ -936,50 +968,91 @@ impl Gateway {
     fn slash_stats(&self) -> String {
         let usage = self.agent.token_usage();
         let msg_count = self.agent.messages().len();
+        let metrics = self.agent.session_metrics();
 
-        let mut out = String::with_capacity(512);
+        let mut out = String::with_capacity(1024);
         out.push_str(&format!(
             "  {}  {}\n\n",
             "📊".bold(),
             "Session Statistics".cyan().bold()
         ));
 
+        // Session duration
+        out.push_str(&format!(
+            "  {}  {}  {:.1}s\n\n",
+            "⏱".dimmed(),
+            "Session Duration".dimmed(),
+            metrics.session_duration_secs()
+        ));
+
         // Conversation
         out.push_str(&format!("  {}  {}\n", "Conversation".bold(), ""));
-        out.push_str(&format!("    Messages:     {}\n", msg_count));
+        out.push_str(&format!("    Messages:       {}\n", msg_count));
+        out.push_str(&format!(
+            "    User messages:  {}\n",
+            metrics.user_messages.load(std::sync::atomic::Ordering::Relaxed)
+        ));
 
         // Token usage
         out.push_str(&format!("\n  {}  {}\n", "Token Usage".bold(), ""));
         if usage.api_calls == 0 {
             out.push_str("    No API calls made yet.\n");
         } else {
-            out.push_str(&format!("    API calls:    {}\n", usage.api_calls));
+            out.push_str(&format!("    API calls:      {}\n", usage.api_calls));
             out.push_str(&format!(
-                "    Prompt:       {} tokens\n",
+                "    Prompt:         {} tokens\n",
                 usage.prompt_tokens
             ));
             out.push_str(&format!(
-                "    Completion:   {} tokens\n",
+                "    Completion:     {} tokens\n",
                 usage.completion_tokens
             ));
             out.push_str(&format!(
-                "    Total:        {} tokens\n",
+                "    Total:          {} tokens\n",
                 usage.total_tokens
             ));
         }
 
-        // Tools
+        // Tool metrics
+        out.push_str(&format!("\n  {}  {}\n", "Tool Calls".bold(), ""));
+        let tool_calls = metrics.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
+        let tool_errors = metrics.tool_errors.load(std::sync::atomic::Ordering::Relaxed);
+        out.push_str(&format!("    Total:          {}\n", tool_calls));
+        out.push_str(&format!(
+            "    Success rate:   {:.1}%\n",
+            metrics.tool_success_rate()
+        ));
+        out.push_str(&format!(
+            "    Avg latency:    {:.0}ms\n",
+            metrics.avg_tool_latency_ms()
+        ));
+        if tool_errors > 0 {
+            out.push_str(&format!("    Errors:         {}\n", tool_errors));
+        }
+
+        // Latency
+        out.push_str(&format!("\n  {}  {}\n", "Latency".bold(), ""));
+        out.push_str(&format!(
+            "    Avg chat:       {:.0}ms\n",
+            metrics.avg_chat_latency_ms()
+        ));
+
+        // System
         let tool_count = self.agent.tool_registry.list_tools().len();
         out.push_str(&format!("\n  {}  {}\n", "System".bold(), ""));
-        out.push_str(&format!("    Tools registered: {}\n", tool_count));
+        out.push_str(&format!("    Tools:          {}\n", tool_count));
+        out.push_str(&format!(
+            "    Hooks:          {}\n",
+            self.agent.hook_manager().hook_count()
+        ));
 
         let skills_count = self.agent.skill_registry.list().len();
-        out.push_str(&format!("    Skills loaded:    {}\n", skills_count));
+        out.push_str(&format!("    Skills:         {}\n", skills_count));
 
         // Memory
         if let Some(store) = self.agent.memory_store() {
             if let Ok(stats) = (*store).stats() {
-                out.push_str(&format!("    Memories stored:  {}\n", stats.total));
+                out.push_str(&format!("    Memories:       {}\n", stats.total));
             }
         }
 

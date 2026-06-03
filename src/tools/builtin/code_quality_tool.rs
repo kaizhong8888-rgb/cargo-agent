@@ -27,11 +27,9 @@ static RE_STRUCT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?m)^\s*(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)"#).expect("valid regex")
 });
 
-static RE_UNWRAP: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"\.unwrap\(\)"#).expect("valid regex"));
+static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\.unwrap\(\)"#).expect("valid regex"));
 
-static RE_UNSAFE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"unsafe\s*\{"#).expect("valid regex"));
+static RE_UNSAFE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"unsafe\s*\{"#).expect("valid regex"));
 
 static RE_TODO: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)//\s*(TODO|FIXME|HACK|XXX)"#).expect("valid regex"));
@@ -211,14 +209,14 @@ fn read_file(path: &str) -> Result<String, String> {
 // ============================================================================
 
 struct QualityMetrics {
-    doc_coverage: f64,       // 0-1
-    test_coverage: f64,      // 0-1
-    unwrap_ratio: f64,       // 0-1 (lower is better)
-    unsafe_ratio: f64,       // 0-1 (lower is better)
-    todo_ratio: f64,         // 0-1 (lower is better)
-    avg_fn_length: f64,      // lines per function
-    complexity_score: f64,   // 0-1 (lower is better)
-    comment_ratio: f64,      // 0-1
+    doc_coverage: f64,     // 0-1
+    test_coverage: f64,    // 0-1
+    unwrap_ratio: f64,     // 0-1 (lower is better)
+    unsafe_ratio: f64,     // 0-1 (lower is better)
+    todo_ratio: f64,       // 0-1 (lower is better)
+    avg_fn_length: f64,    // lines per function
+    complexity_score: f64, // 0-1 (lower is better)
+    comment_ratio: f64,    // 0-1
 }
 
 fn calculate_metrics(content: &str) -> QualityMetrics {
@@ -305,7 +303,10 @@ fn calculate_metrics(content: &str) -> QualityMetrics {
     let complexity_score = (max_nesting as f64 / 10.0).min(1.0);
 
     // Comment ratio
-    let comment_lines = content.lines().filter(|l| l.trim().starts_with("//")).count() as f64;
+    let comment_lines = content
+        .lines()
+        .filter(|l| l.trim().starts_with("//"))
+        .count() as f64;
     let comment_ratio = (comment_lines / total_lines).min(1.0);
 
     QualityMetrics {
@@ -638,7 +639,10 @@ mod tests {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("score".to_string()));
-        params.insert("path".to_string(), Value::String("src/tools/builtin".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("src/tools/builtin".to_string()),
+        );
         params.insert("recursive".to_string(), Value::Bool(false));
 
         let result = tool.execute(&params).await.unwrap();
@@ -693,7 +697,10 @@ mod tests {
             "action".to_string(),
             Value::String("duplicates".to_string()),
         );
-        params.insert("path".to_string(), Value::String("src/tools/builtin".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("src/tools/builtin".to_string()),
+        );
         params.insert("recursive".to_string(), Value::Bool(false));
         params.insert("min_dup_lines".to_string(), Value::Number(5.into()));
 
@@ -739,7 +746,10 @@ mod tests {
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("does not exist"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("does not exist"));
     }
 
     #[tokio::test]
@@ -747,14 +757,14 @@ mod tests {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("score".to_string()));
-        params.insert(
-            "path".to_string(),
-            Value::String("Cargo.toml".to_string()),
-        );
+        params.insert("path".to_string(), Value::String("Cargo.toml".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Not a Rust file"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Not a Rust file"));
     }
 
     #[test]

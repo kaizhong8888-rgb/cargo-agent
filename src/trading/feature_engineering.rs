@@ -1,9 +1,7 @@
 /// ML 特征工程模块
 /// 为机器学习策略提供丰富的特征集，防止数据泄露，支持滚动窗口训练
-
-use crate::data::Candle;
-use crate::indicators;
-use crate::advanced_indicators;
+use super::data::Candle;
+use super::indicators;
 
 /// 特征集合
 #[derive(Debug, Clone)]
@@ -100,18 +98,18 @@ impl FeatureEngine {
         let volumes: Vec<f64> = candles.iter().map(|c| c.volume).collect();
 
         let mut feature_names = Vec::new();
-        let mut feature_matrix = vec![vec![0.0; len]; 0];
+        let mut feature_matrix: Vec<Vec<f64>> = Vec::new();
 
         // ========== 1. 价格类特征 ==========
 
         // 对数收益率
-        let log_ret = advanced_indicators::log_returns(&closes);
+        let log_ret = indicators::log_returns(&closes);
         feature_names.push("log_return".to_string());
         feature_matrix.push(log_ret.clone());
 
         // 不同周期的动量
         for period in &[5, 10, 20] {
-            let mom = advanced_indicators::momentum(&closes, *period);
+            let mom = indicators::momentum(&closes, *period);
             let norm = self.normalize_series(&mom, &closes);
             feature_names.push(format!("momentum_{}", period));
             feature_matrix.push(norm);
@@ -119,7 +117,7 @@ impl FeatureEngine {
 
         // 变化率
         for period in &[5, 10, 20] {
-            let roc = advanced_indicators::roc(&closes, *period);
+            let roc = indicators::roc(&closes, *period);
             feature_names.push(format!("roc_{}", period));
             feature_matrix.push(roc);
         }
@@ -129,7 +127,8 @@ impl FeatureEngine {
         // SMA 偏离度
         for period in &[5, 10, 20, 50] {
             let sma = indicators::sma(&closes, *period);
-            let deviation: Vec<f64> = closes.iter()
+            let deviation: Vec<f64> = closes
+                .iter()
                 .zip(sma.iter())
                 .map(|(&c, &s)| if s > 0.0 { (c - s) / s } else { 0.0 })
                 .collect();
@@ -140,7 +139,8 @@ impl FeatureEngine {
         // EMA 偏离度
         for period in &[5, 12, 26] {
             let ema = indicators::ema(&closes, *period);
-            let deviation: Vec<f64> = closes.iter()
+            let deviation: Vec<f64> = closes
+                .iter()
                 .zip(ema.iter())
                 .map(|(&c, &e)| if e > 0.0 { (c - e) / e } else { 0.0 })
                 .collect();
@@ -151,10 +151,17 @@ impl FeatureEngine {
         // 均线斜率 (EMA 变化率)
         for period in &[5, 10, 20] {
             let ema = indicators::ema(&closes, *period);
-            let slope: Vec<f64> = ema.iter()
+            let slope: Vec<f64> = ema
+                .iter()
                 .skip(1)
                 .zip(ema.iter())
-                .map(|(&curr, &prev)| if prev > 0.0 { (curr - prev) / prev } else { 0.0 })
+                .map(|(&curr, &prev)| {
+                    if prev > 0.0 {
+                        (curr - prev) / prev
+                    } else {
+                        0.0
+                    }
+                })
                 .collect();
             // 补一个值对齐
             let mut slope_full = vec![0.0];
@@ -173,14 +180,16 @@ impl FeatureEngine {
 
         // MACD 偏离度
         let macd = indicators::macd(&closes, 12, 26, 9);
-        let macd_norm: Vec<f64> = closes.iter()
+        let macd_norm: Vec<f64> = closes
+            .iter()
             .zip(macd.macd_line.iter())
             .map(|(&c, &m)| if c > 0.0 { m / c } else { 0.0 })
             .collect();
         feature_names.push("macd_normalized".to_string());
         feature_matrix.push(macd_norm);
 
-        let hist_norm: Vec<f64> = closes.iter()
+        let hist_norm: Vec<f64> = closes
+            .iter()
             .zip(macd.histogram.iter())
             .map(|(&c, &h)| if c > 0.0 { h / c } else { 0.0 })
             .collect();
@@ -188,22 +197,22 @@ impl FeatureEngine {
         feature_matrix.push(hist_norm);
 
         // Stochastic
-        let (stoch_k, stoch_d) = advanced_indicators::stochastic(&highs, &lows, &closes, 14, 3);
-        let stoch_k_norm: Vec<f64> = stoch_k.iter().map(|&v| v / 100.0).collect();
-        let stoch_d_norm: Vec<f64> = stoch_d.iter().map(|&v| v / 100.0).collect();
+        let stoch = indicators::stochastic(&highs, &lows, &closes, 14, 3);
+        let stoch_k_norm: Vec<f64> = stoch.k.iter().map(|&v| v / 100.0).collect();
+        let stoch_d_norm: Vec<f64> = stoch.d.iter().map(|&v| v / 100.0).collect();
         feature_names.push("stoch_k".to_string());
         feature_names.push("stoch_d".to_string());
         feature_matrix.push(stoch_k_norm);
         feature_matrix.push(stoch_d_norm);
 
         // Williams %R
-        let williams = advanced_indicators::williams_r(&highs, &lows, &closes, 14);
+        let williams = indicators::williams_r(&highs, &lows, &closes, 14);
         let williams_norm: Vec<f64> = williams.iter().map(|&v| (v + 100.0) / 100.0).collect();
         feature_names.push("williams_r".to_string());
         feature_matrix.push(williams_norm);
 
         // CCI
-        let cci = advanced_indicators::cci(&highs, &lows, &closes, 20);
+        let cci = indicators::cci(&highs, &lows, &closes, 20);
         let cci_norm: Vec<f64> = cci.iter().map(|&v| v / 200.0).collect();
         feature_names.push("cci_20".to_string());
         feature_matrix.push(cci_norm);
@@ -212,7 +221,8 @@ impl FeatureEngine {
 
         // ATR 相对值
         let atr = indicators::atr(&highs, &lows, &closes, 14);
-        let atr_pct: Vec<f64> = atr.iter()
+        let atr_pct: Vec<f64> = atr
+            .iter()
             .zip(closes.iter())
             .map(|(&a, &c)| if c > 0.0 { a / c } else { 0.0 })
             .collect();
@@ -221,7 +231,9 @@ impl FeatureEngine {
 
         // 布林带宽度
         let bb = indicators::bollinger_bands(&closes, 20, 2.0);
-        let bb_width: Vec<f64> = bb.upper.iter()
+        let bb_width: Vec<f64> = bb
+            .upper
+            .iter()
             .zip(bb.lower.iter())
             .zip(bb.middle.iter())
             .map(|((&u, &l), &m)| if m > 0.0 { (u - l) / m } else { 0.0 })
@@ -230,29 +242,41 @@ impl FeatureEngine {
         feature_matrix.push(bb_width);
 
         // 布林带位置
-        let bb_pos: Vec<f64> = closes.iter()
+        let bb_pos: Vec<f64> = closes
+            .iter()
             .zip(bb.upper.iter())
             .zip(bb.lower.iter())
             .map(|((&c, &u), &l)| {
                 let range = u - l;
-                if range > 0.0 { (c - l) / range } else { 0.5 }
+                if range > 0.0 {
+                    (c - l) / range
+                } else {
+                    0.5
+                }
             })
             .collect();
         feature_names.push("bb_position".to_string());
         feature_matrix.push(bb_pos);
 
         // 历史波动率
-        let hist_vol = advanced_indicators::historical_volatility(&log_ret, 20);
+        let hist_vol = indicators::historical_volatility(&log_ret, 20);
         feature_names.push("hist_vol_20".to_string());
         feature_matrix.push(hist_vol);
 
         // ========== 5. 成交量特征 ==========
 
         // 成交量变化率
-        let vol_roc: Vec<f64> = volumes.iter()
+        let vol_roc: Vec<f64> = volumes
+            .iter()
             .skip(1)
             .zip(volumes.iter())
-            .map(|(&curr, &prev)| if prev > 0.0 { (curr - prev) / prev } else { 0.0 })
+            .map(|(&curr, &prev)| {
+                if prev > 0.0 {
+                    (curr - prev) / prev
+                } else {
+                    0.0
+                }
+            })
             .collect();
         let mut vol_roc_full = vec![0.0];
         vol_roc_full.extend(vol_roc);
@@ -261,7 +285,8 @@ impl FeatureEngine {
 
         // 成交量相对均值
         let vol_sma = indicators::sma(&volumes, 20);
-        let vol_ratio: Vec<f64> = volumes.iter()
+        let vol_ratio: Vec<f64> = volumes
+            .iter()
             .zip(vol_sma.iter())
             .map(|(&v, &s)| if s > 0.0 { v / s } else { 1.0 })
             .collect();
@@ -269,9 +294,10 @@ impl FeatureEngine {
         feature_matrix.push(vol_ratio);
 
         // OBV 偏离度
-        let obv = advanced_indicators::obv(&closes, &volumes);
+        let obv = indicators::obv(&closes, &volumes);
         let obv_sma = indicators::sma(&obv, 20);
-        let obv_dev: Vec<f64> = obv.iter()
+        let obv_dev: Vec<f64> = obv
+            .iter()
             .zip(obv_sma.iter())
             .map(|(&o, &s)| if s != 0.0 { (o - s) / s.abs() } else { 0.0 })
             .collect();
@@ -280,7 +306,7 @@ impl FeatureEngine {
 
         // ========== 6. ADX 特征 ==========
 
-        let adx_values = advanced_indicators::adx(&highs, &lows, &closes, 14);
+        let adx_values = indicators::adx(&highs, &lows, &closes, 14);
         let adx_norm: Vec<f64> = adx_values.iter().map(|&v| v / 100.0).collect();
         feature_names.push("adx_14".to_string());
         feature_matrix.push(adx_norm);
@@ -311,7 +337,8 @@ impl FeatureEngine {
                     let segment = &log_ret[i + 1 - window..=i];
                     let mean: f64 = segment.iter().filter(|&&v| !v.is_nan()).sum::<f64>()
                         / segment.iter().filter(|&&v| !v.is_nan()).count() as f64;
-                    let variance: f64 = segment.iter()
+                    let variance: f64 = segment
+                        .iter()
                         .filter(|&&v| !v.is_nan())
                         .map(|v| (v - mean).powi(2))
                         .sum::<f64>()
@@ -331,10 +358,12 @@ impl FeatureEngine {
                         .collect();
                     if segment.len() >= 3 {
                         let mean: f64 = segment.iter().sum::<f64>() / segment.len() as f64;
-                        let std: f64 = segment.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / segment.len() as f64;
+                        let std: f64 = segment.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                            / segment.len() as f64;
                         let std = std.sqrt();
                         if std > 0.0 {
-                            let skew: f64 = segment.iter()
+                            let skew: f64 = segment
+                                .iter()
                                 .map(|v| ((v - mean) / std).powi(3))
                                 .sum::<f64>()
                                 / segment.len() as f64;
@@ -350,28 +379,49 @@ impl FeatureEngine {
         // ========== 9. 价格模式特征 ==========
 
         // 最高价/最低价比率 (K线实体比例)
-        let body_ratio: Vec<f64> = candles.iter().map(|c| {
-            let body = (c.close - c.open).abs();
-            let range = c.high - c.low;
-            if range > 0.0 { body / range } else { 0.0 }
-        }).collect();
+        let body_ratio: Vec<f64> = candles
+            .iter()
+            .map(|c| {
+                let body = (c.close - c.open).abs();
+                let range = c.high - c.low;
+                if range > 0.0 {
+                    body / range
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         feature_names.push("body_ratio".to_string());
         feature_matrix.push(body_ratio);
 
         // 上影线/下影线比率
-        let upper_shadow: Vec<f64> = candles.iter().map(|c| {
-            let body_top = c.open.max(c.close);
-            let range = c.high - c.low;
-            if range > 0.0 { (c.high - body_top) / range } else { 0.0 }
-        }).collect();
+        let upper_shadow: Vec<f64> = candles
+            .iter()
+            .map(|c| {
+                let body_top = c.open.max(c.close);
+                let range = c.high - c.low;
+                if range > 0.0 {
+                    (c.high - body_top) / range
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         feature_names.push("upper_shadow".to_string());
         feature_matrix.push(upper_shadow);
 
-        let lower_shadow: Vec<f64> = candles.iter().map(|c| {
-            let body_bottom = c.open.min(c.close);
-            let range = c.high - c.low;
-            if range > 0.0 { (body_bottom - c.low) / range } else { 0.0 }
-        }).collect();
+        let lower_shadow: Vec<f64> = candles
+            .iter()
+            .map(|c| {
+                let body_bottom = c.open.min(c.close);
+                let range = c.high - c.low;
+                if range > 0.0 {
+                    (body_bottom - c.low) / range
+                } else {
+                    0.0
+                }
+            })
+            .collect();
         feature_names.push("lower_shadow".to_string());
         feature_matrix.push(lower_shadow);
 
@@ -420,7 +470,8 @@ impl FeatureEngine {
 
     /// 标准化特征序列 (除以价格)
     fn normalize_series(&self, series: &[f64], base: &[f64]) -> Vec<f64> {
-        series.iter()
+        series
+            .iter()
             .zip(base.iter())
             .map(|(&s, &b)| if b > 0.0 { s / b } else { 0.0 })
             .collect()
@@ -448,11 +499,7 @@ impl RollingTrainer {
 
     /// 执行滚动训练测试
     /// 返回每个窗口的训练/测试性能
-    pub fn rolling_eval<T, F>(
-        &self,
-        features: &FeatureSet,
-        model_builder: F,
-    ) -> Vec<RollingResult>
+    pub fn rolling_eval<T, F>(&self, features: &FeatureSet, model_builder: F) -> Vec<RollingResult>
     where
         T: Model,
         F: Fn(&[Vec<f64>], &[i32]) -> T,
@@ -492,7 +539,12 @@ impl RollingTrainer {
         results
     }
 
-    fn extract_window(&self, features: &FeatureSet, start: usize, end: usize) -> (Vec<Vec<f64>>, Vec<i32>) {
+    fn extract_window(
+        &self,
+        features: &FeatureSet,
+        start: usize,
+        end: usize,
+    ) -> (Vec<Vec<f64>>, Vec<i32>) {
         let mut x = Vec::new();
         let mut y = Vec::new();
 
@@ -531,7 +583,8 @@ pub trait Model {
         if x.is_empty() {
             return 0.0;
         }
-        let correct = x.iter()
+        let correct = x
+            .iter()
             .zip(y.iter())
             .filter(|(xi, yi)| self.predict(xi) == **yi)
             .count();
@@ -574,7 +627,12 @@ impl Model for SimpleLogisticRegression {
 
         for _ in 0..self.epochs {
             for (xi, yi) in x.iter().zip(y.iter()) {
-                let z: f64 = xi.iter().zip(self.weights.iter()).map(|(a, b)| a * b).sum::<f64>() + self.bias;
+                let z: f64 = xi
+                    .iter()
+                    .zip(self.weights.iter())
+                    .map(|(a, b)| a * b)
+                    .sum::<f64>()
+                    + self.bias;
                 let pred = Self::sigmoid(z);
                 let error = pred - *yi as f64;
 
@@ -587,7 +645,16 @@ impl Model for SimpleLogisticRegression {
     }
 
     fn predict(&self, x: &[f64]) -> i32 {
-        let z: f64 = x.iter().zip(self.weights.iter()).map(|(a, b)| a * b).sum::<f64>() + self.bias;
-        if Self::sigmoid(z) >= 0.5 { 1 } else { 0 }
+        let z: f64 = x
+            .iter()
+            .zip(self.weights.iter())
+            .map(|(a, b)| a * b)
+            .sum::<f64>()
+            + self.bias;
+        if Self::sigmoid(z) >= 0.5 {
+            1
+        } else {
+            0
+        }
     }
 }

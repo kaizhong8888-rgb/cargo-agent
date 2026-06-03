@@ -30,22 +30,44 @@ pub struct ActiveChecks {
 impl ActiveChecks {
     pub fn all() -> Self {
         Self {
-            unsafe_check: true, error_handling: true, performance: true, style: true,
-            safety: true, correctness: true, concurrency: true, documentation: true,
-            naming: true, async_check: true, security: true, complexity: true,
-            testing: true, debug: true,
+            unsafe_check: true,
+            error_handling: true,
+            performance: true,
+            style: true,
+            safety: true,
+            correctness: true,
+            concurrency: true,
+            documentation: true,
+            naming: true,
+            async_check: true,
+            security: true,
+            complexity: true,
+            testing: true,
+            debug: true,
         }
     }
 }
 
 pub fn parse_checks(checks_str: &str) -> Result<ActiveChecks, String> {
     let trimmed = checks_str.trim().to_lowercase();
-    if trimmed == "all" { return Ok(ActiveChecks::all()); }
+    if trimmed == "all" {
+        return Ok(ActiveChecks::all());
+    }
     let mut checks = ActiveChecks {
-        unsafe_check: false, error_handling: false, performance: false, style: false,
-        safety: false, correctness: false, concurrency: false, documentation: false,
-        naming: false, async_check: false, security: false, complexity: false,
-        testing: false, debug: false,
+        unsafe_check: false,
+        error_handling: false,
+        performance: false,
+        style: false,
+        safety: false,
+        correctness: false,
+        concurrency: false,
+        documentation: false,
+        naming: false,
+        async_check: false,
+        security: false,
+        complexity: false,
+        testing: false,
+        debug: false,
     };
     for check in trimmed.split(',') {
         let c = check.trim();
@@ -113,9 +135,14 @@ pub fn to_camel_case(name: &str) -> String {
     let mut result = String::new();
     let mut capitalize = true;
     for ch in name.chars() {
-        if ch == '_' { capitalize = true; }
-        else if capitalize { result.push(ch.to_ascii_uppercase()); capitalize = false; }
-        else { result.push(ch); }
+        if ch == '_' {
+            capitalize = true;
+        } else if capitalize {
+            result.push(ch.to_ascii_uppercase());
+            capitalize = false;
+        } else {
+            result.push(ch);
+        }
     }
     result
 }

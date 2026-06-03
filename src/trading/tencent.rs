@@ -1,5 +1,5 @@
 //! 腾讯财经 K 线数据获取模块
-//! 
+//!
 //! 支持 A 股、港股、美股历史K线数据获取
 //! API 文档: https://qt.gtimg.cn / https://web.ifzq.gtimg.cn
 
@@ -54,17 +54,17 @@ impl TencentInterval {
 /// 支持: sh000001, sz000001, HK00700, US_AAPL, 000001.sh 等格式
 pub fn normalize_symbol(symbol: &str) -> String {
     let s = symbol.trim().to_uppercase();
-    
+
     // 已经是标准格式
     if s.starts_with("SH") || s.starts_with("SZ") || s.starts_with("HK") {
         return s.to_lowercase();
     }
-    
+
     // 美股格式: US_AAPL -> us_aapl
     if s.starts_with("US_") {
         return s.to_lowercase();
     }
-    
+
     // 纯数字，根据首位判断市场
     if let Ok(_num) = s.parse::<u64>() {
         if _num < 100_000 {
@@ -80,7 +80,7 @@ pub fn normalize_symbol(symbol: &str) -> String {
             return format!("sz{}", s);
         }
     }
-    
+
     // 其他格式：xxx.SH / xxx.SZ
     if s.ends_with(".SH") {
         return format!("sh{}", s.trim_end_matches(".SH"));
@@ -88,18 +88,18 @@ pub fn normalize_symbol(symbol: &str) -> String {
     if s.ends_with(".SZ") {
         return format!("sz{}", s.trim_end_matches(".SZ"));
     }
-    
+
     // 默认当作深圳
     format!("sz{}", s)
 }
 
 /// 从腾讯财经获取K线数据
-/// 
+///
 /// # 参数
 /// * `symbol` - 股票代码（如 "sh000001", "sz000001", "HK00700"）
 /// * `interval` - K线周期
 /// * `limit` - 获取数量（最大320）
-/// 
+///
 /// # 返回
 /// Vec<Candle> 按时间升序排列
 pub fn fetch_klines(
@@ -108,7 +108,7 @@ pub fn fetch_klines(
     limit: usize,
 ) -> Result<Vec<Candle>, String> {
     let limit = limit.min(320); // 腾讯 API 单次最大 320 条
-    
+
     // 使用复权日线 API
     let api_url = format!(
         "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={},{},,,{},qqt",
@@ -118,7 +118,7 @@ pub fn fetch_klines(
     );
 
     let resp = get(&api_url).map_err(|e| format!("请求腾讯财经API失败: {}", e))?;
-    
+
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().unwrap_or_default();
@@ -135,7 +135,7 @@ pub fn fetch_klines(
 
     // 解析数据 - 取第一个市场的数据
     let mut candles = Vec::new();
-    
+
     if let Some((_, market_data)) = json_resp.data.iter().next() {
         let kline_data = match interval {
             TencentInterval::Day => &market_data.qfqday,
@@ -143,12 +143,12 @@ pub fn fetch_klines(
             TencentInterval::Month => &market_data.qfqmonth,
             _ => &market_data.day,
         };
-        
+
         for record in kline_data {
             if record.len() < 6 {
                 continue;
             }
-            
+
             // 解析日期: "2024-01-15"
             let date_str = record[0].as_str().unwrap_or("");
             let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
@@ -156,20 +156,20 @@ pub fn fetch_klines(
                 .and_then(|d| d.and_hms_opt(0, 0, 0))
                 .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
                 .unwrap_or_default();
-            
+
             let open = parse_json_f64(record.get(1));
             let close = parse_json_f64(record.get(2));
             let high = parse_json_f64(record.get(3));
             let low = parse_json_f64(record.get(4));
             let volume = parse_json_f64(record.get(5));
-            
+
             candles.push(Candle::new(date, open, high, low, close, volume));
         }
     }
 
     // 按时间升序排列
     candles.sort_by_key(|c| c.timestamp);
-    
+
     if candles.is_empty() {
         return Err(format!(
             "未获取到K线数据 (symbol={}, interval={:?})",
@@ -187,7 +187,7 @@ pub fn fetch_klines_batch(
     limit: usize,
 ) -> HashMap<String, Vec<Candle>> {
     let mut results = HashMap::new();
-    
+
     for symbol in symbols {
         match fetch_klines(symbol, interval, limit) {
             Ok(candles) => {
@@ -198,7 +198,7 @@ pub fn fetch_klines_batch(
             }
         }
     }
-    
+
     results
 }
 
@@ -206,15 +206,15 @@ pub fn fetch_klines_batch(
 pub fn fetch_realtime_quote(symbols: &[&str]) -> Result<Vec<RealtimeQuote>, String> {
     let symbols_str: Vec<String> = symbols.iter().map(|s| normalize_symbol(s)).collect();
     let query = symbols_str.join(",");
-    
+
     let url = format!("https://qt.gtimg.cn/q={}", query);
     let resp = get(&url).map_err(|e| format!("请求腾讯实时行情失败: {}", e))?;
-    
+
     let text = resp.text().map_err(|e| format!("读取响应失败: {}", e))?;
-    
+
     // 解析腾讯行情数据格式: v_sh000001="1~上证指数~000001~3032.00~...";
     let mut quotes = Vec::new();
-    
+
     for line in text.lines() {
         if line.starts_with("v_") && line.contains('=') {
             if let Some(data) = line.split('"').nth(1) {
@@ -236,7 +236,7 @@ pub fn fetch_realtime_quote(symbols: &[&str]) -> Result<Vec<RealtimeQuote>, Stri
             }
         }
     }
-    
+
     Ok(quotes)
 }
 
@@ -289,7 +289,7 @@ fn parse_str_f64(s: Option<&&str>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_normalize_symbol() {
         assert_eq!(normalize_symbol("000001"), "sz000001");
@@ -300,12 +300,12 @@ mod tests {
         assert_eq!(normalize_symbol("600000.SH"), "sh600000");
         assert_eq!(normalize_symbol("700"), "hk700");
     }
-    
+
     #[test]
     fn test_parse_json_f64() {
         assert_eq!(parse_json_f64(None), 0.0);
     }
-    
+
     #[test]
     fn test_parse_str_f64() {
         let s = "123.45";

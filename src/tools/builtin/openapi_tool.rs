@@ -28,8 +28,10 @@ static RE_AXUM_ROUTE: Lazy<Regex> = Lazy::new(|| {
 
 // Individual method handlers: get(handler), post(handler), etc.
 static RE_HTTP_METHOD: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)(get|post|put|delete|patch|head|options)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)"#)
-        .expect("valid regex")
+    Regex::new(
+        r#"(?i)(get|post|put|delete|patch|head|options)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)"#,
+    )
+    .expect("valid regex")
 });
 
 // Actix-web route patterns: #[get("/path")]
@@ -39,9 +41,8 @@ static RE_ACTIX_ROUTE: Lazy<Regex> = Lazy::new(|| {
 });
 
 // Path parameters: {id}, {name}
-static RE_PATH_PARAM: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\{([^}]+)\}"#).expect("valid regex")
-});
+static RE_PATH_PARAM: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\{([^}]+)\}"#).expect("valid regex"));
 
 // Function signatures: fn handler(...) -> ...
 static RE_FN_SIG: Lazy<Regex> = Lazy::new(|| {
@@ -141,11 +142,23 @@ impl Tool for OpenApiTool {
 impl OpenApiTool {
     fn action_generate(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        let title = params.get("title").and_then(|v| v.as_str()).unwrap_or("My API");
-        let version = params.get("version").and_then(|v| v.as_str()).unwrap_or("0.1.0");
-        let framework = params.get("framework").and_then(|v| v.as_str()).unwrap_or("auto");
+        let title = params
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("My API");
+        let version = params
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.1.0");
+        let framework = params
+            .get("framework")
+            .and_then(|v| v.as_str())
+            .unwrap_or("auto");
         let output = params.get("output").and_then(|v| v.as_str());
-        let format = params.get("format").and_then(|v| v.as_str()).unwrap_or("json");
+        let format = params
+            .get("format")
+            .and_then(|v| v.as_str())
+            .unwrap_or("json");
 
         // Detect framework
         let detected_framework = if framework != "auto" {
@@ -164,7 +177,8 @@ impl OpenApiTool {
         let output_str = if format == "yaml" {
             to_yaml(&spec)
         } else {
-            serde_json::to_string_pretty(&spec).map_err(|e| format!("JSON serialization error: {e}"))?
+            serde_json::to_string_pretty(&spec)
+                .map_err(|e| format!("JSON serialization error: {e}"))?
         };
 
         // Write to file if specified
@@ -191,8 +205,8 @@ impl OpenApiTool {
 
     fn action_validate(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let spec_str = load_spec(params)?;
-        let spec: Value = serde_json::from_str(&spec_str)
-            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        let spec: Value =
+            serde_json::from_str(&spec_str).map_err(|e| format!("Invalid JSON: {e}"))?;
 
         let mut issues = Vec::new();
 
@@ -240,7 +254,19 @@ impl OpenApiTool {
                     }));
                 }
                 for (method, _op) in methods.as_object().unwrap_or(&serde_json::Map::new()) {
-                    let valid_methods = ["get", "post", "put", "delete", "patch", "head", "options", "trace", "parameters", "summary", "description"];
+                    let valid_methods = [
+                        "get",
+                        "post",
+                        "put",
+                        "delete",
+                        "patch",
+                        "head",
+                        "options",
+                        "trace",
+                        "parameters",
+                        "summary",
+                        "description",
+                    ];
                     if !valid_methods.contains(&method.as_str()) {
                         issues.push(json!({
                             "severity": "warning",
@@ -251,7 +277,9 @@ impl OpenApiTool {
             }
         }
 
-        let is_valid = issues.iter().all(|i| i["severity"].as_str() != Some("error"));
+        let is_valid = issues
+            .iter()
+            .all(|i| i["severity"].as_str() != Some("error"));
 
         Ok(json!({
             "status": "ok",
@@ -265,8 +293,8 @@ impl OpenApiTool {
 
     fn action_info(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let spec_str = load_spec(params)?;
-        let spec: Value = serde_json::from_str(&spec_str)
-            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        let spec: Value =
+            serde_json::from_str(&spec_str).map_err(|e| format!("Invalid JSON: {e}"))?;
 
         let mut method_counts: HashMap<String, usize> = HashMap::new();
         let mut path_count = 0;
@@ -279,7 +307,9 @@ impl OpenApiTool {
             for (_path, methods) in paths {
                 if let Some(methods_obj) = methods.as_object() {
                     for (method, _op) in methods_obj {
-                        if ["get", "post", "put", "delete", "patch", "head", "options"].contains(&method.as_str()) {
+                        if ["get", "post", "put", "delete", "patch", "head", "options"]
+                            .contains(&method.as_str())
+                        {
                             *method_counts.entry(method.to_uppercase()).or_insert(0) += 1;
                         }
                     }
@@ -292,14 +322,28 @@ impl OpenApiTool {
             if let Some(schemas) = components.get("schemas").and_then(|s| s.as_object()) {
                 schema_count = schemas.len();
             }
-            if let Some(security) = components.get("securitySchemes").and_then(|s| s.as_object()) {
+            if let Some(security) = components
+                .get("securitySchemes")
+                .and_then(|s| s.as_object())
+            {
                 security_scheme_count = security.len();
             }
         }
 
-        let title = spec.get("info").and_then(|i| i.get("title")).and_then(|t| t.as_str()).unwrap_or("Unknown");
-        let version = spec.get("info").and_then(|i| i.get("version")).and_then(|v| v.as_str()).unwrap_or("Unknown");
-        let openapi_version = spec.get("openapi").and_then(|v| v.as_str()).unwrap_or("Unknown");
+        let title = spec
+            .get("info")
+            .and_then(|i| i.get("title"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("Unknown");
+        let version = spec
+            .get("info")
+            .and_then(|i| i.get("version"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown");
+        let openapi_version = spec
+            .get("openapi")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown");
 
         // Sort method counts
         let mut sorted_methods: Vec<(String, usize)> = method_counts.into_iter().collect();
@@ -321,11 +365,15 @@ impl OpenApiTool {
 
     fn action_merge(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let spec_str = load_spec(params)?;
-        let spec: Value = serde_json::from_str(&spec_str)
-            .map_err(|e| format!("Invalid JSON: {e}"))?;
+        let spec: Value =
+            serde_json::from_str(&spec_str).map_err(|e| format!("Invalid JSON: {e}"))?;
 
         // For now, return the spec as-is (merge would need multiple specs input)
-        let path_count = spec.get("paths").and_then(|p| p.as_object()).map(|o| o.len()).unwrap_or(0);
+        let path_count = spec
+            .get("paths")
+            .and_then(|p| p.as_object())
+            .map(|o| o.len())
+            .unwrap_or(0);
 
         Ok(json!({
             "status": "ok",
@@ -338,7 +386,10 @@ impl OpenApiTool {
 
     fn action_convert(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let spec_str = load_spec(params)?;
-        let format = params.get("format").and_then(|v| v.as_str()).unwrap_or("yaml");
+        let format = params
+            .get("format")
+            .and_then(|v| v.as_str())
+            .unwrap_or("yaml");
         let output = params.get("output").and_then(|v| v.as_str());
 
         // Parse as JSON first
@@ -352,7 +403,8 @@ impl OpenApiTool {
         let result = if format == "yaml" {
             to_yaml(&spec)
         } else {
-            serde_json::to_string_pretty(&spec).map_err(|e| format!("JSON serialization error: {e}"))?
+            serde_json::to_string_pretty(&spec)
+                .map_err(|e| format!("JSON serialization error: {e}"))?
         };
 
         if let Some(out_path) = output {
@@ -444,8 +496,16 @@ fn scan_routes(project_path: &str, framework: &str) -> Result<Vec<RouteInfo>, St
                             .collect();
 
                         for method_cap in RE_HTTP_METHOD.captures_iter(methods_str) {
-                            let method = method_cap.get(1).map(|m| m.as_str()).unwrap_or("").to_lowercase();
-                            let handler = method_cap.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
+                            let method = method_cap
+                                .get(1)
+                                .map(|m| m.as_str())
+                                .unwrap_or("")
+                                .to_lowercase();
+                            let handler = method_cap
+                                .get(2)
+                                .map(|m| m.as_str())
+                                .unwrap_or("")
+                                .to_string();
 
                             routes.push(RouteInfo {
                                 path: route_path.to_string(),
@@ -461,7 +521,11 @@ fn scan_routes(project_path: &str, framework: &str) -> Result<Vec<RouteInfo>, St
                         let fn_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
                         // Check if this function is used as a route handler (has Extractor params)
                         let params_str = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-                        if params_str.contains("State") || params_str.contains("Json") || params_str.contains("Path") || params_str.contains("Query") {
+                        if params_str.contains("State")
+                            || params_str.contains("Json")
+                            || params_str.contains("Path")
+                            || params_str.contains("Query")
+                        {
                             // Check if already added
                             if !routes.iter().any(|r| r.handler == fn_name) {
                                 let path_params: Vec<String> = RE_PATH_PARAM
@@ -509,8 +573,16 @@ fn scan_routes(project_path: &str, framework: &str) -> Result<Vec<RouteInfo>, St
                             .collect();
 
                         for method_cap in RE_HTTP_METHOD.captures_iter(methods_str) {
-                            let method = method_cap.get(1).map(|m| m.as_str()).unwrap_or("").to_lowercase();
-                            let handler = method_cap.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
+                            let method = method_cap
+                                .get(1)
+                                .map(|m| m.as_str())
+                                .unwrap_or("")
+                                .to_lowercase();
+                            let handler = method_cap
+                                .get(2)
+                                .map(|m| m.as_str())
+                                .unwrap_or("")
+                                .to_string();
                             routes.push(RouteInfo {
                                 path: route_path.to_string(),
                                 method,
@@ -535,7 +607,10 @@ fn collect_rust_files(dir: &Path, files: &mut Vec<String>, max_depth: usize) -> 
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_dir() {
-            let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
             if name == "target" || name.starts_with('.') {
                 continue;
             }
@@ -582,10 +657,13 @@ fn build_openapi_spec(title: &str, version: &str, routes: &[RouteInfo], _framewo
 
         // Add a simple schema for the handler
         if !schemas.contains_key(&route.handler) {
-            schemas.insert(route.handler.clone(), json!({
-                "type": "object",
-                "description": format!("Response schema for {}", route.handler),
-            }));
+            schemas.insert(
+                route.handler.clone(),
+                json!({
+                    "type": "object",
+                    "description": format!("Response schema for {}", route.handler),
+                }),
+            );
         }
     }
 
@@ -627,7 +705,16 @@ fn to_yaml(value: &Value) -> String {
             Value::Bool(b) => b.to_string(),
             Value::Number(n) => n.to_string(),
             Value::String(s) => {
-                if s.contains(':') || s.contains('#') || s.contains('{') || s.contains('}') || s.contains('[') || s.contains(']') || s.contains(',') || s.contains('\n') || s.is_empty() {
+                if s.contains(':')
+                    || s.contains('#')
+                    || s.contains('{')
+                    || s.contains('}')
+                    || s.contains('[')
+                    || s.contains(']')
+                    || s.contains(',')
+                    || s.contains('\n')
+                    || s.is_empty()
+                {
                     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
                 } else {
                     s.clone()
@@ -637,9 +724,12 @@ fn to_yaml(value: &Value) -> String {
                 if arr.is_empty() {
                     "[]".to_string()
                 } else {
-                    let items: Vec<String> = arr.iter().map(|item| {
-                        format!("{}- {}", prefix, yaml_value(item, indent + 1).trim_start())
-                    }).collect();
+                    let items: Vec<String> = arr
+                        .iter()
+                        .map(|item| {
+                            format!("{}- {}", prefix, yaml_value(item, indent + 1).trim_start())
+                        })
+                        .collect();
                     items.join("\n")
                 }
             }
@@ -647,13 +737,16 @@ fn to_yaml(value: &Value) -> String {
                 if obj.is_empty() {
                     "{}".to_string()
                 } else {
-                    let items: Vec<String> = obj.iter().map(|(k, v)| {
-                        if v.is_object() || v.is_array() {
-                            format!("{}{}:\n{}", prefix, k, yaml_value(v, indent + 1))
-                        } else {
-                            format!("{}{}: {}", prefix, k, yaml_value(v, 0))
-                        }
-                    }).collect();
+                    let items: Vec<String> = obj
+                        .iter()
+                        .map(|(k, v)| {
+                            if v.is_object() || v.is_array() {
+                                format!("{}{}:\n{}", prefix, k, yaml_value(v, indent + 1))
+                            } else {
+                                format!("{}{}: {}", prefix, k, yaml_value(v, 0))
+                            }
+                        })
+                        .collect();
                     items.join("\n")
                 }
             }

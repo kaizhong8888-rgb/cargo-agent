@@ -8,9 +8,21 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use tokio::time::Duration;
 
 const MAX_OUTPUT_BYTES: usize = 50_000;
+const DEFAULT_TIMEOUT_SECS: u64 = 60;
+
+/// Kill a process and all its children by PID (Unix).
+/// Used to enforce execution timeouts.
+fn kill_process_tree(pid: u32) {
+    // Send SIGTERM first (graceful)
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    // Small delay then SIGKILL if still alive
+    std::thread::sleep(Duration::from_millis(500));
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+}
 
 // ============================================================================
 // CodeExecutorTool
@@ -86,10 +98,10 @@ impl Tool for CodeExecutorTool {
             .and_then(|v| v.as_str())
             .unwrap_or("2021");
 
-        let _timeout_secs = params
+        let timeout_secs = params
             .get("timeout_secs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(60);
+            .unwrap_or(DEFAULT_TIMEOUT_SECS);
 
         let crate_type = params
             .get("crate_type")
@@ -139,7 +151,7 @@ impl Tool for CodeExecutorTool {
 
         fs::write(&source_file, code).map_err(|e| format!("Failed to write source file: {e}"))?;
 
-        // Run cargo command
+        // Run cargo command with timeout enforcement
         let (cargo_cmd, extra_args) = match command {
             "clippy" => ("clippy", vec!["--", "-D", "warnings"]),
             _ => (command, vec![]),
@@ -149,15 +161,46 @@ impl Tool for CodeExecutorTool {
         cmd.arg(cargo_cmd)
             .current_dir(&temp_dir)
             .env("CARGO_HOME", "/tmp/cargo-agent-home") // Isolated cargo home
-            .env("RUST_BACKTRACE", "1");
+            .env("RUST_BACKTRACE", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         for arg in &extra_args {
             cmd.arg(arg);
         }
 
-        let output = cmd
-            .output()
+        let child = cmd
+            .spawn()
             .map_err(|e| format!("Failed to execute cargo: {e}"))?;
+
+        let child_id = child.id();
+
+        // Enforce the timeout via tokio::time::timeout + spawn_blocking
+        let output_result = tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            tokio::task::spawn_blocking(move || child.wait_with_output()),
+        )
+        .await;
+
+        let output = match output_result {
+            Ok(Ok(Ok(output))) => output,
+            Ok(Ok(Err(e))) => {
+                // Kill the child on error
+                kill_process_tree(child_id);
+                return Err(format!("Failed to wait for cargo: {e}"));
+            }
+            Ok(Err(_)) => {
+                // spawn_blocking join error
+                return Err("Task execution failed".to_string());
+            }
+            Err(_) => {
+                // Timeout — kill the process tree
+                kill_process_tree(child_id);
+                return Err(format!(
+                    "Execution timed out after {timeout_secs}s. Consider simplifying your code or increasing the timeout."
+                ));
+            }
+        };
 
         let exit_code = output.status.code();
         let success = output.status.success();

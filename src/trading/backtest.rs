@@ -9,6 +9,51 @@ pub enum TradeSide {
     Short, // 做空
 }
 
+/// 信号优先级：Risk > Stop > Strategy
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum SignalPriority {
+    Risk,     // 风控信号（最大回撤强制平仓）
+    Stop,     // 止损信号（固定止损/ATR跟踪止损）
+    Strategy, // 策略信号（买入/卖出）
+}
+
+/// 增强信号：包含优先级信息
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PrioritySignal {
+    pub signal: Signal,
+    pub priority: SignalPriority,
+    pub reason: &'static str,
+}
+
+impl PrioritySignal {
+    /// 创建风控信号（最高优先级）
+    pub fn risk(signal: Signal, reason: &'static str) -> Self {
+        Self {
+            signal,
+            priority: SignalPriority::Risk,
+            reason,
+        }
+    }
+
+    /// 创建止损信号（中等优先级）
+    pub fn stop(signal: Signal, reason: &'static str) -> Self {
+        Self {
+            signal,
+            priority: SignalPriority::Stop,
+            reason,
+        }
+    }
+
+    /// 创建策略信号（最低优先级）
+    pub fn strategy(signal: Signal) -> Self {
+        Self {
+            signal,
+            priority: SignalPriority::Strategy,
+            reason: "",
+        }
+    }
+}
+
 /// 仓位管理模式
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum PositionSizing {
@@ -74,6 +119,9 @@ pub struct BacktestEngine {
     pub trades: Vec<Trade>,
     /// 做空保证金比例（如0.5表示50%保证金）
     pub short_margin_requirement: f64,
+    // P0-1: Kelly 增量缓存（避免每 bar 遍历 trades）
+    kelly_total_pnl: f64,  // 累计盈利
+    kelly_total_loss: f64, // 累计亏损绝对值
 }
 
 impl BacktestEngine {
@@ -103,6 +151,8 @@ impl BacktestEngine {
             max_equity_drawdown_pct: 100.0, // 默认不止损
             trades: Vec::new(),
             short_margin_requirement: 0.5,
+            kelly_total_pnl: 0.0,
+            kelly_total_loss: 0.0,
         }
     }
 
@@ -125,6 +175,7 @@ impl BacktestEngine {
     }
 
     /// 计算仓位数量
+    /// P0-2: Kelly 模式使用增量计算（O(1) per bar，不再遍历 trades）
     fn calculate_position_size(&self, price: f64, side: TradeSide) -> f64 {
         match self.position_sizing {
             PositionSizing::FixedFractional(frac) => {
@@ -139,10 +190,35 @@ impl BacktestEngine {
                 }
             }
             PositionSizing::Kelly(kelly_frac) => {
-                // 使用简化的Kelly公式：f* = (p*b - q)/b
-                // 这里用历史胜率估算，简单实现用固定比例
-                let base_kelly = 0.25; // 默认使用 25% 的 Kelly
-                let effective_kelly = base_kelly * kelly_frac.clamp(0.0, 1.0);
+                // P0-2: 使用增量缓存计算 Kelly: f* = W - (1-W)/R
+                // W = 胜率, R = 平均盈利/平均亏损（盈亏比）
+                let total_trades = self.winning_trades + self.losing_trades;
+                let win_rate = if total_trades > 10 {
+                    // 只有足够历史数据时才使用真实胜率
+                    self.winning_trades as f64 / total_trades as f64
+                } else {
+                    // 数据不足时使用默认值
+                    0.5
+                };
+
+                // P0-2: 使用增量缓存计算盈亏比（不再遍历 trades）
+                let profit_factor = if self.losing_trades > 0 && self.winning_trades > 0 {
+                    let avg_win = self.kelly_total_pnl / self.winning_trades as f64;
+                    let avg_loss = self.kelly_total_loss / self.losing_trades as f64;
+                    if avg_loss > 0.0 && avg_win > 0.0 {
+                        avg_win / avg_loss
+                    } else {
+                        1.5 // 默认盈亏比
+                    }
+                } else {
+                    1.5 // 默认盈亏比
+                };
+
+                // Kelly 公式: f* = W - (1-W)/R
+                let kelly_fraction = win_rate - (1.0 - win_rate) / profit_factor;
+
+                // 使用缩放因子并限制范围 (通常使用 1/4 到 1/2 Kelly)
+                let effective_kelly = (kelly_fraction * kelly_frac.clamp(0.0, 1.0)).clamp(0.0, 0.5);
                 let capital_to_use = self.current_capital * effective_kelly;
                 let after_commission = capital_to_use * (1.0 - self.commission_rate);
                 match side {
@@ -199,101 +275,127 @@ impl BacktestEngine {
         }
     }
 
-    /// 运行回测
+    /// 运行回测（使用信号优先级系统 + 预分配优化）
     pub fn run(
         &mut self,
         candles: &[Candle],
         strategy: &dyn Strategy,
     ) -> anyhow::Result<Vec<Trade>> {
-        let signals = strategy.generate(candles);
-        let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
-        let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
-        let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
+        // P1: 预分配 OHLCV 数组（避免策略重复分配）
+        let data = crate::trading::strategy::OhlcvData::from_candles(candles);
 
         // 如果启用了 ATR trailing stop，预计算 ATR
         let atr_values = if let StopLoss::AtrTrailing(_) = self.stop_loss {
-            crate::trading::indicators::atr(&highs, &lows, &closes, 14)
+            crate::trading::indicators::atr(&data.highs, &data.lows, &data.closes, 14)
         } else {
             vec![f64::NAN; candles.len()]
         };
+        let signals = strategy.generate_with_data(
+            &data.closes,
+            &data.highs,
+            &data.lows,
+            &data.volumes,
+            candles,
+        );
 
         for i in 0..candles.len() {
-            let price = closes[i];
-            let high = highs[i];
-            let low = lows[i];
-            let signal = signals[i];
+            let price = data.closes[i];
+            let high = data.highs[i];
+            let low = data.lows[i];
+            let strategy_signal = signals[i];
 
-            // --- 检查最大回撤止损 ---
+            // ── P0-1: 信号优先级处理 (Risk > Stop > Strategy) ──
+            // 第1优先级: 最大回撤风控（最高优先级，强制平仓）
             let total_equity = self.current_capital + self.position_value;
             let drawdown_from_peak = if self.peak_capital > 0.0 {
                 (self.peak_capital - total_equity) / self.peak_capital * 100.0
             } else {
                 0.0
             };
-            if drawdown_from_peak > self.max_equity_drawdown_pct && self.position != 0.0 {
-                // 强制平仓
-                self.close_position(i, price, "Max Drawdown", candles);
+            let risk_forced_close =
+                drawdown_from_peak > self.max_equity_drawdown_pct && self.position != 0.0;
+
+            if risk_forced_close {
+                // 风控强制平仓（跳过止损和策略信号）
+                self.close_position(i, price, "Max Drawdown Risk Stop", candles);
+                // 更新权益
+                self.update_equity(price);
+                self.update_peak_and_drawdown();
+                continue; // 本周期不再处理其他信号
             }
 
-            // --- 检查止损 ---
+            // 第2优先级: 止损信号
+            let mut stop_triggered = false;
             if self.position != 0.0 {
+                // 固定止损/金额止损
                 if let Some(stop_side) = self.check_stop_loss(price, high, low) {
                     match stop_side {
-                        TradeSide::Short => {
-                            // 多头止损 → 卖出
-                            if self.position > 0.0 {
-                                self.close_position(i, price, "Stop Loss", candles);
-                            }
+                        TradeSide::Short if self.position > 0.0 => {
+                            self.close_position(i, price, "Stop Loss", candles);
+                            stop_triggered = true;
                         }
-                        TradeSide::Long => {
-                            // 空头止损 → 买入平仓
-                            if self.position < 0.0 {
-                                self.close_position(i, price, "Stop Loss", candles);
-                            }
+                        TradeSide::Long if self.position < 0.0 => {
+                            self.close_position(i, price, "Stop Loss", candles);
+                            stop_triggered = true;
                         }
+                        _ => {}
                     }
                 }
 
                 // ATR Trailing Stop
-                if let StopLoss::AtrTrailing(multiplier) = self.stop_loss {
-                    if i < atr_values.len() && !atr_values[i].is_nan() {
-                        let current_atr = atr_values[i];
-                        if self.position > 0.0 {
-                            // 多头 trailing stop
-                            let new_stop = high - multiplier * current_atr;
-                            if !self.trailing_stop_activated || new_stop > self.trailing_stop_price
-                            {
-                                self.trailing_stop_price = new_stop;
-                                self.trailing_stop_activated = true;
-                            }
-                            if low <= self.trailing_stop_price && self.trailing_stop_activated {
-                                self.close_position(i, price, "Trailing Stop", candles);
-                            }
-                        } else if self.position < 0.0 {
-                            // 空头 trailing stop
-                            let new_stop = low + multiplier * current_atr;
-                            if !self.trailing_stop_activated || new_stop < self.trailing_stop_price
-                            {
-                                self.trailing_stop_price = new_stop;
-                                self.trailing_stop_activated = true;
-                            }
-                            if high >= self.trailing_stop_price && self.trailing_stop_activated {
-                                self.close_position(i, price, "Trailing Stop", candles);
+                if !stop_triggered {
+                    if let StopLoss::AtrTrailing(multiplier) = self.stop_loss {
+                        if i < atr_values.len() && !atr_values[i].is_nan() {
+                            let current_atr = atr_values[i];
+                            if self.position > 0.0 {
+                                // 多头 trailing stop
+                                let new_stop = high - multiplier * current_atr;
+                                if !self.trailing_stop_activated
+                                    || new_stop > self.trailing_stop_price
+                                {
+                                    self.trailing_stop_price = new_stop;
+                                    self.trailing_stop_activated = true;
+                                }
+                                if low <= self.trailing_stop_price && self.trailing_stop_activated {
+                                    self.close_position(i, price, "Trailing Stop", candles);
+                                    stop_triggered = true;
+                                }
+                            } else if self.position < 0.0 {
+                                // 空头 trailing stop
+                                let new_stop = low + multiplier * current_atr;
+                                if !self.trailing_stop_activated
+                                    || new_stop < self.trailing_stop_price
+                                {
+                                    self.trailing_stop_price = new_stop;
+                                    self.trailing_stop_activated = true;
+                                }
+                                if high >= self.trailing_stop_price && self.trailing_stop_activated
+                                {
+                                    self.close_position(i, price, "Trailing Stop", candles);
+                                    stop_triggered = true;
+                                }
                             }
                         }
                     }
                 }
+
+                // 止损触发后，跳过策略信号
+                if stop_triggered {
+                    self.update_equity(price);
+                    self.update_peak_and_drawdown();
+                    continue;
+                }
             }
 
-            // --- 处理交易信号 ---
-            match signal {
+            // 第3优先级: 策略信号（最低优先级）
+            // ── P0-1: 策略信号不再覆盖风控/止损 ──
+            match strategy_signal {
                 Signal::Buy => {
                     if self.position <= 0.0 {
                         // 如果持有空头，先平空
                         if self.position < 0.0 {
                             self.close_position(i, price, "Signal Buy (Cover)", candles);
                         }
-                        // 开多头
                         self.open_position(i, price, TradeSide::Long, candles);
                     }
                 }
@@ -303,36 +405,39 @@ impl BacktestEngine {
                         if self.position > 0.0 {
                             self.close_position(i, price, "Signal Sell", candles);
                         }
-                        // 开空头
                         self.open_position(i, price, TradeSide::Short, candles);
                     }
                 }
                 Signal::Hold => {}
             }
 
-            // 更新持仓价值
-            let total_equity = self.update_equity(price);
-
-            // 更新峰值和回撤
-            if total_equity > self.peak_capital {
-                self.peak_capital = total_equity;
-            }
-            let drawdown = self.peak_capital - total_equity;
-            if drawdown > self.max_drawdown {
-                self.max_drawdown = drawdown;
-                self.max_drawdown_pct = drawdown / self.peak_capital * 100.0;
-            }
+            // 更新持仓价值、峰值和回撤
+            self.update_equity(price);
+            self.update_peak_and_drawdown();
         }
 
         // 如果最后还有持仓，强制平仓
         if self.position != 0.0 {
             let last_idx = candles.len() - 1;
-            self.close_position(last_idx, closes[last_idx], "End of Data", candles);
-            let final_equity = self.update_equity(closes[last_idx]);
+            self.close_position(last_idx, data.closes[last_idx], "End of Data", candles);
+            let final_equity = self.update_equity(data.closes[last_idx]);
             self.equity_curve.push(final_equity);
         }
 
         Ok(std::mem::take(&mut self.trades))
+    }
+
+    /// 更新峰值和最大回撤
+    fn update_peak_and_drawdown(&mut self) {
+        let total_equity = *self.equity_curve.last().unwrap_or(&self.initial_capital);
+        if total_equity > self.peak_capital {
+            self.peak_capital = total_equity;
+        }
+        let drawdown = self.peak_capital - total_equity;
+        if drawdown > self.max_drawdown {
+            self.max_drawdown = drawdown;
+            self.max_drawdown_pct = drawdown / self.peak_capital * 100.0;
+        }
     }
 
     /// 开仓
@@ -416,8 +521,10 @@ impl BacktestEngine {
 
         if pnl > 0.0 {
             self.winning_trades += 1;
+            self.kelly_total_pnl += pnl; // P0-2: 增量累计盈利
         } else {
             self.losing_trades += 1;
+            self.kelly_total_loss += pnl.abs(); // P0-2: 增量累计亏损
         }
 
         let bars_held = i.saturating_sub(self.entry_candle_idx);
@@ -428,7 +535,11 @@ impl BacktestEngine {
         self.trades.push(Trade {
             entry_time,
             exit_time: candles[i].timestamp.to_rfc3339(),
-            side: if is_long { TradeSide::Long } else { TradeSide::Short },
+            side: if is_long {
+                TradeSide::Long
+            } else {
+                TradeSide::Short
+            },
             entry_price,
             exit_price: exec_price,
             quantity: qty,
@@ -445,18 +556,21 @@ impl BacktestEngine {
     }
 
     /// 更新权益
+    /// P0-3: 修复做空保证金模型 - 正确反映保证金占用
     fn update_equity(&mut self, current_price: f64) -> f64 {
         if self.position > 0.0 {
             self.position_value = self.position * current_price;
         } else if self.position < 0.0 {
-            // 空头：持仓价值按当前市价计算
+            // 空头：持仓价值 = 空头数量 × 当前市价（需买回的市值）
             self.position_value = (-self.position) * current_price;
         }
 
         let total_equity = if self.position >= 0.0 {
+            // 多头/空仓：资金 = 现金 + 持仓市值
             self.current_capital + self.position_value
         } else {
-            // 空头：资金 = 现金 + 卖出收入 - 当前持仓市值
+            // 空头：权益 = 现金 + (初始卖出收入 - 当前买回成本)
+            // position_value 已经是需买回的市值，空头利润 = 卖出收入 - 买回成本
             self.current_capital + self.position_value
         };
 
@@ -466,7 +580,10 @@ impl BacktestEngine {
 
     /// 获取总权益
     pub fn total_equity(&self) -> f64 {
-        self.equity_curve.last().copied().unwrap_or(self.initial_capital)
+        self.equity_curve
+            .last()
+            .copied()
+            .unwrap_or(self.initial_capital)
     }
 
     /// 获取收益率

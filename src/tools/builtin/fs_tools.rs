@@ -1000,3 +1000,554 @@ pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(ListDirTool));
     registry.register(Box::new(GrepTool));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::Tool;
+    use std::io::Write;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("fs_tools_test_{}_{}", std::process::id(), name));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    fn create_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        path
+    }
+
+    fn create_subdir(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let path = parent.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    // ---- GitIgnorePattern tests ----
+
+    #[test]
+    fn test_gitignore_parse_simple_extension() {
+        let tmp = temp_dir("gitignore_simple");
+        let pattern = GitIgnorePattern::parse("*.log", &tmp).unwrap();
+        assert!(pattern.re.is_match("debug.log"));
+        assert!(pattern.re.is_match("src/debug.log"));
+        assert!(!pattern.re.is_match("debug.txt"));
+        cleanup(&tmp);
+    }
+
+    #[test]
+    fn test_gitignore_parse_negated() {
+        let tmp = temp_dir("gitignore_negated");
+        let pattern = GitIgnorePattern::parse("!important.log", &tmp).unwrap();
+        assert!(pattern.negated);
+        assert!(pattern.re.is_match("important.log"));
+        cleanup(&tmp);
+    }
+
+    #[test]
+    fn test_gitignore_parse_dir_only() {
+        let tmp = temp_dir("gitignore_dir");
+        let pattern = GitIgnorePattern::parse("target/", &tmp).unwrap();
+        assert!(pattern.dir_only);
+        cleanup(&tmp);
+    }
+
+    #[test]
+    fn test_gitignore_is_ignored() {
+        let tmp = temp_dir("gitignore_matcher");
+        let mut matcher = GitIgnoreMatcher {
+            patterns: Vec::new(),
+        };
+        if let Some(p) = GitIgnorePattern::parse("*.log", &tmp) {
+            matcher.patterns.push(p);
+        }
+        assert!(matcher.is_ignored("debug.log", false));
+        assert!(matcher.is_ignored("src/app.log", false));
+        assert!(!matcher.is_ignored("src/app.rs", false));
+        cleanup(&tmp);
+    }
+
+    #[test]
+    fn test_gitignore_negation_overrides() {
+        let tmp = temp_dir("gitignore_neg");
+        let mut matcher = GitIgnoreMatcher {
+            patterns: Vec::new(),
+        };
+        if let Some(p) = GitIgnorePattern::parse("*.log", &tmp) {
+            matcher.patterns.push(p);
+        }
+        if let Some(p) = GitIgnorePattern::parse("!keep.log", &tmp) {
+            matcher.patterns.push(p);
+        }
+        assert!(matcher.is_ignored("debug.log", false));
+        assert!(!matcher.is_ignored("keep.log", false));
+        cleanup(&tmp);
+    }
+
+    #[test]
+    fn test_gitignore_dir_only_skips_files() {
+        let tmp = temp_dir("gitignore_dir_only");
+        let mut matcher = GitIgnoreMatcher {
+            patterns: Vec::new(),
+        };
+        if let Some(p) = GitIgnorePattern::parse("build/", &tmp) {
+            matcher.patterns.push(p);
+        }
+        assert!(matcher.is_ignored("build", true));
+        assert!(!matcher.is_ignored("build", false));
+        cleanup(&tmp);
+    }
+
+    // ---- Binary detection tests ----
+
+    #[test]
+    fn test_is_binary_file_by_extension() {
+        assert!(is_binary_file(Path::new("image.png")));
+        assert!(is_binary_file(Path::new("data.zip")));
+        assert!(is_binary_file(Path::new("program.exe")));
+        assert!(!is_binary_file(Path::new("main.rs")));
+        assert!(!is_binary_file(Path::new("readme.md")));
+    }
+
+    #[test]
+    fn test_is_binary_file_no_extension() {
+        assert!(!is_binary_file(Path::new("Makefile")));
+        assert!(!is_binary_file(Path::new("Dockerfile")));
+    }
+
+    #[test]
+    fn test_is_likely_binary_with_null_bytes() {
+        let tmp = temp_dir("binary_detect");
+        let bin_path = tmp.join("test.bin");
+        std::fs::write(&bin_path, &[0x00, 0x01, 0x02, 0x03]).unwrap();
+        assert!(is_likely_binary(&bin_path));
+
+        let txt_path = tmp.join("test.txt");
+        std::fs::write(&txt_path, "hello world").unwrap();
+        assert!(!is_likely_binary(&txt_path));
+
+        cleanup(&tmp);
+    }
+
+    // ---- should_skip_entry tests ----
+
+    #[test]
+    fn test_should_skip_known_dirs() {
+        assert!(should_skip_entry("target", Path::new("target")));
+        assert!(should_skip_entry("node_modules", Path::new("node_modules")));
+        assert!(should_skip_entry(".git", Path::new(".git")));
+        assert!(should_skip_entry("vendor", Path::new("vendor")));
+        assert!(should_skip_entry("__pycache__", Path::new("__pycache__")));
+    }
+
+    #[test]
+    fn test_should_skip_hidden_dirs() {
+        assert!(should_skip_entry(".hidden", Path::new(".hidden")));
+        assert!(should_skip_entry(".idea", Path::new(".idea")));
+        assert!(should_skip_entry(".vscode", Path::new(".vscode")));
+    }
+
+    #[test]
+    fn test_should_not_skip_normal_dirs() {
+        assert!(!should_skip_entry("src", Path::new("src")));
+        assert!(!should_skip_entry("tests", Path::new("tests")));
+        assert!(!should_skip_entry("docs", Path::new("docs")));
+    }
+
+    // ---- ListDirTool tests ----
+
+    #[tokio::test]
+    async fn test_list_dir_flat() {
+        let tmp = temp_dir("list_flat");
+        create_file(&tmp, "hello.txt", "Hello World");
+        create_file(&tmp, "data.json", "{}");
+        create_subdir(&tmp, "subdir");
+
+        let tool = ListDirTool;
+        let params = HashMap::from([(
+            "path".to_string(),
+            serde_json::json!(tmp.to_string_lossy().to_string()),
+        )]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["total_entries"], 3);
+        assert_eq!(result["recursive"], false);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_nonexistent() {
+        let tool = ListDirTool;
+        let params = HashMap::from([(
+            "path".to_string(),
+            serde_json::json!("/nonexistent_path_12345"),
+        )]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_not_a_directory() {
+        let tmp = temp_dir("list_notdir");
+        let file = create_file(&tmp, "test.txt", "content");
+
+        let tool = ListDirTool;
+        let params = HashMap::from([(
+            "path".to_string(),
+            serde_json::json!(file.to_string_lossy().to_string()),
+        )]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("not a directory"));
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_recursive() {
+        let tmp = temp_dir("list_recursive");
+        create_file(&tmp, "root.txt", "root");
+        let sub = create_subdir(&tmp, "sub");
+        create_file(&sub, "child.txt", "child");
+        let sub2 = create_subdir(&sub, "deep");
+        create_file(&sub2, "deep.txt", "deep");
+
+        let tool = ListDirTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("recursive".to_string(), serde_json::json!(true)),
+            ("max_depth".to_string(), serde_json::json!(3)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["recursive"], true);
+        // Should have root.txt + sub dir entry
+        let entries = result["entries"].as_array().unwrap();
+        assert!(entries.len() >= 2);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_with_preview() {
+        let tmp = temp_dir("list_preview");
+        create_file(&tmp, "test.rs", "fn main() {\n    println!(\"hello\");\n}");
+
+        let tool = ListDirTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("max_preview_lines".to_string(), serde_json::json!(2)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let entries = result["entries"].as_array().unwrap();
+        // Find the .rs file entry
+        let rs_entry = entries.iter().find(|e| e["name"] == "test.rs").unwrap();
+        assert!(rs_entry.get("preview").is_some());
+        assert_eq!(rs_entry["preview_lines"], 2);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_default_path() {
+        let tool = ListDirTool;
+        let params = HashMap::new(); // No path → defaults to "."
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert!(result["total_entries"].as_u64().unwrap() > 0);
+    }
+
+    // ---- GrepTool tests ----
+
+    #[tokio::test]
+    async fn test_grep_search_basic() {
+        let tmp = temp_dir("grep_basic");
+        create_file(
+            &tmp,
+            "hello.rs",
+            "fn main() {\n    println!(\"hello world\");\n}\nfn test() {}",
+        );
+        create_file(&tmp, "other.txt", "no match here");
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("fn ")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("file_pattern".to_string(), serde_json::json!("*.rs")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["files_found"], 1);
+        assert!(result["total_matches"].as_u64().unwrap() >= 2);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_missing_pattern() {
+        let tool = GrepTool;
+        let params = HashMap::from([("path".to_string(), serde_json::json!("."))]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required parameter: pattern"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_invalid_regex() {
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("[invalid")),
+            ("path".to_string(), serde_json::json!(".")),
+        ]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid regex"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_nonexistent_dir() {
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("test")),
+            (
+                "path".to_string(),
+                serde_json::json!("/nonexistent_dir_xyz"),
+            ),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_case_sensitive() {
+        let tmp = temp_dir("grep_case");
+        create_file(
+            &tmp,
+            "test.rs",
+            "fn Hello() {}\nfn hello() {}\nfn HELLO() {}",
+        );
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("Hello")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("case_sensitive".to_string(), serde_json::json!(true)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        // Case-sensitive: only exact "Hello" matches
+        assert_eq!(result["total_matches"], 1);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_case_insensitive() {
+        let tmp = temp_dir("grep_nocase");
+        create_file(
+            &tmp,
+            "test.rs",
+            "fn Hello() {}\nfn hello() {}\nfn HELLO() {}",
+        );
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("hello")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("case_sensitive".to_string(), serde_json::json!(false)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        // Case-insensitive: all 3 match
+        assert_eq!(result["total_matches"], 3);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_files_only() {
+        let tmp = temp_dir("grep_files_only");
+        create_file(&tmp, "match1.rs", "fn test() {}");
+        create_file(&tmp, "match2.rs", "fn test2() {}");
+        create_file(&tmp, "nomatch.txt", "no function here");
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("fn ")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("files_only".to_string(), serde_json::json!(true)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["files_found"], 2);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_with_context() {
+        let tmp = temp_dir("grep_context");
+        let content = "line1\nline2\ntarget_line\nline4\nline5";
+        create_file(&tmp, "test.rs", content);
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("target_line")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("context_lines".to_string(), serde_json::json!(1)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_matches"], 1);
+        let matches = result["results"][0]["matches"].as_array().unwrap();
+        let ctx = &matches[0]["context"];
+        let ctx_arr = ctx.as_array().unwrap();
+        assert_eq!(ctx_arr.len(), 3); // 1 before + 1 match + 1 after
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_max_results_limit() {
+        let tmp = temp_dir("grep_max");
+        for i in 0..10 {
+            create_file(&tmp, &format!("file{i}.rs"), &format!("fn test{i}() {{}}"));
+        }
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("fn ")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("max_results".to_string(), serde_json::json!(3)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_matches"], 3);
+        assert!(result["truncated"].as_bool().unwrap());
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_file_pattern_filter() {
+        let tmp = temp_dir("grep_filter");
+        create_file(&tmp, "test.rs", "fn rust_fn() {}");
+        create_file(&tmp, "test.py", "def python_fn(): pass");
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("fn")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("file_pattern".to_string(), serde_json::json!("*.rs")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["files_found"], 1);
+        let file = result["results"][0]["file"].as_str().unwrap();
+        assert!(file.ends_with("test.rs"));
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_skips_binary_files() {
+        let tmp = temp_dir("grep_skip_bin");
+        create_file(&tmp, "test.rs", "fn test() {}");
+        // Create a file with null bytes (binary-like)
+        let bin_path = tmp.join("binary.dat");
+        std::fs::write(&bin_path, &[0x00, 0x01, 0x02]).unwrap();
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("fn")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["files_found"], 1);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_grep_skips_hidden_dirs() {
+        let tmp = temp_dir("grep_skip_hidden");
+        create_file(&tmp, "test.rs", "fn test() {}");
+        let hidden = create_subdir(&tmp, ".hidden");
+        create_file(&hidden, "secret.rs", "fn secret() {}");
+
+        let tool = GrepTool;
+        let params = HashMap::from([
+            ("pattern".to_string(), serde_json::json!("fn ")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["files_found"], 1);
+
+        cleanup(&tmp);
+    }
+
+    // ---- Tool metadata tests ----
+
+    #[tokio::test]
+    async fn test_listdir_tool_metadata() {
+        let tool = ListDirTool;
+        assert_eq!(tool.name(), "list_directory");
+        assert!(tool.description().contains("directory"));
+        assert_eq!(tool.parameters().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_grep_tool_metadata() {
+        let tool = GrepTool;
+        assert_eq!(tool.name(), "grep_search");
+        assert!(tool.description().contains("regex"));
+        assert_eq!(tool.parameters().len(), 8);
+    }
+}

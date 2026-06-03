@@ -54,6 +54,12 @@ impl Tool for SelfModifyTool {
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
+                name: "auto_quality_gate".to_string(),
+                description: "Run automatic quality gates after modification: clippy check + anti-pattern scan (true/false, default: true)".to_string(),
+                required: false,
+                parameter_type: "boolean".to_string(),
+            },
+            ToolParameter {
                 name: "verify".to_string(),
                 description: "Run cargo check after modification (true/false, default: true)".to_string(),
                 required: false,
@@ -145,6 +151,10 @@ impl SelfModifyTool {
             .get("verify")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let auto_quality_gate = params
+            .get("auto_quality_gate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
         let full_path = self.resolve_path(path)?;
         let root = self.project_root()?;
@@ -166,10 +176,21 @@ impl SelfModifyTool {
             None
         };
 
+        let quality_gate_result = if auto_quality_gate && verify {
+            // Only run quality gate if cargo check passed
+            match &verify_result {
+                Some(Ok(v)) if v["status"] == "pass" => Some(self.run_quality_gates_inner(&full_path)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
         Ok(serde_json::json!({
             "status": "ok",
             "path": path,
             "verify": verify_result,
+            "quality_gate": quality_gate_result,
         }))
     }
 
@@ -219,6 +240,10 @@ impl SelfModifyTool {
             .get("verify")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let auto_quality_gate = params
+            .get("auto_quality_gate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
         let full_path = self.resolve_path(path)?;
         let content = std::fs::read_to_string(&full_path)
@@ -242,10 +267,20 @@ impl SelfModifyTool {
             None
         };
 
+        let quality_gate_result = if auto_quality_gate && verify {
+            match &verify_result {
+                Some(Ok(v)) if v["status"] == "pass" => Some(self.run_quality_gates_inner(&full_path)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
         Ok(serde_json::json!({
             "status": "patched",
             "path": path,
             "verify": verify_result,
+            "quality_gate": quality_gate_result,
         }))
     }
 
@@ -276,6 +311,166 @@ impl SelfModifyTool {
                 "output": format!("{}\n{}", stdout, stderr),
             }))
         }
+    }
+
+    /// Run automatic quality gates: clippy lint + anti-pattern scan.
+    /// Returns a structured quality report. Only called after cargo_check passes.
+    fn run_quality_gates_inner(&self, modified_file: &std::path::Path) -> Result<Value, String> {
+        let root = self.project_root()?;
+        let mut gates = Vec::new();
+        let mut warnings = Vec::new();
+        let mut score = 100;
+
+        // Gate 1: Clippy check on modified file
+        let clippy_result = self.run_clippy_on_file(&root, modified_file);
+        let clippy_issues = match &clippy_result {
+            Ok(issues) => issues.clone(),
+            Err(e) => {
+                warnings.push(format!("Clippy check failed: {e}"));
+                Vec::new()
+            }
+        };
+        gates.push(serde_json::json!({
+            "gate": "clippy",
+            "status": if clippy_issues.is_empty() { "pass" } else { "warn" },
+            "issues": clippy_issues.len(),
+            "details": clippy_issues,
+        }));
+        score -= clippy_issues.len() as i64 * 2;
+
+        // Gate 2: Anti-pattern scan (unwrap/expect/dbg!/todo!/unimplemented!/unsafe)
+        let anti_patterns = self.scan_anti_patterns(modified_file);
+        gates.push(serde_json::json!({
+            "gate": "anti_patterns",
+            "status": if anti_patterns.get("total").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { "pass" } else { "warn" },
+            "counts": anti_patterns,
+        }));
+        let total_anti = anti_patterns.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
+        score -= total_anti;
+
+        // Gate 3: File size check
+        if let Ok(content) = std::fs::read_to_string(modified_file) {
+            let line_count = content.lines().count();
+            let file_size_ok = line_count <= 800;
+            gates.push(serde_json::json!({
+                "gate": "file_size",
+                "status": if file_size_ok { "pass" } else { "warn" },
+                "lines": line_count,
+                "max_recommended": 800,
+            }));
+            if !file_size_ok {
+                score -= 5;
+                warnings.push(format!(
+                    "File has {line_count} lines (recommended max: 800). Consider splitting."
+                ));
+            }
+        }
+
+        let grade = if score >= 90 {
+            "A"
+        } else if score >= 75 {
+            "B"
+        } else if score >= 60 {
+            "C"
+        } else if score >= 40 {
+            "D"
+        } else {
+            "F"
+        };
+
+        Ok(serde_json::json!({
+            "status": if score >= 60 { "pass" } else { "warn" },
+            "score": score.max(0),
+            "grade": grade,
+            "gates": gates,
+            "warnings": warnings,
+        }))
+    }
+
+    /// Run clippy on a specific file and return issue summaries.
+    fn run_clippy_on_file(
+        &self,
+        root: &std::path::Path,
+        file: &std::path::Path,
+    ) -> Result<Vec<Value>, String> {
+        let output = Command::new("cargo")
+            .arg("clippy")
+            .arg("--")
+            .arg("-Wclippy::all")
+            .current_dir(root)
+            .output()
+            .map_err(|e| format!("Failed to run clippy: {e}"))?;
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let rel_path = file
+            .strip_prefix(root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let mut issues = Vec::new();
+        for line in stderr.lines() {
+            if line.contains(&rel_path) && (line.contains("warning") || line.contains("error")) {
+                // Extract severity
+                let severity = if line.contains("error") {
+                    "error"
+                } else if line.contains("warn") {
+                    "warning"
+                } else {
+                    "info"
+                };
+                // Extract line number if available
+                let line_num = line
+                    .split(':')
+                    .nth(1)
+                    .and_then(|s| s.parse::<u32>().ok());
+                issues.push(serde_json::json!({
+                    "severity": severity,
+                    "message": line.trim().chars().take(200).collect::<String>(),
+                    "line": line_num,
+                }));
+            }
+        }
+        Ok(issues)
+    }
+
+    /// Scan for anti-patterns in the modified file.
+    fn scan_anti_patterns(&self, file: &std::path::Path) -> Value {
+        let content = match std::fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(_) => {
+                return serde_json::json!({
+                    "unwrap": 0, "expect": 0, "dbg": 0, "todo": 0, "unimplemented": 0, "unsafe": 0, "total": 0,
+                });
+            }
+        };
+
+        // Filter out comments and test code
+        let lines: Vec<&str> = content
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                !trimmed.starts_with("//") && !trimmed.starts_with('*')
+            })
+            .collect();
+        let filtered = lines.join("\n");
+
+        let unwrap_count = filtered.matches(".unwrap()").count();
+        let expect_count = filtered.matches(".expect(").count();
+        let dbg_count = filtered.matches("dbg!").count();
+        let todo_count = filtered.matches("todo!").count();
+        let unimplemented_count = filtered.matches("unimplemented!").count();
+        let unsafe_count = filtered.matches("unsafe ").count();
+        let total = unwrap_count + expect_count + dbg_count + todo_count + unimplemented_count + unsafe_count;
+
+        serde_json::json!({
+            "unwrap": unwrap_count,
+            "expect": expect_count,
+            "dbg": dbg_count,
+            "todo": todo_count,
+            "unimplemented": unimplemented_count,
+            "unsafe": unsafe_count,
+            "total": total,
+        })
     }
 
     fn run_cargo_test(&self) -> Result<Value, String> {

@@ -32,7 +32,8 @@ static RE_PUB_ENUM: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_PUB_TRAIT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^\s*pub\s+(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)").expect("valid regex")
+    Regex::new(r"(?m)^\s*pub\s+(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("valid regex")
 });
 
 static RE_PUB_TYPE: Lazy<Regex> = Lazy::new(|| {
@@ -40,21 +41,20 @@ static RE_PUB_TYPE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_PUB_CONST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^\s*pub\s+const\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^\s=]+)").expect("valid regex")
+    Regex::new(r"(?m)^\s*pub\s+const\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^\s=]+)")
+        .expect("valid regex")
 });
 
 #[allow(dead_code)]
-static RE_DOC_COMMENT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^\s*///\s*(.*)").expect("valid regex")
-});
+static RE_DOC_COMMENT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*///\s*(.*)").expect("valid regex"));
 
 static RE_MODULE_DECL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?m)^\s*pub\s+mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\{|;)").expect("valid regex")
 });
 
-static RE_USE_DECL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^\s*pub\s+use\s+(.+)").expect("valid regex")
-});
+static RE_USE_DECL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^\s*pub\s+use\s+(.+)").expect("valid regex"));
 
 // ============================================================================
 // DocGeneratorTool
@@ -176,8 +176,8 @@ fn collect_rust_files(
     if depth > 10 {
         return Ok(());
     }
-    let read_dir = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read '{}': {e}", dir.display()))?;
+    let read_dir =
+        std::fs::read_dir(dir).map_err(|e| format!("Failed to read '{}': {e}", dir.display()))?;
     for entry in read_dir.filter_map(|e| e.ok()) {
         let p = entry.path();
         if p.is_dir() {
@@ -216,9 +216,21 @@ fn extract_doc_comments(content: &str, line_num: usize) -> String {
         if let Some(line) = lines.get(i) {
             let trimmed = line.trim();
             if trimmed.starts_with("///") {
-                docs.push(trimmed.strip_prefix("///").unwrap_or(trimmed).trim().to_string());
+                docs.push(
+                    trimmed
+                        .strip_prefix("///")
+                        .unwrap_or(trimmed)
+                        .trim()
+                        .to_string(),
+                );
             } else if trimmed.starts_with("//!") {
-                docs.push(trimmed.strip_prefix("//!").unwrap_or(trimmed).trim().to_string());
+                docs.push(
+                    trimmed
+                        .strip_prefix("//!")
+                        .unwrap_or(trimmed)
+                        .trim()
+                        .to_string(),
+                );
             } else if trimmed.is_empty() {
                 continue;
             } else {
@@ -346,8 +358,18 @@ fn parse_module(file_path: &str, content: &str) -> ModuleDoc {
 
     for cap in RE_PUB_FN.captures_iter(content) {
         let name = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
-        let params = cap.get(2).map(|m| m.as_str()).unwrap_or("").trim().to_string();
-        let return_type = cap.get(3).map(|m| m.as_str()).unwrap_or("()").trim().to_string();
+        let params = cap
+            .get(2)
+            .map(|m| m.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let return_type = cap
+            .get(3)
+            .map(|m| m.as_str())
+            .unwrap_or("()")
+            .trim()
+            .to_string();
         let line_num = content[..cap.get(0).unwrap().start()].lines().count();
         let docs = extract_doc_comments(content, line_num);
         pub_functions.push(FnDoc {
@@ -388,7 +410,12 @@ fn parse_module(file_path: &str, content: &str) -> ModuleDoc {
 
     for cap in RE_PUB_CONST.captures_iter(content) {
         let name = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
-        let type_name = cap.get(2).map(|m| m.as_str()).unwrap_or("").trim().to_string();
+        let type_name = cap
+            .get(2)
+            .map(|m| m.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let line_num = content[..cap.get(0).unwrap().start()].lines().count();
         let docs = extract_doc_comments(content, line_num);
         pub_consts.push(ConstDoc {
@@ -499,7 +526,10 @@ impl ModuleDoc {
         if !self.pub_consts.is_empty() {
             md.push_str("### Constants\n\n");
             for c in &self.pub_consts {
-                md.push_str(&format!("- {}{}{}: {}{}{}", bq, c.name, bq, bq, c.type_name, bq));
+                md.push_str(&format!(
+                    "- {}{}{}: {}{}{}",
+                    bq, c.name, bq, bq, c.type_name, bq
+                ));
                 if !c.docs.is_empty() {
                     md.push_str(&format!(" - {}", c.docs));
                 }
@@ -727,9 +757,7 @@ fn generate_architecture(path: &str, recursive: bool) -> Result<Value, String> {
             let use_path = cap.get(1).map(|m| m.as_str()).unwrap_or("");
             if let Some(first) = use_path.split("::").next() {
                 let crate_name = first.trim();
-                if !crate_name.is_empty()
-                    && !["self", "super", "crate"].contains(&crate_name)
-                {
+                if !crate_name.is_empty() && !["self", "super", "crate"].contains(&crate_name) {
                     external_crates.insert(crate_name.to_string());
                 }
             }
@@ -754,7 +782,10 @@ fn generate_architecture(path: &str, recursive: bool) -> Result<Value, String> {
         mermaid.push_str("\n    subgraph External\n");
         for ext in &external_crates {
             let safe_ext = format!("ext_{ext}");
-            mermaid.push_str(&format!("        {}[[\"{}{}{}\"]]\n", safe_ext, bq, ext, bq));
+            mermaid.push_str(&format!(
+                "        {}[[\"{}{}{}\"]]\n",
+                safe_ext, bq, ext, bq
+            ));
         }
         mermaid.push_str("    end\n");
     }

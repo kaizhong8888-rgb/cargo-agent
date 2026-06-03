@@ -4,15 +4,28 @@ use serde_json::Value;
 use std::path::Path;
 
 /// Recursively collect .rs files from a directory.
-fn collect_rust_files(dir: &Path, files: &mut Vec<String>, recursive: bool, depth: usize) -> Result<(), String> {
-    if depth > 20 { return Ok(()); }
+fn collect_rust_files(
+    dir: &Path,
+    files: &mut Vec<String>,
+    recursive: bool,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > 20 {
+        return Ok(());
+    }
     let read_dir = std::fs::read_dir(dir)
         .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
     for entry in read_dir.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_dir() {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-            if name.starts_with('.') || name == "target" || name == "node_modules" { continue; }
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if name.starts_with('.') || name == "target" || name == "node_modules" {
+                continue;
+            }
             if recursive {
                 collect_rust_files(&path, files, true, depth + 1)?;
             }
@@ -35,7 +48,9 @@ pub(super) fn get_git_diff_files() -> Result<Vec<String>, String> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let line = line.trim();
-            if !line.is_empty() { files.push(line.to_string()); }
+            if !line.is_empty() {
+                files.push(line.to_string());
+            }
         }
     }
 
@@ -94,14 +109,18 @@ pub(super) fn collect_files(
     // Filter to only git-changed files if git_diff is enabled
     if git_diff {
         let changed = get_git_diff_files()?;
-        if changed.is_empty() { return Ok(vec![]); }
+        if changed.is_empty() {
+            return Ok(vec![]);
+        }
         let original_count = files.len();
         files.retain(|f| {
             let normalized = f.strip_prefix("./").unwrap_or(f.as_str());
             changed.iter().any(|c| c == normalized || f.ends_with(c))
         });
         let _filtered_total = original_count - files.len();
-        if files.is_empty() { return Ok(vec![]); }
+        if files.is_empty() {
+            return Ok(vec![]);
+        }
     }
 
     Ok(files)

@@ -33,8 +33,7 @@ static RE_IMAGE: Lazy<Regex> =
 static RE_CODE_BLOCK: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?m)^```(\w*)\s*$"#).expect("valid regex"));
 
-static RE_INLINE_CODE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"`([^`]+)`"#).expect("valid regex"));
+static RE_INLINE_CODE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"`([^`]+)`"#).expect("valid regex"));
 
 static RE_BOLD: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"\*\*([^*]+)\*\*|__([^_]+)__"#).expect("valid regex"));
@@ -130,7 +129,10 @@ impl Tool for MarkdownProcessorTool {
             .ok_or("Missing required parameter: action")?;
 
         let content = load_content(params)?;
-        let max_depth = params.get("max_depth").and_then(|v| v.as_u64()).unwrap_or(6) as usize;
+        let max_depth = params
+            .get("max_depth")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(6) as usize;
         let base_path = params.get("base_path").and_then(|v| v.as_str());
 
         match action {
@@ -241,7 +243,10 @@ fn md_to_html(md: &str) -> String {
             let level = cap.get(1).map(|m| m.as_str().len()).unwrap_or(1);
             let text = cap.get(2).map(|m| m.as_str()).unwrap_or("");
             let text_html = inline_md_to_html(text);
-            let id = text.to_lowercase().replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+            let id = text
+                .to_lowercase()
+                .replace(' ', "-")
+                .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
             html.push_str(&format!("<h{level} id=\"{id}\">{text_html}</h{level}>\n"));
             continue;
         }
@@ -255,7 +260,10 @@ fn md_to_html(md: &str) -> String {
         // Blockquote
         if let Some(cap) = RE_BLOCKQUOTE.captures(line) {
             let text = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-            html.push_str(&format!("<blockquote><p>{}</p></blockquote>\n", inline_md_to_html(text)));
+            html.push_str(&format!(
+                "<blockquote><p>{}</p></blockquote>\n",
+                inline_md_to_html(text)
+            ));
             continue;
         }
 
@@ -263,18 +271,21 @@ fn md_to_html(md: &str) -> String {
         if RE_LIST_ITEM.is_match(line) {
             let text = line.trim_start_matches(['-', '*', '+', ' ']);
             // Handle checkboxes
-            let text = if text.starts_with("[ ] ") || text.starts_with("[x] ") || text.starts_with("[X] ") {
-                &text[4..]
-            } else {
-                text
-            };
+            let text =
+                if text.starts_with("[ ] ") || text.starts_with("[x] ") || text.starts_with("[X] ")
+                {
+                    &text[4..]
+                } else {
+                    text
+                };
             html.push_str(&format!("<li>{}</li>\n", inline_md_to_html(text)));
             continue;
         }
 
         // Ordered list
         if RE_ORDERED_LIST.is_match(line) {
-            let text = line.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ');
+            let text =
+                line.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ');
             html.push_str(&format!("<li>{}</li>\n", inline_md_to_html(text)));
             continue;
         }
@@ -315,36 +326,63 @@ fn inline_md_to_html(text: &str) -> String {
     let mut result = text.to_string();
 
     // Images (must be before links)
-    result = RE_IMAGE.replace_all(&result, |caps: &regex::Captures| {
-        let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let src = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        format!("<img src=\"{}\" alt=\"{}\">", escape_html(src), escape_html(alt))
-    }).to_string();
+    result = RE_IMAGE
+        .replace_all(&result, |caps: &regex::Captures| {
+            let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let src = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            format!(
+                "<img src=\"{}\" alt=\"{}\">",
+                escape_html(src),
+                escape_html(alt)
+            )
+        })
+        .to_string();
 
     // Links
-    result = RE_LINK.replace_all(&result, |caps: &regex::Captures| {
-        let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let href = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-        format!("<a href=\"{}\">{}</a>", escape_html(href), escape_html(text))
-    }).to_string();
+    result = RE_LINK
+        .replace_all(&result, |caps: &regex::Captures| {
+            let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let href = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            format!(
+                "<a href=\"{}\">{}</a>",
+                escape_html(href),
+                escape_html(text)
+            )
+        })
+        .to_string();
 
     // Bold
-    result = RE_BOLD.replace_all(&result, |caps: &regex::Captures| {
-        let text = caps.get(1).or(caps.get(2)).map(|m| m.as_str()).unwrap_or("");
-        format!("<strong>{}</strong>", text)
-    }).to_string();
+    result = RE_BOLD
+        .replace_all(&result, |caps: &regex::Captures| {
+            let text = caps
+                .get(1)
+                .or(caps.get(2))
+                .map(|m| m.as_str())
+                .unwrap_or("");
+            format!("<strong>{}</strong>", text)
+        })
+        .to_string();
 
     // Italic
-    result = RE_ITALIC.replace_all(&result, |caps: &regex::Captures| {
-        let text = caps.get(1).or(caps.get(2)).or(caps.get(3)).map(|m| m.as_str()).unwrap_or("");
-        format!("<em>{}</em>", text)
-    }).to_string();
+    result = RE_ITALIC
+        .replace_all(&result, |caps: &regex::Captures| {
+            let text = caps
+                .get(1)
+                .or(caps.get(2))
+                .or(caps.get(3))
+                .map(|m| m.as_str())
+                .unwrap_or("");
+            format!("<em>{}</em>", text)
+        })
+        .to_string();
 
     // Inline code
-    result = RE_INLINE_CODE.replace_all(&result, |caps: &regex::Captures| {
-        let code = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        format!("<code>{}</code>", escape_html(code))
-    }).to_string();
+    result = RE_INLINE_CODE
+        .replace_all(&result, |caps: &regex::Captures| {
+            let code = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            format!("<code>{}</code>", escape_html(code))
+        })
+        .to_string();
 
     result
 }
@@ -397,7 +435,10 @@ fn md_to_text(md: &str) -> String {
         clean = RE_INLINE_CODE.replace_all(&clean, "$1").to_string();
 
         // Remove blockquote markers
-        clean = clean.trim_start_matches("> ").trim_start_matches('>').to_string();
+        clean = clean
+            .trim_start_matches("> ")
+            .trim_start_matches('>')
+            .to_string();
 
         // Remove list markers
         if RE_LIST_ITEM.is_match(&clean) {
@@ -440,7 +481,10 @@ fn generate_toc(md: &str, max_depth: usize) -> Vec<Value> {
             continue;
         }
         let text = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-        let anchor = text.to_lowercase().replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+        let anchor = text
+            .to_lowercase()
+            .replace(' ', "-")
+            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
 
         toc.push(json!({
             "level": level,
@@ -539,7 +583,8 @@ fn lint_markdown(md: &str) -> Vec<Value> {
     }
 
     // Check heading hierarchy (skip levels)
-    let headings: Vec<_> = RE_HEADING.captures_iter(md)
+    let headings: Vec<_> = RE_HEADING
+        .captures_iter(md)
         .filter_map(|c| c.get(1).map(|m| m.as_str().len()))
         .collect();
 
@@ -637,27 +682,34 @@ fn transform_markdown(md: &str) -> String {
     let mut result = md.to_string();
 
     // Normalize links: remove trailing spaces in URLs
-    result = RE_LINK.replace_all(&result, |caps: &regex::Captures| {
-        let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let href = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim_end();
-        format!("[{}]({})", text, href)
-    }).to_string();
+    result = RE_LINK
+        .replace_all(&result, |caps: &regex::Captures| {
+            let text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let href = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim_end();
+            format!("[{}]({})", text, href)
+        })
+        .to_string();
 
     // Normalize images
-    result = RE_IMAGE.replace_all(&result, |caps: &regex::Captures| {
-        let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let src = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim_end();
-        format!("![{}]({})", alt, src)
-    }).to_string();
+    result = RE_IMAGE
+        .replace_all(&result, |caps: &regex::Captures| {
+            let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let src = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim_end();
+            format!("![{}]({})", alt, src)
+        })
+        .to_string();
 
     // Fix heading spacing (ensure exactly one space after #)
     result = regex::Regex::new(r#"^(#+)\s+(.+)$"#)
         .ok()
-        .map(|re| re.replace_all(&result, |caps: &regex::Captures| {
-            let hashes = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            let text = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            format!("{} {}", hashes, text)
-        }).to_string())
+        .map(|re| {
+            re.replace_all(&result, |caps: &regex::Captures| {
+                let hashes = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let text = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                format!("{} {}", hashes, text)
+            })
+            .to_string()
+        })
         .unwrap_or(result);
 
     result
@@ -682,7 +734,11 @@ fn validate_links(md: &str, base_path: Option<&str>) -> Result<Vec<Value>, Strin
         let href = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 
         // Skip external URLs and anchors
-        if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") || href.starts_with('#') {
+        if href.starts_with("http://")
+            || href.starts_with("https://")
+            || href.starts_with("mailto:")
+            || href.starts_with('#')
+        {
             results.push(json!({
                 "text": text,
                 "href": href,
@@ -798,7 +854,10 @@ mod tests {
         let tool = MarkdownProcessorTool;
         let mut params = HashMap::new();
         params.insert("action".to_string(), json!("to_html"));
-        params.insert("content".to_string(), json!("[click](http://example.com)\n\n![alt](img.png)"));
+        params.insert(
+            "content".to_string(),
+            json!("[click](http://example.com)\n\n![alt](img.png)"),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         let html = result["html"].as_str().unwrap();
@@ -839,7 +898,10 @@ mod tests {
         let tool = MarkdownProcessorTool;
         let mut params = HashMap::new();
         params.insert("action".to_string(), json!("toc"));
-        params.insert("content".to_string(), json!("# Intro\n\n## Section 1\n\n### Subsection\n\n## Section 2"));
+        params.insert(
+            "content".to_string(),
+            json!("# Intro\n\n## Section 1\n\n### Subsection\n\n## Section 2"),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["heading_count"], 4);
@@ -916,7 +978,10 @@ mod tests {
         let tool = MarkdownProcessorTool;
         let mut params = HashMap::new();
         params.insert("action".to_string(), json!("stats"));
-        params.insert("content".to_string(), json!("# Title\n\nSome text here.\n\n## Section\n\n- item 1\n- item 2"));
+        params.insert(
+            "content".to_string(),
+            json!("# Title\n\nSome text here.\n\n## Section\n\n- item 1\n- item 2"),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         let stats = &result["stats"];
@@ -930,7 +995,10 @@ mod tests {
         let tool = MarkdownProcessorTool;
         let mut params = HashMap::new();
         params.insert("action".to_string(), json!("stats"));
-        params.insert("content".to_string(), json!("```\nword1 word2 word3 word4 word5\n```\n\nactual words"));
+        params.insert(
+            "content".to_string(),
+            json!("```\nword1 word2 word3 word4 word5\n```\n\nactual words"),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         let stats = &result["stats"];
@@ -944,7 +1012,10 @@ mod tests {
         let tool = MarkdownProcessorTool;
         let mut params = HashMap::new();
         params.insert("action".to_string(), json!("transform"));
-        params.insert("content".to_string(), json!("[click](http://example.com   )"));
+        params.insert(
+            "content".to_string(),
+            json!("[click](http://example.com   )"),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         let content = result["content"].as_str().unwrap();
@@ -986,7 +1057,9 @@ mod tests {
         let params = HashMap::new();
         let result = tool.execute(&params).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required parameter: action"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required parameter: action"));
     }
 
     #[tokio::test]
@@ -997,7 +1070,10 @@ mod tests {
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown action"));
     }
 
     #[tokio::test]

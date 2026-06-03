@@ -31,7 +31,11 @@ pub(super) fn shorten_path(path: &str) -> &str {
 
 #[inline]
 pub(super) fn plural(count: u64, word: &str) -> String {
-    if count == 1 { format!("{count} {word}") } else { format!("{count} {word}s") }
+    if count == 1 {
+        format!("{count} {word}")
+    } else {
+        format!("{count} {word}s")
+    }
 }
 
 /// Generate a human-readable text report.
@@ -52,7 +56,12 @@ pub(super) fn generate_text_report(
     );
     report.push_str(&format!("Files reviewed: {}\n", files.len()));
     report.push_str(&format!("Total issues found: {total_issues}\n"));
-    report.push_str(&format!("  {e} Errors | {w} Warnings | {i} Info\n\n", e = total_errors, w = total_warnings, i = total_info));
+    report.push_str(&format!(
+        "  {e} Errors | {w} Warnings | {i} Info\n\n",
+        e = total_errors,
+        w = total_warnings,
+        i = total_info
+    ));
 
     report.push_str("─── File Summary ──────────────────────────────────────────────\n");
     for fs in file_summaries {
@@ -63,8 +72,11 @@ pub(super) fn generate_text_report(
         let lines = fs["code_lines"].as_u64().unwrap_or(0);
         report.push_str(&format!(
             "  {:<40} {:>4} issues ({}, {}, {}) - {} lines\n",
-            file, errs + warns + infos,
-            plural(errs, "error"), plural(warns, "warning"), plural(infos, "info"),
+            file,
+            errs + warns + infos,
+            plural(errs, "error"),
+            plural(warns, "warning"),
+            plural(infos, "info"),
             lines,
         ));
     }
@@ -72,22 +84,37 @@ pub(super) fn generate_text_report(
 
     if !issues.is_empty() {
         report.push_str("─── Issues ────────────────────────────────────────────────────\n\n");
-        let errors: Vec<&ReviewIssue> = issues.iter().filter(|i| matches!(i.severity, Severity::Error)).collect();
-        let warnings: Vec<&ReviewIssue> = issues.iter().filter(|i| matches!(i.severity, Severity::Warning)).collect();
-        let infos: Vec<&ReviewIssue> = issues.iter().filter(|i| matches!(i.severity, Severity::Info)).collect();
+        let errors: Vec<&ReviewIssue> = issues
+            .iter()
+            .filter(|i| matches!(i.severity, Severity::Error))
+            .collect();
+        let warnings: Vec<&ReviewIssue> = issues
+            .iter()
+            .filter(|i| matches!(i.severity, Severity::Warning))
+            .collect();
+        let infos: Vec<&ReviewIssue> = issues
+            .iter()
+            .filter(|i| matches!(i.severity, Severity::Info))
+            .collect();
 
         for (label, icon, group) in [
             ("ERRORS", "🔴", &errors),
             ("WARNINGS", "🟡", &warnings),
             ("INFO", "🔵", &infos),
         ] {
-            if group.is_empty() { continue; }
+            if group.is_empty() {
+                continue;
+            }
             report.push_str(&format!("{icon} {label} ({})\n", group.len()));
             report.push_str("   ──────────────────────────────────────────────────────\n");
             for issue in group.iter() {
                 report.push_str(&format!(
                     "   [{:<6}] {}:{}\n   {:>10} {}\n",
-                    issue.check, shorten_path(&issue.file), issue.line, "", issue.message,
+                    issue.check,
+                    shorten_path(&issue.file),
+                    issue.line,
+                    "",
+                    issue.message,
                 ));
                 if let Some(rec) = &issue.recommendation {
                     report.push_str(&format!("   {:>10} 💡 {}\n\n", "", rec));
@@ -98,7 +125,10 @@ pub(super) fn generate_text_report(
         }
 
         report.push_str("\n─── Check Summary ───────────────────────────────────────────\n");
-        report.push_str(&format!("  {:<20} {:>5} {:>5} {:>5}\n", "Check", "Errors", "Warn.", "Info"));
+        report.push_str(&format!(
+            "  {:<20} {:>5} {:>5} {:>5}\n",
+            "Check", "Errors", "Warn.", "Info"
+        ));
         report.push_str(&format!("  {}\n", "-".repeat(37)));
         let mut check_counts: HashMap<String, (u32, u32, u32)> = HashMap::new();
         for issue in issues {
@@ -137,17 +167,20 @@ pub(super) fn generate_json_report(
     total_info: u32,
     _checks: &ActiveChecks,
 ) -> Result<Value, String> {
-    let json_issues: Vec<Value> = issues.iter().map(|i| {
-        serde_json::json!({
-            "severity": i.severity.as_str(),
-            "check": i.check,
-            "file": i.file,
-            "line": i.line,
-            "column": i.column,
-            "message": i.message,
-            "recommendation": i.recommendation,
+    let json_issues: Vec<Value> = issues
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "severity": i.severity.as_str(),
+                "check": i.check,
+                "file": i.file,
+                "line": i.line,
+                "column": i.column,
+                "message": i.message,
+                "recommendation": i.recommendation,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::json!({
         "status": "ok", "format": "json",
@@ -181,12 +214,20 @@ pub(super) fn generate_github_actions_report(
             Severity::Warning => "warning",
             Severity::Info => "notice",
         };
-        let message = issue.message.replace('%', "%25").replace('\n', "%0A").replace('\r', "%0D");
+        let message = issue
+            .message
+            .replace('%', "%25")
+            .replace('\n', "%0A")
+            .replace('\r', "%0D");
         let title = format!("{}/{}", issue.check, issue.severity.as_str().to_lowercase());
         annotations.push_str(&format!(
             "::{severity_label} file={file},line={line},col={col},title={title}::{message}\n",
-            severity_label = severity_label, file = issue.file,
-            line = issue.line, col = issue.column, title = title, message = message,
+            severity_label = severity_label,
+            file = issue.file,
+            line = issue.line,
+            col = issue.column,
+            title = title,
+            message = message,
         ));
     }
 
@@ -261,19 +302,46 @@ pub(super) fn generate_report(
     let mut sorted_issues = all_issues.to_vec();
     sorted_issues.sort_by(|a, b| {
         let sev_cmp = (b.severity as u8).cmp(&(a.severity as u8));
-        if sev_cmp != std::cmp::Ordering::Equal { sev_cmp } else { a.file.cmp(&b.file) }
+        if sev_cmp != std::cmp::Ordering::Equal {
+            sev_cmp
+        } else {
+            a.file.cmp(&b.file)
+        }
     });
 
     match effective_format {
-        "json" => generate_json_report(&sorted_issues, file_summaries, files, total_errors, total_warnings, total_info, active_checks),
-        "github-actions" | "github_actions" => generate_github_actions_report(&sorted_issues, total_errors, total_warnings, total_info),
-        "gitlab-ci" | "gitlab_ci" => generate_gitlab_ci_report(&sorted_issues, total_errors, total_warnings, total_info),
-        _ => generate_text_report(&sorted_issues, file_summaries, files, total_errors, total_warnings, total_info),
+        "json" => generate_json_report(
+            &sorted_issues,
+            file_summaries,
+            files,
+            total_errors,
+            total_warnings,
+            total_info,
+            active_checks,
+        ),
+        "github-actions" | "github_actions" => {
+            generate_github_actions_report(&sorted_issues, total_errors, total_warnings, total_info)
+        }
+        "gitlab-ci" | "gitlab_ci" => {
+            generate_gitlab_ci_report(&sorted_issues, total_errors, total_warnings, total_info)
+        }
+        _ => generate_text_report(
+            &sorted_issues,
+            file_summaries,
+            files,
+            total_errors,
+            total_warnings,
+            total_info,
+        ),
     }
 }
 
 /// Write report to file.
-pub(super) fn write_report(result: &mut Value, out_path: &str, effective_format: &str) -> Result<(), String> {
+pub(super) fn write_report(
+    result: &mut Value,
+    out_path: &str,
+    effective_format: &str,
+) -> Result<(), String> {
     let report_content = if result.get("report").and_then(|v| v.as_str()).is_some() {
         result["report"].as_str().unwrap_or_default().to_string()
     } else if effective_format == "json" {
@@ -287,13 +355,19 @@ pub(super) fn write_report(result: &mut Value, out_path: &str, effective_format:
     match std::fs::write(out_path, &report_content) {
         Ok(_) => {
             if let Some(obj) = result.as_object_mut() {
-                obj.insert("output_file".to_string(), Value::String(out_path.to_string()));
+                obj.insert(
+                    "output_file".to_string(),
+                    Value::String(out_path.to_string()),
+                );
                 obj.insert("output_saved".to_string(), Value::Bool(true));
             }
         }
         Err(e) => {
             if let Some(obj) = result.as_object_mut() {
-                obj.insert("output_error".to_string(), Value::String(format!("Failed to write report to '{}': {}", out_path, e)));
+                obj.insert(
+                    "output_error".to_string(),
+                    Value::String(format!("Failed to write report to '{}': {}", out_path, e)),
+                );
             }
         }
     }
@@ -302,8 +376,8 @@ pub(super) fn write_report(result: &mut Value, out_path: &str, effective_format:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::config::{ReviewIssue, Severity};
+    use super::*;
 
     #[test]
     fn test_resolve_format_text_default() {
@@ -321,8 +395,12 @@ mod tests {
         std::env::remove_var("GITLAB_CI");
         let result = resolve_format("auto");
         assert_eq!(result, "text");
-        if let Some(v) = old_gh { std::env::set_var("GITHUB_ACTIONS", v); }
-        if let Some(v) = old_gl { std::env::set_var("GITLAB_CI", v); }
+        if let Some(v) = old_gh {
+            std::env::set_var("GITHUB_ACTIONS", v);
+        }
+        if let Some(v) = old_gl {
+            std::env::set_var("GITLAB_CI", v);
+        }
     }
 
     #[test]
@@ -356,9 +434,25 @@ mod tests {
         ];
         let result = generate_github_actions_report(&issues, 1, 1, 0).unwrap();
         let report = result["report"].as_str().unwrap();
-        assert!(report.contains("::error file=src/main.rs,line=10,col=5,title=unsafe/error::Unsafe block detected."), "Should contain GitHub error annotation, got: {}", report);
-        assert!(report.contains("::warning file=src/lib.rs,line=25,col=1,title=style/warning::Long line."), "Should contain GitHub warning annotation, got: {}", report);
-        assert!(report.contains("::notice title=Code Review Summary"), "Should contain summary notice, got: {}", report);
+        assert!(
+            report.contains(
+                "::error file=src/main.rs,line=10,col=5,title=unsafe/error::Unsafe block detected."
+            ),
+            "Should contain GitHub error annotation, got: {}",
+            report
+        );
+        assert!(
+            report.contains(
+                "::warning file=src/lib.rs,line=25,col=1,title=style/warning::Long line."
+            ),
+            "Should contain GitHub warning annotation, got: {}",
+            report
+        );
+        assert!(
+            report.contains("::notice title=Code Review Summary"),
+            "Should contain summary notice, got: {}",
+            report
+        );
     }
 
     #[test]
@@ -407,9 +501,33 @@ mod tests {
     #[test]
     fn test_gitlab_ci_severity_mapping() {
         let issues = vec![
-            ReviewIssue { severity: Severity::Error, check: "err".to_string(), file: "a.rs".to_string(), line: 1, column: 1, message: "E".to_string(), recommendation: None },
-            ReviewIssue { severity: Severity::Warning, check: "warn".to_string(), file: "a.rs".to_string(), line: 2, column: 1, message: "W".to_string(), recommendation: None },
-            ReviewIssue { severity: Severity::Info, check: "info".to_string(), file: "a.rs".to_string(), line: 3, column: 1, message: "I".to_string(), recommendation: None },
+            ReviewIssue {
+                severity: Severity::Error,
+                check: "err".to_string(),
+                file: "a.rs".to_string(),
+                line: 1,
+                column: 1,
+                message: "E".to_string(),
+                recommendation: None,
+            },
+            ReviewIssue {
+                severity: Severity::Warning,
+                check: "warn".to_string(),
+                file: "a.rs".to_string(),
+                line: 2,
+                column: 1,
+                message: "W".to_string(),
+                recommendation: None,
+            },
+            ReviewIssue {
+                severity: Severity::Info,
+                check: "info".to_string(),
+                file: "a.rs".to_string(),
+                line: 3,
+                column: 1,
+                message: "I".to_string(),
+                recommendation: None,
+            },
         ];
         let result = generate_gitlab_ci_report(&issues, 1, 1, 1).unwrap();
         let report = result["report"].as_array().unwrap();

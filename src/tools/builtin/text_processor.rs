@@ -30,14 +30,16 @@ impl Tool for TextProcessor {
             },
             ToolParameter {
                 name: "text".into(),
-                description: "Input text to process (required for most actions except uuid/random)".into(),
+                description: "Input text to process (required for most actions except uuid/random)"
+                    .into(),
                 required: false,
                 parameter_type: "string".into(),
             },
             ToolParameter {
                 name: "case_style".into(),
                 description: "Target case style for 'case' action: snake, camel, pascal, kebab, \
-                              screaming_snake, title, upper, lower".into(),
+                              screaming_snake, title, upper, lower"
+                    .into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -46,7 +48,8 @@ impl Tool for TextProcessor {
                 description: "Sub-mode for certain actions: \
                               base64→encode/decode, url→encode/decode, \
                               trim→left/right/both, pad→left/right/center, \
-                              html→escape/unescape, regex→find/replace/count".into(),
+                              html→escape/unescape, regex→find/replace/count"
+                    .into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -65,7 +68,8 @@ impl Tool for TextProcessor {
             ToolParameter {
                 name: "count".into(),
                 description: "Repeat count for 'repeat' action, \
-                              or random string length for 'random' action (default: 10)".into(),
+                              or random string length for 'random' action (default: 10)"
+                    .into(),
                 required: false,
                 parameter_type: "integer".into(),
             },
@@ -77,7 +81,8 @@ impl Tool for TextProcessor {
             },
             ToolParameter {
                 name: "items".into(),
-                description: "JSON array of strings for 'join' action, or string for 'split'".into(),
+                description: "JSON array of strings for 'join' action, or string for 'split'"
+                    .into(),
                 required: false,
                 parameter_type: "array".into(),
             },
@@ -89,14 +94,16 @@ impl Tool for TextProcessor {
             },
             ToolParameter {
                 name: "replacement".into(),
-                description: "Replacement string for 'regex' replace mode (supports $1, $2, etc.)".into(),
+                description: "Replacement string for 'regex' replace mode (supports $1, $2, etc.)"
+                    .into(),
                 required: false,
                 parameter_type: "string".into(),
             },
             ToolParameter {
                 name: "char_set".into(),
                 description: "Character set for 'random' action: alphanumeric, alpha, numeric, \
-                              hex, ascii (default: alphanumeric)".into(),
+                              hex, ascii (default: alphanumeric)"
+                    .into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -198,10 +205,7 @@ fn get_text(params: &HashMap<String, Value>) -> Result<String, String> {
 }
 
 fn get_int(params: &HashMap<String, Value>, key: &str, default: i64) -> i64 {
-    params
-        .get(key)
-        .and_then(|v| v.as_i64())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_i64()).unwrap_or(default)
 }
 
 fn get_str<'a>(params: &'a HashMap<String, Value>, key: &str, default: &'a str) -> &'a str {
@@ -290,10 +294,7 @@ fn action_count(params: &HashMap<String, Value>) -> Result<Value, String> {
         .count();
 
     // Count paragraphs
-    let paragraphs = text
-        .split("\n\n")
-        .filter(|p| !p.trim().is_empty())
-        .count();
+    let paragraphs = text.split("\n\n").filter(|p| !p.trim().is_empty()).count();
 
     Ok(serde_json::json!({
         "chars": chars,
@@ -337,10 +338,8 @@ fn action_base64(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     match mode {
         "encode" => {
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                text.as_bytes(),
-            );
+            let encoded =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, text.as_bytes());
             Ok(serde_json::json!({
                 "result": encoded,
                 "mode": "encode",
@@ -349,13 +348,12 @@ fn action_base64(params: &HashMap<String, Value>) -> Result<Value, String> {
             }))
         }
         "decode" => {
-            let decoded = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                text.trim(),
-            )
-            .map_err(|e| format!("Base64 decode error: {}", e))?;
-            let result = String::from_utf8(decoded.clone())
-                .map_err(|_| "Decoded bytes are not valid UTF-8. Use 'bytes' field for binary data.".to_string())?;
+            let decoded =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, text.trim())
+                    .map_err(|e| format!("Base64 decode error: {}", e))?;
+            let result = String::from_utf8(decoded.clone()).map_err(|_| {
+                "Decoded bytes are not valid UTF-8. Use 'bytes' field for binary data.".to_string()
+            })?;
             Ok(serde_json::json!({
                 "result": result,
                 "mode": "decode",
@@ -363,10 +361,8 @@ fn action_base64(params: &HashMap<String, Value>) -> Result<Value, String> {
             }))
         }
         "encode_url" => {
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::URL_SAFE,
-                text.as_bytes(),
-            );
+            let encoded =
+                base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE, text.as_bytes());
             Ok(serde_json::json!({
                 "result": encoded,
                 "mode": "encode_url",
@@ -374,11 +370,9 @@ fn action_base64(params: &HashMap<String, Value>) -> Result<Value, String> {
             }))
         }
         "decode_url" => {
-            let decoded = base64::Engine::decode(
-                &base64::engine::general_purpose::URL_SAFE,
-                text.trim(),
-            )
-            .map_err(|e| format!("Base64 URL decode error: {}", e))?;
+            let decoded =
+                base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE, text.trim())
+                    .map_err(|e| format!("Base64 URL decode error: {}", e))?;
             let result = String::from_utf8(decoded)
                 .map_err(|_| "Decoded bytes are not valid UTF-8.".to_string())?;
             Ok(serde_json::json!({
@@ -406,8 +400,8 @@ fn action_url(params: &HashMap<String, Value>) -> Result<Value, String> {
             }))
         }
         "decode" => {
-            let decoded = urlencoding::decode(&text)
-                .map_err(|e| format!("URL decode error: {}", e))?;
+            let decoded =
+                urlencoding::decode(&text).map_err(|e| format!("URL decode error: {}", e))?;
             Ok(serde_json::json!({
                 "result": decoded.to_string(),
                 "mode": "decode"
@@ -579,7 +573,9 @@ fn action_random(params: &HashMap<String, Value>) -> Result<Value, String> {
     let char_set = get_str(params, "char_set", "alphanumeric");
 
     let chars: &[u8] = match char_set {
-        "alphanumeric" | "alnum" => b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+        "alphanumeric" | "alnum" => {
+            b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        }
         "alpha" => b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
         "numeric" | "digits" => b"0123456789",
         "hex" | "hexadecimal" => b"0123456789abcdef",
@@ -590,7 +586,9 @@ fn action_random(params: &HashMap<String, Value>) -> Result<Value, String> {
                 ascii_chars.push(c);
             }
             let mut rng = rand::thread_rng();
-            let result: String = (0..length).map(|_| rng.gen_range(32u8..=126u8) as char).collect();
+            let result: String = (0..length)
+                .map(|_| rng.gen_range(32u8..=126u8) as char)
+                .collect();
             return Ok(serde_json::json!({
                 "result": result,
                 "length": length,
@@ -688,13 +686,7 @@ fn action_slugify(params: &HashMap<String, Value>) -> Result<Value, String> {
     let slug: String = text
         .to_lowercase()
         .chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect::<String>()
         .split('-')
         .filter(|s| !s.is_empty())
@@ -824,10 +816,7 @@ fn action_join(params: &HashMap<String, Value>) -> Result<Value, String> {
     // Try to get items from JSON array parameter
     if let Some(items) = params.get("items") {
         if let Some(arr) = items.as_array() {
-            let strings: Vec<&str> = arr
-                .iter()
-                .filter_map(|v| v.as_str())
-                .collect();
+            let strings: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
             if strings.len() != arr.len() {
                 return Err("All items in the array must be strings".to_string());
             }
@@ -842,11 +831,10 @@ fn action_join(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     // Fallback: try to parse text as JSON array
     let text = get_text(params)?;
-    let parsed: Vec<String> = serde_json::from_str(&text)
-        .map_err(|_| {
-            "Could not parse 'text' as JSON array. Provide 'items' parameter as JSON array of strings."
-                .to_string()
-        })?;
+    let parsed: Vec<String> = serde_json::from_str(&text).map_err(|_| {
+        "Could not parse 'text' as JSON array. Provide 'items' parameter as JSON array of strings."
+            .to_string()
+    })?;
 
     let result = parsed.join(separator);
     Ok(serde_json::json!({
@@ -1114,7 +1102,10 @@ mod tests {
     #[test]
     fn test_truncate_long() {
         let mut params = HashMap::new();
-        params.insert("text".into(), Value::String("Hello, World! This is a test.".into()));
+        params.insert(
+            "text".into(),
+            Value::String("Hello, World! This is a test.".into()),
+        );
         params.insert("width".into(), Value::Number(10.into()));
         let result = action_truncate(&params).unwrap();
         assert!(result["result"].as_str().unwrap().contains("..."));
@@ -1221,7 +1212,10 @@ mod tests {
     #[test]
     fn test_slugify() {
         let mut params = HashMap::new();
-        params.insert("text".into(), Value::String("Hello World! This is a Test.".into()));
+        params.insert(
+            "text".into(),
+            Value::String("Hello World! This is a Test.".into()),
+        );
         let result = action_slugify(&params).unwrap();
         assert_eq!(result["result"], "hello-world-this-is-a-test");
     }
@@ -1253,7 +1247,10 @@ mod tests {
     fn test_regex_test() {
         let mut params = HashMap::new();
         params.insert("text".into(), Value::String("hello@example.com".into()));
-        params.insert("pattern".into(), Value::String(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$".into()));
+        params.insert(
+            "pattern".into(),
+            Value::String(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$".into()),
+        );
         params.insert("mode".into(), Value::String("test".into()));
         let result = action_regex(&params).unwrap();
         assert!(result["is_match"].as_bool().unwrap());
@@ -1343,7 +1340,10 @@ mod tests {
     #[test]
     fn test_wrap() {
         let mut params = HashMap::new();
-        params.insert("text".into(), Value::String("hello world foo bar baz".into()));
+        params.insert(
+            "text".into(),
+            Value::String("hello world foo bar baz".into()),
+        );
         params.insert("width".into(), Value::Number(10.into()));
         let result = action_wrap(&params).unwrap();
         assert!(result["lines"].as_i64().unwrap() >= 2);
@@ -1395,7 +1395,10 @@ mod tests {
 
     #[test]
     fn test_sentence_case() {
-        assert_eq!(convert_case("HELLO WORLD", "sentence").unwrap(), "Hello world");
+        assert_eq!(
+            convert_case("HELLO WORLD", "sentence").unwrap(),
+            "Hello world"
+        );
     }
 
     #[test]
@@ -1411,7 +1414,10 @@ mod tests {
 
     #[test]
     fn test_inverse_case() {
-        assert_eq!(convert_case("Hello World", "inverse").unwrap(), "hELLO wORLD");
+        assert_eq!(
+            convert_case("Hello World", "inverse").unwrap(),
+            "hELLO wORLD"
+        );
     }
 
     #[test]

@@ -171,9 +171,7 @@ async fn send_email(params: &HashMap<String, Value>) -> Result<Value, String> {
         .get("use_tls")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let attachments_raw = params
-        .get("attachments")
-        .and_then(|v| v.as_array());
+    let attachments_raw = params.get("attachments").and_then(|v| v.as_array());
 
     // Parse recipients
     let to_addresses = parse_email_list(to_raw)?;
@@ -191,7 +189,9 @@ async fn send_email(params: &HashMap<String, Value>) -> Result<Value, String> {
     // Build the email message
     let from_mailbox: Mailbox = from_addr
         .parse()
-        .map_err(|e: lettre::address::AddressError| format!("Invalid from address '{from_addr}': {e}"))?;
+        .map_err(|e: lettre::address::AddressError| {
+            format!("Invalid from address '{from_addr}': {e}")
+        })?;
 
     let mut builder = Message::builder()
         .from(from_mailbox)
@@ -239,16 +239,14 @@ async fn send_email(params: &HashMap<String, Value>) -> Result<Value, String> {
                 .unwrap_or("attachment");
 
             // Detect MIME type from extension
-            let mime = mime_guess::from_path(path)
-                .first_or_octet_stream();
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
 
             let ct_str = mime.to_string();
             let content_type: ContentType = ct_str
                 .parse()
                 .map_err(|_| format!("Invalid MIME type for '{path}'"))?;
 
-            let attachment = Attachment::new(filename.to_string())
-                .body(file_bytes, content_type);
+            let attachment = Attachment::new(filename.to_string()).body(file_bytes, content_type);
 
             multipart = multipart.singlepart(attachment);
         }
@@ -298,10 +296,7 @@ async fn send_email(params: &HashMap<String, Value>) -> Result<Value, String> {
     // Send the email
     match mailer.send(email).await {
         Ok(response) => {
-            let message_id: Vec<String> = response
-                .message()
-                .map(|id| id.to_string())
-                .collect();
+            let message_id: Vec<String> = response.message().map(|id| id.to_string()).collect();
             let message_id_str = message_id.first().cloned().unwrap_or_default();
             Ok(serde_json::json!({
                 "success": true,
@@ -323,11 +318,12 @@ fn parse_email_list(raw: &str) -> Result<Vec<Mailbox>, String> {
     for addr in raw.split(',') {
         let trimmed = addr.trim();
         if !trimmed.is_empty() {
-            let mailbox: Mailbox = trimmed
-                .parse()
-                .map_err(|e: lettre::address::AddressError| {
-                    format!("Invalid email address '{trimmed}': {e}")
-                })?;
+            let mailbox: Mailbox =
+                trimmed
+                    .parse()
+                    .map_err(|e: lettre::address::AddressError| {
+                        format!("Invalid email address '{trimmed}': {e}")
+                    })?;
             mailboxes.push(mailbox);
         }
     }

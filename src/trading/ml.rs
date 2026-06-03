@@ -33,9 +33,16 @@ pub struct FeatureConfig {
 impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
-            rsi_period: 14, sma_fast: 5, sma_slow: 20,
-            macd_fast: 12, macd_slow: 26, macd_signal: 9,
-            bb_period: 20, bb_std: 2.0, atr_period: 14, lookback: 5,
+            rsi_period: 14,
+            sma_fast: 5,
+            sma_slow: 20,
+            macd_fast: 12,
+            macd_slow: 26,
+            macd_signal: 9,
+            bb_period: 20,
+            bb_std: 2.0,
+            atr_period: 14,
+            lookback: 5,
         }
     }
 }
@@ -46,10 +53,18 @@ const N_FEATURES: usize = 12;
 type FeatureMatrix = Vec<[f64; N_FEATURES]>;
 
 /// 提取特征和标签
-pub fn extract_features(candles: &[Candle], config: &FeatureConfig) -> (FeatureMatrix, Vec<usize>, usize) {
+pub fn extract_features(
+    candles: &[Candle],
+    config: &FeatureConfig,
+) -> (FeatureMatrix, Vec<usize>, usize) {
     let n = candles.len();
-    let warmup = config.sma_slow.max(config.bb_period).max(config.atr_period + config.lookback);
-    if n < warmup + 1 { return (Vec::new(), Vec::new(), 0); }
+    let warmup = config
+        .sma_slow
+        .max(config.bb_period)
+        .max(config.atr_period + config.lookback);
+    if n < warmup + 1 {
+        return (Vec::new(), Vec::new(), 0);
+    }
 
     let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
     let highs: Vec<f64> = candles.iter().map(|c| c.high).collect();
@@ -59,13 +74,20 @@ pub fn extract_features(candles: &[Candle], config: &FeatureConfig) -> (FeatureM
     let rsi = indicators::rsi(&closes, config.rsi_period);
     let sma_f = indicators::sma(&closes, config.sma_fast);
     let sma_s = indicators::sma(&closes, config.sma_slow);
-    let macd_out = indicators::macd(&closes, config.macd_fast, config.macd_slow, config.macd_signal);
+    let macd_out = indicators::macd(
+        &closes,
+        config.macd_fast,
+        config.macd_slow,
+        config.macd_signal,
+    );
     let bb = indicators::bollinger_bands(&closes, config.bb_period, config.bb_std);
     let atr = indicators::atr(&highs, &lows, &closes, config.atr_period);
 
     let start_idx = warmup;
     let n_samples = n - start_idx;
-    if n_samples == 0 { return (Vec::new(), Vec::new(), 0); }
+    if n_samples == 0 {
+        return (Vec::new(), Vec::new(), 0);
+    }
 
     let mut features = Vec::with_capacity(n_samples);
     let mut labels = Vec::with_capacity(n_samples);
@@ -74,28 +96,84 @@ pub fn extract_features(candles: &[Candle], config: &FeatureConfig) -> (FeatureM
         let idx = start_idx + i;
         let past_idx = idx - config.lookback;
 
-        let f0 = if rsi[idx].is_nan() { 0.5 } else { rsi[idx] / 100.0 };
-        let f1 = if sma_s[idx].is_nan() || sma_s[idx] == 0.0 { 1.0 } else { sma_f[idx] / sma_s[idx] };
-        let f2 = if closes[idx] == 0.0 || macd_out.histogram[idx].is_nan() { 0.0 } else { macd_out.histogram[idx] / closes[idx] };
-        let f3 = if closes[idx] == 0.0 || macd_out.signal_line[idx].is_nan() { 0.0 } else { macd_out.signal_line[idx] / closes[idx] };
+        let f0 = if rsi[idx].is_nan() {
+            0.5
+        } else {
+            rsi[idx] / 100.0
+        };
+        let f1 = if sma_s[idx].is_nan() || sma_s[idx] == 0.0 {
+            1.0
+        } else {
+            sma_f[idx] / sma_s[idx]
+        };
+        let f2 = if closes[idx] == 0.0 || macd_out.histogram[idx].is_nan() {
+            0.0
+        } else {
+            macd_out.histogram[idx] / closes[idx]
+        };
+        let f3 = if closes[idx] == 0.0 || macd_out.signal_line[idx].is_nan() {
+            0.0
+        } else {
+            macd_out.signal_line[idx] / closes[idx]
+        };
         let bb_range = bb.upper[idx] - bb.lower[idx];
-        let f4 = if bb_range == 0.0 || bb.upper[idx].is_nan() { 0.5 } else { (closes[idx] - bb.lower[idx]) / bb_range };
-        let f5 = if closes[idx] == 0.0 || atr[idx].is_nan() { 0.01 } else { atr[idx] / closes[idx] };
-        let f6 = if closes[past_idx] == 0.0 { 0.0 } else { (closes[idx] - closes[past_idx]) / closes[past_idx] };
+        let f4 = if bb_range == 0.0 || bb.upper[idx].is_nan() {
+            0.5
+        } else {
+            (closes[idx] - bb.lower[idx]) / bb_range
+        };
+        let f5 = if closes[idx] == 0.0 || atr[idx].is_nan() {
+            0.01
+        } else {
+            atr[idx] / closes[idx]
+        };
+        let f6 = if closes[past_idx] == 0.0 {
+            0.0
+        } else {
+            (closes[idx] - closes[past_idx]) / closes[past_idx]
+        };
         let short_past = idx.saturating_sub(3);
-        let f7 = if closes[short_past] == 0.0 { 0.0 } else { (closes[idx] - closes[short_past]) / closes[short_past] };
+        let f7 = if closes[short_past] == 0.0 {
+            0.0
+        } else {
+            (closes[idx] - closes[short_past]) / closes[short_past]
+        };
         let avg_vol: f64 = volumes[past_idx..idx].iter().sum::<f64>() / config.lookback as f64;
-        let f8 = if avg_vol == 0.0 { 1.0 } else { volumes[idx] / avg_vol };
+        let f8 = if avg_vol == 0.0 {
+            1.0
+        } else {
+            volumes[idx] / avg_vol
+        };
         let daily_range = highs[idx] - lows[idx];
-        let f9 = if daily_range == 0.0 { 0.5 } else { (closes[idx] - lows[idx]) / daily_range };
-        let f10 = if bb.middle[idx] == 0.0 || bb.middle[idx].is_nan() { 0.0 } else { (bb.upper[idx] - bb.lower[idx]) / bb.middle[idx] };
-        let prev_sma = if idx >= 3 && !sma_f[idx - 3].is_nan() { sma_f[idx - 3] } else { sma_f[idx] };
-        let f11 = if prev_sma == 0.0 { 0.0 } else { (sma_f[idx] - prev_sma) / prev_sma };
+        let f9 = if daily_range == 0.0 {
+            0.5
+        } else {
+            (closes[idx] - lows[idx]) / daily_range
+        };
+        let f10 = if bb.middle[idx] == 0.0 || bb.middle[idx].is_nan() {
+            0.0
+        } else {
+            (bb.upper[idx] - bb.lower[idx]) / bb.middle[idx]
+        };
+        let prev_sma = if idx >= 3 && !sma_f[idx - 3].is_nan() {
+            sma_f[idx - 3]
+        } else {
+            sma_f[idx]
+        };
+        let f11 = if prev_sma == 0.0 {
+            0.0
+        } else {
+            (sma_f[idx] - prev_sma) / prev_sma
+        };
 
         features.push([f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11]);
 
         let future_idx = (idx + config.lookback).min(n - 1);
-        let future_ret = if closes[idx] == 0.0 { 0.0 } else { (closes[future_idx] - closes[idx]) / closes[idx] };
+        let future_ret = if closes[idx] == 0.0 {
+            0.0
+        } else {
+            (closes[future_idx] - closes[idx]) / closes[idx]
+        };
         labels.push(if future_ret > 0.0 { 1 } else { 0 });
     }
 
@@ -121,7 +199,12 @@ impl TreeNode {
     fn predict(&self, x: &[f64]) -> usize {
         match self {
             TreeNode::Leaf(label) => *label,
-            TreeNode::Split { feature_idx, threshold, left, right } => {
+            TreeNode::Split {
+                feature_idx,
+                threshold,
+                left,
+                right,
+            } => {
                 if x[*feature_idx] <= *threshold {
                     left.predict(x)
                 } else {
@@ -156,14 +239,18 @@ impl TreeNode {
             values.dedup_by(|a, b| (*a - *b).abs() < 1e-10);
 
             for threshold in values.windows(2).map(|w| (w[0] + w[1]) / 2.0) {
-                let (left_labels, right_labels) = Self::split_labels(features, labels, feat_idx, threshold);
+                let (left_labels, right_labels) =
+                    Self::split_labels(features, labels, feat_idx, threshold);
 
-                if left_labels.is_empty() || right_labels.is_empty() { continue; }
+                if left_labels.is_empty() || right_labels.is_empty() {
+                    continue;
+                }
 
                 let left_entropy = Self::entropy(&left_labels);
                 let right_entropy = Self::entropy(&right_labels);
                 let weighted_entropy = (left_labels.len() as f64 * left_entropy
-                    + right_labels.len() as f64 * right_entropy) / total_samples as f64;
+                    + right_labels.len() as f64 * right_entropy)
+                    / total_samples as f64;
                 let gain = parent_entropy - weighted_entropy;
 
                 if gain > best_gain {
@@ -184,8 +271,18 @@ impl TreeNode {
         let left_refs: Vec<&[f64]> = left_features.iter().map(|f| f.as_slice()).collect();
         let right_refs: Vec<&[f64]> = right_features.iter().map(|f| f.as_slice()).collect();
 
-        let left = Box::new(Self::build(&left_refs, &left_labels, max_depth - 1, min_samples));
-        let right = Box::new(Self::build(&right_refs, &right_labels, max_depth - 1, min_samples));
+        let left = Box::new(Self::build(
+            &left_refs,
+            &left_labels,
+            max_depth - 1,
+            min_samples,
+        ));
+        let right = Box::new(Self::build(
+            &right_refs,
+            &right_labels,
+            max_depth - 1,
+            min_samples,
+        ));
 
         TreeNode::Split {
             feature_idx: best_feature,
@@ -195,29 +292,41 @@ impl TreeNode {
         }
     }
 
-    fn split_labels(features: &[&[f64]], labels: &[usize], feat_idx: usize, threshold: f64)
-        -> (Vec<usize>, Vec<usize>)
-    {
+    fn split_labels(
+        features: &[&[f64]],
+        labels: &[usize],
+        feat_idx: usize,
+        threshold: f64,
+    ) -> (Vec<usize>, Vec<usize>) {
         let mut left = Vec::new();
         let mut right = Vec::new();
         for (x, &l) in features.iter().zip(labels.iter()) {
-            if x[feat_idx] <= threshold { left.push(l); } else { right.push(l); }
+            if x[feat_idx] <= threshold {
+                left.push(l);
+            } else {
+                right.push(l);
+            }
         }
         (left, right)
     }
 
-    fn split_data(features: &[&[f64]], labels: &[usize], feat_idx: usize, threshold: f64)
-        -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<usize>, Vec<usize>)
-    {
+    fn split_data(
+        features: &[&[f64]],
+        labels: &[usize],
+        feat_idx: usize,
+        threshold: f64,
+    ) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<usize>, Vec<usize>) {
         let mut left_f = Vec::new();
         let mut right_f = Vec::new();
         let mut left_l = Vec::new();
         let mut right_l = Vec::new();
         for (x, &l) in features.iter().zip(labels.iter()) {
             if x[feat_idx] <= threshold {
-                left_f.push(x.to_vec()); left_l.push(l);
+                left_f.push(x.to_vec());
+                left_l.push(l);
             } else {
-                right_f.push(x.to_vec()); right_l.push(l);
+                right_f.push(x.to_vec());
+                right_l.push(l);
             }
         }
         (left_f, right_f, left_l, right_l)
@@ -225,15 +334,25 @@ impl TreeNode {
 
     fn majority_label(labels: &[usize]) -> usize {
         let mut counts = [0usize; 2];
-        for &l in labels { counts[l] += 1; }
-        if counts[0] >= counts[1] { 0 } else { 1 }
+        for &l in labels {
+            counts[l] += 1;
+        }
+        if counts[0] >= counts[1] {
+            0
+        } else {
+            1
+        }
     }
 
     fn entropy(labels: &[usize]) -> f64 {
-        if labels.is_empty() { return 0.0; }
+        if labels.is_empty() {
+            return 0.0;
+        }
         let n = labels.len() as f64;
         let mut counts = [0usize; 2];
-        for &l in labels { counts[l] += 1; }
+        for &l in labels {
+            counts[l] += 1;
+        }
         let mut entropy = 0.0;
         for &c in &counts {
             if c > 0 {
@@ -252,7 +371,12 @@ pub struct DecisionTreeStrategy {
 }
 
 impl DecisionTreeStrategy {
-    pub fn new(candles: &[Candle], config: FeatureConfig, max_depth: usize, min_samples: usize) -> Self {
+    pub fn new(
+        candles: &[Candle],
+        config: FeatureConfig,
+        max_depth: usize,
+        min_samples: usize,
+    ) -> Self {
         let (features, labels, _start) = extract_features(candles, &config);
         let feature_refs: Vec<&[f64]> = features.iter().map(|f| f.as_slice()).collect();
 
@@ -268,7 +392,9 @@ impl DecisionTreeStrategy {
 }
 
 impl Strategy for DecisionTreeStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -297,11 +423,16 @@ struct OnlineLinearRegression {
 
 impl OnlineLinearRegression {
     fn new() -> Self {
-        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+        Self {
+            weights: [0.0; N_FEATURES],
+            bias: 0.0,
+        }
     }
 
     fn fit(&mut self, features: &FeatureMatrix, targets: &[f64], lr: f64, epochs: usize) {
-        if features.is_empty() { return; }
+        if features.is_empty() {
+            return;
+        }
         self.weights = [0.0; N_FEATURES];
         self.bias = 0.0;
 
@@ -314,20 +445,28 @@ impl OnlineLinearRegression {
 
             for i in 0..n {
                 let mut pred = self.bias;
-                for j in 0..N_FEATURES { pred += self.weights[j] * features[i][j]; }
+                for j in 0..N_FEATURES {
+                    pred += self.weights[j] * features[i][j];
+                }
                 let error = pred - targets[i];
-                for j in 0..N_FEATURES { grad_w[j] += error * features[i][j]; }
+                for j in 0..N_FEATURES {
+                    grad_w[j] += error * features[i][j];
+                }
                 grad_b += error;
             }
 
-            for j in 0..N_FEATURES { self.weights[j] -= lr * grad_w[j] * inv_n; }
+            for j in 0..N_FEATURES {
+                self.weights[j] -= lr * grad_w[j] * inv_n;
+            }
             self.bias -= lr * grad_b * inv_n;
         }
     }
 
     fn predict(&self, x: &[f64]) -> f64 {
         let mut pred = self.bias;
-        for j in 0..N_FEATURES { pred += self.weights[j] * x[j]; }
+        for j in 0..N_FEATURES {
+            pred += self.weights[j] * x[j];
+        }
         pred
     }
 }
@@ -349,7 +488,11 @@ impl LinearRegressionStrategy {
         for i in 0..features.len() {
             let idx = start_idx + i;
             let future_idx = (idx + config.lookback).min(n - 1);
-            let ret = if closes[idx] == 0.0 { 0.0 } else { (closes[future_idx] - closes[idx]) / closes[idx] };
+            let ret = if closes[idx] == 0.0 {
+                0.0
+            } else {
+                (closes[future_idx] - closes[idx]) / closes[idx]
+            };
             targets.push(ret);
         }
 
@@ -357,12 +500,19 @@ impl LinearRegressionStrategy {
         model.fit(&features, &targets, 0.01, 200);
 
         let name = format!("Linear Regression (threshold={:.4})", threshold);
-        Self { model, config, threshold, name }
+        Self {
+            model,
+            config,
+            threshold,
+            name,
+        }
     }
 }
 
 impl Strategy for LinearRegressionStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -373,8 +523,11 @@ impl Strategy for LinearRegressionStrategy {
             let idx = start_idx + i;
             if idx < n {
                 let pred = self.model.predict(feat);
-                if pred > self.threshold { signals[idx] = Signal::Buy; }
-                else if pred < -self.threshold { signals[idx] = Signal::Sell; }
+                if pred > self.threshold {
+                    signals[idx] = Signal::Buy;
+                } else if pred < -self.threshold {
+                    signals[idx] = Signal::Sell;
+                }
             }
         }
         signals
@@ -399,11 +552,20 @@ impl KnnStrategy {
     pub fn new(candles: &[Candle], config: FeatureConfig, k: usize) -> Self {
         let (features, labels, start_idx) = extract_features(candles, &config);
         let name = format!("KNN (k={})", k);
-        Self { features, labels, k, config, start_idx, name }
+        Self {
+            features,
+            labels,
+            k,
+            config,
+            start_idx,
+            name,
+        }
     }
 
     fn predict_single(&self, query: &[f64]) -> usize {
-        if self.features.is_empty() { return 0; }
+        if self.features.is_empty() {
+            return 0;
+        }
 
         // 计算所有距离，使用 partial sort
         let mut dists: Vec<(f64, usize)> = (0..self.features.len())
@@ -418,24 +580,38 @@ impl KnnStrategy {
             .collect();
 
         let k = self.k.min(dists.len());
-        dists.select_nth_unstable_by(k - 1, |a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        dists.select_nth_unstable_by(k - 1, |a, b| {
+            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut votes_1 = 0;
-        for i in 0..k { if dists[i].1 == 1 { votes_1 += 1; } }
+        for i in 0..k {
+            if dists[i].1 == 1 {
+                votes_1 += 1;
+            }
+        }
 
-        if votes_1 > k / 2 { 1 } else { 0 }
+        if votes_1 > k / 2 {
+            1
+        } else {
+            0
+        }
     }
 }
 
 impl Strategy for KnnStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
         let mut signals = vec![Signal::Hold; n];
 
         let (features, _labels, start_idx) = extract_features(candles, &self.config);
-        if features.is_empty() { return signals; }
+        if features.is_empty() {
+            return signals;
+        }
 
         // KNN O(n²) 计算量大，只预测最近 300 个点
         let max_predict = features.len().min(300);
@@ -469,12 +645,19 @@ impl MlEnsembleStrategy {
         let lr = LinearRegressionStrategy::new(candles, config.clone(), 0.001);
         let knn = KnnStrategy::new(candles, config.clone(), 7);
         let name = "ML Ensemble (Tree + LR + KNN)".to_string();
-        Self { tree, lr, knn, name }
+        Self {
+            tree,
+            lr,
+            knn,
+            name,
+        }
     }
 }
 
 impl Strategy for MlEnsembleStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let tree_signals = self.tree.generate(candles);
@@ -494,8 +677,11 @@ impl Strategy for MlEnsembleStrategy {
                     _ => {}
                 }
             }
-            if buy_votes >= 2 { signals[i] = Signal::Buy; }
-            else if sell_votes >= 2 { signals[i] = Signal::Sell; }
+            if buy_votes >= 2 {
+                signals[i] = Signal::Buy;
+            } else if sell_votes >= 2 {
+                signals[i] = Signal::Sell;
+            }
         }
         signals
     }
@@ -511,7 +697,10 @@ impl SimpleRng {
         Self { state: seed }
     }
     fn next(&mut self) -> usize {
-        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.state >> 33) as usize
     }
 }
@@ -529,7 +718,13 @@ pub struct RandomForestStrategy {
 }
 
 impl RandomForestStrategy {
-    pub fn new(candles: &[Candle], config: FeatureConfig, n_trees: usize, max_depth: usize, min_samples: usize) -> Self {
+    pub fn new(
+        candles: &[Candle],
+        config: FeatureConfig,
+        n_trees: usize,
+        max_depth: usize,
+        min_samples: usize,
+    ) -> Self {
         let (features, labels, _start) = extract_features(candles, &config);
         let _refs: Vec<&[f64]> = features.iter().map(|f| f.as_slice()).collect();
         let n = features.len();
@@ -541,24 +736,37 @@ impl RandomForestStrategy {
         } else {
             for t in 0..n_trees {
                 let mut rng = SimpleRng::new(t as u64 + 42);
-                let (boot_features, boot_labels) = Self::bootstrap_sample(&features, &labels, &mut rng);
+                let (boot_features, boot_labels) =
+                    Self::bootstrap_sample(&features, &labels, &mut rng);
                 let boot_refs: Vec<&[f64]> = boot_features.iter().map(|f| f.as_slice()).collect();
 
                 if boot_refs.is_empty() {
                     trees.push(TreeNode::Leaf(0));
                 } else {
-                    trees.push(TreeNode::build(&boot_refs, &boot_labels, max_depth, min_samples));
+                    trees.push(TreeNode::build(
+                        &boot_refs,
+                        &boot_labels,
+                        max_depth,
+                        min_samples,
+                    ));
                 }
             }
         }
 
         let name = format!("Random Forest (trees={}, depth={})", n_trees, max_depth);
-        Self { trees, config, n_trees, name }
+        Self {
+            trees,
+            config,
+            n_trees,
+            name,
+        }
     }
 
-    fn bootstrap_sample(features: &FeatureMatrix, labels: &[usize], rng: &mut SimpleRng)
-        -> (Vec<[f64; N_FEATURES]>, Vec<usize>)
-    {
+    fn bootstrap_sample(
+        features: &FeatureMatrix,
+        labels: &[usize],
+        rng: &mut SimpleRng,
+    ) -> (Vec<[f64; N_FEATURES]>, Vec<usize>) {
         let n = features.len();
         let mut bf = Vec::with_capacity(n);
         let mut bl = Vec::with_capacity(n);
@@ -572,7 +780,9 @@ impl RandomForestStrategy {
 }
 
 impl Strategy for RandomForestStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -584,9 +794,15 @@ impl Strategy for RandomForestStrategy {
             if idx < n {
                 let mut votes_1 = 0;
                 for tree in &self.trees {
-                    if tree.predict(feat) == 1 { votes_1 += 1; }
+                    if tree.predict(feat) == 1 {
+                        votes_1 += 1;
+                    }
                 }
-                signals[idx] = if votes_1 > self.trees.len() / 2 { Signal::Buy } else { Signal::Sell };
+                signals[idx] = if votes_1 > self.trees.len() / 2 {
+                    Signal::Buy
+                } else {
+                    Signal::Sell
+                };
             }
         }
         signals
@@ -614,22 +830,35 @@ impl GaussianNB {
 
     fn fit(&mut self, features: &FeatureMatrix, labels: &[usize]) {
         let n = features.len();
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
 
         let mut class_counts = [0usize; 2];
-        for &l in labels { class_counts[l] += 1; }
-
-        for c in 0..2 {
-            self.class_priors[c] = if n > 0 { class_counts[c] as f64 / n as f64 } else { 0.5 };
+        for &l in labels {
+            class_counts[l] += 1;
         }
 
         for c in 0..2 {
-            if class_counts[c] == 0 { continue; }
+            self.class_priors[c] = if n > 0 {
+                class_counts[c] as f64 / n as f64
+            } else {
+                0.5
+            };
+        }
+
+        for c in 0..2 {
+            if class_counts[c] == 0 {
+                continue;
+            }
             for j in 0..N_FEATURES {
                 let mut sum = 0.0;
                 let mut count = 0;
                 for i in 0..n {
-                    if labels[i] == c { sum += features[i][j]; count += 1; }
+                    if labels[i] == c {
+                        sum += features[i][j];
+                        count += 1;
+                    }
                 }
                 self.means[c][j] = if count > 0 { sum / count as f64 } else { 0.0 };
             }
@@ -643,7 +872,11 @@ impl GaussianNB {
                         count += 1;
                     }
                 }
-                self.variances[c][j] = if count > 0 { sum_sq / count as f64 + 1e-6 } else { 1.0 };
+                self.variances[c][j] = if count > 0 {
+                    sum_sq / count as f64 + 1e-6
+                } else {
+                    1.0
+                };
             }
         }
     }
@@ -655,10 +888,15 @@ impl GaussianNB {
             for j in 0..N_FEATURES {
                 let diff = x[j] - self.means[c][j];
                 let var = self.variances[c][j];
-                log_probs[c] -= 0.5 * (2.0 * std::f64::consts::PI * var).ln() + diff * diff / (2.0 * var);
+                log_probs[c] -=
+                    0.5 * (2.0 * std::f64::consts::PI * var).ln() + diff * diff / (2.0 * var);
             }
         }
-        if log_probs[0] >= log_probs[1] { 0 } else { 1 }
+        if log_probs[0] >= log_probs[1] {
+            0
+        } else {
+            1
+        }
     }
 }
 
@@ -673,12 +911,18 @@ impl NaiveBayesStrategy {
         let (features, labels, _start) = extract_features(candles, &config);
         let mut model = GaussianNB::new();
         model.fit(&features, &labels);
-        Self { model, config, name: "Naive Bayes".to_string() }
+        Self {
+            model,
+            config,
+            name: "Naive Bayes".to_string(),
+        }
     }
 }
 
 impl Strategy for NaiveBayesStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -708,18 +952,33 @@ struct ShallowTree {
 
 impl ShallowTree {
     fn predict(&self, x: &[f64]) -> f64 {
-        if x[self.feature_idx] <= self.threshold { self.left_value } else { self.right_value }
+        if x[self.feature_idx] <= self.threshold {
+            self.left_value
+        } else {
+            self.right_value
+        }
     }
 
     fn fit(features: &[&[f64]], residuals: &[f64], max_leaves: usize) -> Self {
         let n = features.len();
         if n == 0 {
-            return Self { feature_idx: 0, threshold: 0.0, left_value: 0.0, right_value: 0.0 };
+            return Self {
+                feature_idx: 0,
+                threshold: 0.0,
+                left_value: 0.0,
+                right_value: 0.0,
+            };
         }
 
         let global_mean: f64 = residuals.iter().sum::<f64>() / n as f64;
         let max_feat = max_leaves.min(N_FEATURES);
-        let total_var: f64 = residuals.iter().map(|r| { let d = r - global_mean; d * d }).sum::<f64>();
+        let total_var: f64 = residuals
+            .iter()
+            .map(|r| {
+                let d = r - global_mean;
+                d * d
+            })
+            .sum::<f64>();
 
         let mut best_gain = 0.0f64;
         let mut best_feat = 0;
@@ -728,7 +987,8 @@ impl ShallowTree {
         let mut best_right_val = global_mean;
 
         for feat_idx in 0..max_feat {
-            let mut vals: Vec<(f64, usize)> = features.iter()
+            let mut vals: Vec<(f64, usize)> = features
+                .iter()
                 .enumerate()
                 .map(|(i, f)| (f[feat_idx], i))
                 .collect();
@@ -741,16 +1001,30 @@ impl ShallowTree {
                 left_sum += residuals[*idx];
                 left_count += 1;
 
-                if (pos + 1) % step != 0 && pos + 1 < vals.len() { continue; }
+                if (pos + 1) % step != 0 && pos + 1 < vals.len() {
+                    continue;
+                }
 
                 let left_mean = left_sum / left_count as f64;
                 let right_sum: f64 = (left_count..n).map(|k| residuals[vals[k].1]).sum();
                 let right_count = n - left_count;
-                if right_count == 0 { continue; }
+                if right_count == 0 {
+                    continue;
+                }
                 let right_mean = right_sum / right_count as f64;
 
-                let left_var: f64 = (0..left_count).map(|k| { let d = residuals[vals[k].1] - left_mean; d * d }).sum::<f64>();
-                let right_var: f64 = (left_count..n).map(|k| { let d = residuals[vals[k].1] - right_mean; d * d }).sum::<f64>();
+                let left_var: f64 = (0..left_count)
+                    .map(|k| {
+                        let d = residuals[vals[k].1] - left_mean;
+                        d * d
+                    })
+                    .sum::<f64>();
+                let right_var: f64 = (left_count..n)
+                    .map(|k| {
+                        let d = residuals[vals[k].1] - right_mean;
+                        d * d
+                    })
+                    .sum::<f64>();
                 let gain = total_var - left_var - right_var;
 
                 if gain > best_gain {
@@ -781,14 +1055,23 @@ pub struct GradientBoostingStrategy {
 }
 
 impl GradientBoostingStrategy {
-    pub fn new(candles: &[Candle], config: FeatureConfig, n_estimators: usize, learning_rate: f64, max_leaves: usize) -> Self {
+    pub fn new(
+        candles: &[Candle],
+        config: FeatureConfig,
+        n_estimators: usize,
+        learning_rate: f64,
+        max_leaves: usize,
+    ) -> Self {
         let (features, labels, _start) = extract_features(candles, &config);
         let n = features.len();
 
         if n == 0 {
             return Self {
-                trees: Vec::new(), learning_rate, initial_pred: 0.0,
-                config, name: "Gradient Boosting".to_string(),
+                trees: Vec::new(),
+                learning_rate,
+                initial_pred: 0.0,
+                config,
+                name: "Gradient Boosting".to_string(),
             };
         }
 
@@ -799,7 +1082,8 @@ impl GradientBoostingStrategy {
         let mut trees = Vec::with_capacity(n_estimators);
 
         for _ in 0..n_estimators {
-            let residuals: Vec<f64> = labels.iter()
+            let residuals: Vec<f64> = labels
+                .iter()
                 .zip(preds.iter())
                 .map(|(l, p)| (*l as f64 - 0.5) - p)
                 .collect();
@@ -813,13 +1097,24 @@ impl GradientBoostingStrategy {
             trees.push(tree);
         }
 
-        let name = format!("Gradient Boosting (trees={}, lr={})", n_estimators, learning_rate);
-        Self { trees, learning_rate, initial_pred, config, name }
+        let name = format!(
+            "Gradient Boosting (trees={}, lr={})",
+            n_estimators, learning_rate
+        );
+        Self {
+            trees,
+            learning_rate,
+            initial_pred,
+            config,
+            name,
+        }
     }
 }
 
 impl Strategy for GradientBoostingStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -832,7 +1127,11 @@ impl Strategy for GradientBoostingStrategy {
                 for tree in &self.trees {
                     pred += self.learning_rate * tree.predict(feat);
                 }
-                signals[idx] = if pred > 0.0 { Signal::Buy } else { Signal::Sell };
+                signals[idx] = if pred > 0.0 {
+                    Signal::Buy
+                } else {
+                    Signal::Sell
+                };
             }
         }
         signals
@@ -854,11 +1153,23 @@ struct LogisticRegressionModel {
 
 impl LogisticRegressionModel {
     fn new() -> Self {
-        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+        Self {
+            weights: [0.0; N_FEATURES],
+            bias: 0.0,
+        }
     }
 
-    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize, reg: f64) {
-        if features.is_empty() { return; }
+    fn fit(
+        &mut self,
+        features: &FeatureMatrix,
+        labels: &[usize],
+        lr: f64,
+        epochs: usize,
+        reg: f64,
+    ) {
+        if features.is_empty() {
+            return;
+        }
         self.weights = [0.0; N_FEATURES];
         self.bias = 0.0;
         let n = features.len();
@@ -870,21 +1181,29 @@ impl LogisticRegressionModel {
 
             for i in 0..n {
                 let mut logit = self.bias;
-                for j in 0..N_FEATURES { logit += self.weights[j] * features[i][j]; }
+                for j in 0..N_FEATURES {
+                    logit += self.weights[j] * features[i][j];
+                }
                 let pred = sigmoid(logit);
                 let error = pred - labels[i] as f64;
-                for j in 0..N_FEATURES { grad_w[j] += error * features[i][j] + reg * self.weights[j]; }
+                for j in 0..N_FEATURES {
+                    grad_w[j] += error * features[i][j] + reg * self.weights[j];
+                }
                 grad_b += error;
             }
 
-            for j in 0..N_FEATURES { self.weights[j] -= lr * grad_w[j] * inv_n; }
+            for j in 0..N_FEATURES {
+                self.weights[j] -= lr * grad_w[j] * inv_n;
+            }
             self.bias -= lr * grad_b * inv_n;
         }
     }
 
     fn predict_proba(&self, x: &[f64]) -> f64 {
         let mut logit = self.bias;
-        for j in 0..N_FEATURES { logit += self.weights[j] * x[j]; }
+        for j in 0..N_FEATURES {
+            logit += self.weights[j] * x[j];
+        }
         sigmoid(logit)
     }
 }
@@ -897,17 +1216,34 @@ pub struct LogisticRegressionStrategy {
 }
 
 impl LogisticRegressionStrategy {
-    pub fn new(candles: &[Candle], config: FeatureConfig, lr: f64, epochs: usize, reg: f64, threshold: f64) -> Self {
+    pub fn new(
+        candles: &[Candle],
+        config: FeatureConfig,
+        lr: f64,
+        epochs: usize,
+        reg: f64,
+        threshold: f64,
+    ) -> Self {
         let (features, labels, _start) = extract_features(candles, &config);
         let mut model = LogisticRegressionModel::new();
         model.fit(&features, &labels, lr, epochs, reg);
-        let name = format!("Logistic Regression (lr={}, epochs={}, reg={})", lr, epochs, reg);
-        Self { model, config, threshold, name }
+        let name = format!(
+            "Logistic Regression (lr={}, epochs={}, reg={})",
+            lr, epochs, reg
+        );
+        Self {
+            model,
+            config,
+            threshold,
+            name,
+        }
     }
 }
 
 impl Strategy for LogisticRegressionStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -917,8 +1253,11 @@ impl Strategy for LogisticRegressionStrategy {
             let idx = start_idx + i;
             if idx < n {
                 let prob = self.model.predict_proba(feat);
-                if prob > self.threshold { signals[idx] = Signal::Buy; }
-                else { signals[idx] = Signal::Sell; }
+                if prob > self.threshold {
+                    signals[idx] = Signal::Buy;
+                } else {
+                    signals[idx] = Signal::Sell;
+                }
             }
         }
         signals
@@ -936,18 +1275,33 @@ struct LinearSVM {
 
 impl LinearSVM {
     fn new() -> Self {
-        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+        Self {
+            weights: [0.0; N_FEATURES],
+            bias: 0.0,
+        }
     }
 
-    fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize, c_param: f64) {
-        if features.is_empty() { return; }
+    fn fit(
+        &mut self,
+        features: &FeatureMatrix,
+        labels: &[usize],
+        lr: f64,
+        epochs: usize,
+        c_param: f64,
+    ) {
+        if features.is_empty() {
+            return;
+        }
         self.weights = [0.0; N_FEATURES];
         self.bias = 0.0;
         let n = features.len();
         let inv_n = 1.0 / n as f64;
 
         // 转换标签 0→-1, 1→+1
-        let ys: Vec<f64> = labels.iter().map(|l| if *l == 1 { 1.0 } else { -1.0 }).collect();
+        let ys: Vec<f64> = labels
+            .iter()
+            .map(|l| if *l == 1 { 1.0 } else { -1.0 })
+            .collect();
 
         for _epoch in 0..epochs {
             let mut grad_w = [0.0f64; N_FEATURES];
@@ -955,7 +1309,9 @@ impl LinearSVM {
 
             for i in 0..n {
                 let mut score = self.bias;
-                for j in 0..N_FEATURES { score += self.weights[j] * features[i][j]; }
+                for j in 0..N_FEATURES {
+                    score += self.weights[j] * features[i][j];
+                }
                 let margin = ys[i] * score;
 
                 if margin < 1.0 {
@@ -966,19 +1322,29 @@ impl LinearSVM {
                     grad_b += -ys[i];
                 } else {
                     // 仅正则化
-                    for j in 0..N_FEATURES { grad_w[j] += 2.0 * c_param * self.weights[j]; }
+                    for j in 0..N_FEATURES {
+                        grad_w[j] += 2.0 * c_param * self.weights[j];
+                    }
                 }
             }
 
-            for j in 0..N_FEATURES { self.weights[j] -= lr * grad_w[j] * inv_n; }
+            for j in 0..N_FEATURES {
+                self.weights[j] -= lr * grad_w[j] * inv_n;
+            }
             self.bias -= lr * grad_b * inv_n;
         }
     }
 
     fn predict(&self, x: &[f64]) -> usize {
         let mut score = self.bias;
-        for j in 0..N_FEATURES { score += self.weights[j] * x[j]; }
-        if score > 0.0 { 1 } else { 0 }
+        for j in 0..N_FEATURES {
+            score += self.weights[j] * x[j];
+        }
+        if score > 0.0 {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -989,17 +1355,29 @@ pub struct LinearSvmStrategy {
 }
 
 impl LinearSvmStrategy {
-    pub fn new(candles: &[Candle], config: FeatureConfig, lr: f64, epochs: usize, c_param: f64) -> Self {
+    pub fn new(
+        candles: &[Candle],
+        config: FeatureConfig,
+        lr: f64,
+        epochs: usize,
+        c_param: f64,
+    ) -> Self {
         let (features, labels, _start) = extract_features(candles, &config);
         let mut model = LinearSVM::new();
         model.fit(&features, &labels, lr, epochs, c_param);
         let name = format!("Linear SVM (lr={}, epochs={}, C={})", lr, epochs, c_param);
-        Self { model, config, name }
+        Self {
+            model,
+            config,
+            name,
+        }
     }
 }
 
 impl Strategy for LinearSvmStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -1027,25 +1405,36 @@ struct PerceptronModel {
 
 impl PerceptronModel {
     fn new() -> Self {
-        Self { weights: [0.0; N_FEATURES], bias: 0.0 }
+        Self {
+            weights: [0.0; N_FEATURES],
+            bias: 0.0,
+        }
     }
 
     fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize) {
-        if features.is_empty() { return; }
+        if features.is_empty() {
+            return;
+        }
         // 初始化小随机权重
         let mut seed: u64 = 42;
         let mut next_rand = || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) as f64 / 4294967296.0) * 0.1
         };
-        for j in 0..N_FEATURES { self.weights[j] = next_rand(); }
+        for j in 0..N_FEATURES {
+            self.weights[j] = next_rand();
+        }
         self.bias = 0.0;
         let n = features.len();
 
         for _epoch in 0..epochs {
             for i in 0..n {
                 let mut score = self.bias;
-                for j in 0..N_FEATURES { score += self.weights[j] * features[i][j]; }
+                for j in 0..N_FEATURES {
+                    score += self.weights[j] * features[i][j];
+                }
                 let pred = if score >= 0.0 { 1 } else { 0 };
                 let error = labels[i] as isize - pred as isize;
 
@@ -1061,8 +1450,14 @@ impl PerceptronModel {
 
     fn predict(&self, x: &[f64]) -> usize {
         let mut score = self.bias;
-        for j in 0..N_FEATURES { score += self.weights[j] * x[j]; }
-        if score >= 0.0 { 1 } else { 0 }
+        for j in 0..N_FEATURES {
+            score += self.weights[j] * x[j];
+        }
+        if score >= 0.0 {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -1077,12 +1472,18 @@ impl PerceptronStrategy {
         let (features, labels, _start) = extract_features(candles, &config);
         let mut model = PerceptronModel::new();
         model.fit(&features, &labels, lr, epochs);
-        Self { model, config, name: "Perceptron".to_string() }
+        Self {
+            model,
+            config,
+            name: "Perceptron".to_string(),
+        }
     }
 }
 
 impl Strategy for PerceptronStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -1115,25 +1516,49 @@ impl MlpModel {
     fn new(hidden_size: usize) -> Self {
         let mut seed: u64 = 123;
         let mut next_rand = || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) as f64 / 4294967296.0) * 0.5
         };
         let mut w1 = vec![[0.0; N_FEATURES]; hidden_size];
         let mut b1 = vec![0.0; hidden_size];
         let mut w2 = vec![0.0; hidden_size];
         for h in 0..hidden_size {
-            for j in 0..N_FEATURES { w1[h][j] = next_rand(); }
+            for j in 0..N_FEATURES {
+                w1[h][j] = next_rand();
+            }
             b1[h] = 0.0;
             w2[h] = next_rand();
         }
-        Self { hidden_size, w1, b1, w2, b2: 0.0 }
+        Self {
+            hidden_size,
+            w1,
+            b1,
+            w2,
+            b2: 0.0,
+        }
     }
 
-    fn relu(x: f64) -> f64 { if x > 0.0 { x } else { 0.0 } }
-    fn relu_deriv(x: f64) -> f64 { if x > 0.0 { 1.0 } else { 0.0 } }
+    fn relu(x: f64) -> f64 {
+        if x > 0.0 {
+            x
+        } else {
+            0.0
+        }
+    }
+    fn relu_deriv(x: f64) -> f64 {
+        if x > 0.0 {
+            1.0
+        } else {
+            0.0
+        }
+    }
 
     fn fit(&mut self, features: &FeatureMatrix, labels: &[usize], lr: f64, epochs: usize) {
-        if features.is_empty() { return; }
+        if features.is_empty() {
+            return;
+        }
         let n = features.len();
         let h = self.hidden_size;
 
@@ -1144,12 +1569,16 @@ impl MlpModel {
                 let mut hidden_pre = vec![0.0; h];
                 for hh in 0..h {
                     let mut s = self.b1[hh];
-                    for j in 0..N_FEATURES { s += self.w1[hh][j] * features[i][j]; }
+                    for j in 0..N_FEATURES {
+                        s += self.w1[hh][j] * features[i][j];
+                    }
                     hidden_pre[hh] = s;
                     hidden[hh] = Self::relu(s);
                 }
                 let mut out = self.b2;
-                for hh in 0..h { out += self.w2[hh] * hidden[hh]; }
+                for hh in 0..h {
+                    out += self.w2[hh] * hidden[hh];
+                }
                 let pred = sigmoid(out);
                 let target = labels[i] as f64;
                 let error = pred - target; // d_loss/d_out
@@ -1176,7 +1605,9 @@ impl MlpModel {
 
                 // Update weights
                 for hh in 0..h {
-                    for j in 0..N_FEATURES { self.w1[hh][j] -= lr * dw1[hh][j] / n as f64; }
+                    for j in 0..N_FEATURES {
+                        self.w1[hh][j] -= lr * dw1[hh][j] / n as f64;
+                    }
                     self.b1[hh] -= lr * db1[hh] / n as f64;
                     self.w2[hh] -= lr * dw2[hh] / n as f64;
                 }
@@ -1190,11 +1621,15 @@ impl MlpModel {
         let mut hidden = vec![0.0; h];
         for hh in 0..h {
             let mut s = self.b1[hh];
-            for j in 0..N_FEATURES { s += self.w1[hh][j] * x[j]; }
+            for j in 0..N_FEATURES {
+                s += self.w1[hh][j] * x[j];
+            }
             hidden[hh] = Self::relu(s);
         }
         let mut out = self.b2;
-        for hh in 0..h { out += self.w2[hh] * hidden[hh]; }
+        for hh in 0..h {
+            out += self.w2[hh] * hidden[hh];
+        }
         sigmoid(out)
     }
 }
@@ -1207,17 +1642,31 @@ pub struct MlpStrategy {
 }
 
 impl MlpStrategy {
-    pub fn new(candles: &[Candle], config: FeatureConfig, hidden_size: usize, lr: f64, epochs: usize, threshold: f64) -> Self {
+    pub fn new(
+        candles: &[Candle],
+        config: FeatureConfig,
+        hidden_size: usize,
+        lr: f64,
+        epochs: usize,
+        threshold: f64,
+    ) -> Self {
         let (features, labels, _start) = extract_features(candles, &config);
         let mut model = MlpModel::new(hidden_size);
         model.fit(&features, &labels, lr, epochs);
         let name = format!("MLP (hidden={}, lr={}, epochs={})", hidden_size, lr, epochs);
-        Self { model, config, threshold, name }
+        Self {
+            model,
+            config,
+            threshold,
+            name,
+        }
     }
 }
 
 impl Strategy for MlpStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let n = candles.len();
@@ -1227,8 +1676,11 @@ impl Strategy for MlpStrategy {
             let idx = start_idx + i;
             if idx < n {
                 let prob = self.model.predict_proba(feat);
-                if prob > self.threshold { signals[idx] = Signal::Buy; }
-                else { signals[idx] = Signal::Sell; }
+                if prob > self.threshold {
+                    signals[idx] = Signal::Buy;
+                } else {
+                    signals[idx] = Signal::Sell;
+                }
             }
         }
         signals
@@ -1266,12 +1718,26 @@ impl MlFullEnsembleStrategy {
         let gb = GradientBoostingStrategy::new(candles, config.clone(), 20, 0.1, 8);
         let knn = KnnStrategy::new(candles, config.clone(), 7);
         let name = "ML Full Ensemble (10 models)".to_string();
-        Self { tree, rf, lr, logreg, svm, perceptron, mlp, nb, gb, knn, name }
+        Self {
+            tree,
+            rf,
+            lr,
+            logreg,
+            svm,
+            perceptron,
+            mlp,
+            nb,
+            gb,
+            knn,
+            name,
+        }
     }
 }
 
 impl Strategy for MlFullEnsembleStrategy {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let all_signals: Vec<Vec<Signal>> = vec![
@@ -1321,7 +1787,11 @@ pub fn create_ml_strategies(candles: &[Candle]) -> Vec<Box<dyn Strategy>> {
     let config = FeatureConfig::default();
     vec![
         Box::new(DecisionTreeStrategy::new(candles, config.clone(), 5, 10)),
-        Box::new(LinearRegressionStrategy::new(candles, config.clone(), 0.001)),
+        Box::new(LinearRegressionStrategy::new(
+            candles,
+            config.clone(),
+            0.001,
+        )),
         Box::new(KnnStrategy::new(candles, config.clone(), 7)),
         Box::new(MlEnsembleStrategy::new(candles, config)),
     ]

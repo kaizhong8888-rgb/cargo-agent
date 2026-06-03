@@ -44,7 +44,9 @@ pub(super) fn is_in_test_code(content: &str, pos: usize) -> bool {
 /// Extract the variable name from context around an .unwrap() call.
 pub(super) fn extract_var_name(context: &str) -> String {
     if let Some(c) = RE_UNWRAP.captures(context) {
-        c.get(1).map(|m| m.as_str().to_string()).unwrap_or_else(|| "value".to_string())
+        c.get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| "value".to_string())
     } else {
         "value".to_string()
     }
@@ -52,7 +54,9 @@ pub(super) fn extract_var_name(context: &str) -> String {
 
 /// Find the byte offset of a given 1-based line number in content.
 pub(super) fn find_line_start(content: &str, line_num: usize) -> usize {
-    if line_num <= 1 { return 0; }
+    if line_num <= 1 {
+        return 0;
+    }
     let mut pos = 0;
     for _ in 1..line_num {
         if let Some(nl) = content[pos..].find('\n') {
@@ -68,7 +72,9 @@ pub(super) fn find_line_start(content: &str, line_num: usize) -> usize {
 pub(super) fn parse_ignore_directives(content: &str) -> Vec<(usize, String)> {
     let mut ignores: Vec<(usize, String)> = Vec::new();
     for caps in RE_IGNORE_DIRECTIVE.captures_iter(content) {
-        let Some(cap) = caps.get(0) else { continue; };
+        let Some(cap) = caps.get(0) else {
+            continue;
+        };
         let line_num = line_at(content, cap.start());
         let checks_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         for check in checks_str.split(',') {
@@ -86,12 +92,19 @@ pub(super) fn parse_ignore_directives(content: &str) -> Vec<(usize, String)> {
 /// Check if an issue at a given line should be ignored.
 #[inline]
 pub(super) fn is_ignored(ignores: &[(usize, String)], line: usize, check: &str) -> bool {
-    ignores.iter().any(|(l, c)| *l == line && (c == "all" || c == check))
+    ignores
+        .iter()
+        .any(|(l, c)| *l == line && (c == "all" || c == check))
 }
 
 // ── Check: Unsafe Code ───────────────────────────────────────────────────────
 
-pub(super) fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_unsafe_code(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_UNSAFE_BLOCK.find_iter(content) {
         issues.push(ReviewIssue {
             severity: Severity::Warning,
@@ -108,14 +121,17 @@ pub(super) fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issu
         });
     }
     for caps in RE_UNSAFE_FN.captures_iter(content) {
-        let Some(m) = caps.get(0) else { continue; };
+        let Some(m) = caps.get(0) else {
+            continue;
+        };
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "unsafe".to_string(),
             file: file.to_string(),
             line: line_at(content, m.start()),
             column: 1,
-            message: "Unsafe function declaration. All callers must uphold safety preconditions.".to_string(),
+            message: "Unsafe function declaration. All callers must uphold safety preconditions."
+                .to_string(),
             recommendation: Some(
                 "Document safety preconditions in doc comments (# Safety section). \
                  Keep unsafe functions small and focused."
@@ -124,7 +140,9 @@ pub(super) fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issu
         });
     }
     for caps in RE_UNSAFE_TRAIT.captures_iter(content) {
-        let Some(m) = caps.get(0) else { continue; };
+        let Some(m) = caps.get(0) else {
+            continue;
+        };
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "unsafe".to_string(),
@@ -161,9 +179,16 @@ pub(super) fn check_unsafe_code(content: &str, _lines: &[&str], file: &str, issu
 
 // ── Check: Error Handling ────────────────────────────────────────────────────
 
-pub(super) fn check_error_handling(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_error_handling(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_UNWRAP.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         let context = &content[m.start()..std::cmp::min(m.end() + 40, content.len())];
         issues.push(ReviewIssue {
             severity: Severity::Warning,
@@ -171,12 +196,20 @@ pub(super) fn check_error_handling(content: &str, _lines: &[&str], file: &str, i
             file: file.to_string(),
             line: line_at(content, m.start()),
             column: 1,
-            message: format!(".unwrap() call. Will panic if `{}` is None/Err.", extract_var_name(context)),
-            recommendation: Some("Use `?` operator, .ok_or() with context, .unwrap_or_default(), or match.".to_string()),
+            message: format!(
+                ".unwrap() call. Will panic if `{}` is None/Err.",
+                extract_var_name(context)
+            ),
+            recommendation: Some(
+                "Use `?` operator, .ok_or() with context, .unwrap_or_default(), or match."
+                    .to_string(),
+            ),
         });
     }
     for m in RE_EXPECT.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "error_handling".to_string(),
@@ -188,7 +221,9 @@ pub(super) fn check_error_handling(content: &str, _lines: &[&str], file: &str, i
         });
     }
     for m in RE_PANIC.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "error_handling".to_string(),
@@ -196,14 +231,22 @@ pub(super) fn check_error_handling(content: &str, _lines: &[&str], file: &str, i
             line: line_at(content, m.start()),
             column: 1,
             message: "panic!() in production code. Return an error instead.".to_string(),
-            recommendation: Some("Replace with return Err(...), anyhow::bail!(), or anyhow::ensure!().".to_string()),
+            recommendation: Some(
+                "Replace with return Err(...), anyhow::bail!(), or anyhow::ensure!().".to_string(),
+            ),
         });
     }
     for m in RE_IGNORE_RESULT.find_iter(content) {
         let line = &content[m.start()..m.end()];
-        if line.contains("write") || line.contains("read") || line.contains("send")
-            || line.contains("save") || line.contains("remove") || line.contains("delete")
-            || line.contains("create") || line.contains("insert") || line.contains("update")
+        if line.contains("write")
+            || line.contains("read")
+            || line.contains("send")
+            || line.contains("save")
+            || line.contains("remove")
+            || line.contains("delete")
+            || line.contains("create")
+            || line.contains("insert")
+            || line.contains("update")
         {
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
@@ -217,7 +260,9 @@ pub(super) fn check_error_handling(content: &str, _lines: &[&str], file: &str, i
         }
     }
     for m in RE_WRITELN_RESULT.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "error_handling".to_string(),
@@ -225,16 +270,25 @@ pub(super) fn check_error_handling(content: &str, _lines: &[&str], file: &str, i
             line: line_at(content, m.start()),
             column: 1,
             message: "Result from write!/writeln! is ignored.".to_string(),
-            recommendation: Some("Use .ok() to explicitly ignore, or add `?` to propagate.".to_string()),
+            recommendation: Some(
+                "Use .ok() to explicitly ignore, or add `?` to propagate.".to_string(),
+            ),
         });
     }
 }
 
 // ── Check: Performance ───────────────────────────────────────────────────────
 
-pub(super) fn check_performance(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_performance(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_CLONE.find_iter(content) {
-        if m.as_str().contains("Arc::clone") { continue; }
+        if m.as_str().contains("Arc::clone") {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Info,
             check: "performance".to_string(),
@@ -242,7 +296,9 @@ pub(super) fn check_performance(content: &str, _lines: &[&str], file: &str, issu
             line: line_at(content, m.start()),
             column: 1,
             message: ".clone() call. May cause unnecessary allocations.".to_string(),
-            recommendation: Some("Consider borrowing instead. Use Cow or Arc for shared ownership.".to_string()),
+            recommendation: Some(
+                "Consider borrowing instead. Use Cow or Arc for shared ownership.".to_string(),
+            ),
         });
     }
     for m in RE_BOX_NEW.find_iter(content) {
@@ -266,8 +322,13 @@ pub(super) fn check_performance(content: &str, _lines: &[&str], file: &str, issu
                     file: file.to_string(),
                     line: line_at(content, m.start()),
                     column: 1,
-                    message: format!("Large Vec allocation ({cap} elements). May cause memory pressure."),
-                    recommendation: Some("Consider streaming approach or Box<[T]> for fixed-size buffers.".to_string()),
+                    message: format!(
+                        "Large Vec allocation ({cap} elements). May cause memory pressure."
+                    ),
+                    recommendation: Some(
+                        "Consider streaming approach or Box<[T]> for fixed-size buffers."
+                            .to_string(),
+                    ),
                 });
             }
         }
@@ -280,16 +341,25 @@ pub(super) fn check_performance(content: &str, _lines: &[&str], file: &str, issu
             line: line_at(content, m.start()),
             column: 1,
             message: "collect::<Vec<_>>() intermediate allocation.".to_string(),
-            recommendation: Some("Chain iterator adaptors directly: .map(), .filter(), .take().".to_string()),
+            recommendation: Some(
+                "Chain iterator adaptors directly: .map(), .filter(), .take().".to_string(),
+            ),
         });
     }
 }
 
 // ── Check: Style ─────────────────────────────────────────────────────────────
 
-pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>, thresholds: &Thresholds) {
+pub(super) fn check_style(
+    content: &str,
+    lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+    thresholds: &Thresholds,
+) {
     // Long functions
-    let fn_positions: Vec<(usize, String)> = RE_FN_START.captures_iter(content)
+    let fn_positions: Vec<(usize, String)> = RE_FN_START
+        .captures_iter(content)
         .filter_map(|c| {
             let name = c.get(1).map(|m| m.as_str().to_string())?;
             let m0 = c.get(0)?;
@@ -299,7 +369,11 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
 
     for i in 0..fn_positions.len() {
         let (start_line, name) = &fn_positions[i];
-        let end_line = if i + 1 < fn_positions.len() { fn_positions[i + 1].0 } else { lines.len() };
+        let end_line = if i + 1 < fn_positions.len() {
+            fn_positions[i + 1].0
+        } else {
+            lines.len()
+        };
         let length = end_line - start_line;
         if length > thresholds.max_fn_length {
             issues.push(ReviewIssue {
@@ -308,8 +382,14 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
                 file: file.to_string(),
                 line: *start_line,
                 column: 1,
-                message: format!("Function `{name}` is {length} lines (max: {}). Refactor.", thresholds.max_fn_length),
-                recommendation: Some("Split into smaller functions. Apply single-responsibility principle.".to_string()),
+                message: format!(
+                    "Function `{name}` is {length} lines (max: {}). Refactor.",
+                    thresholds.max_fn_length
+                ),
+                recommendation: Some(
+                    "Split into smaller functions. Apply single-responsibility principle."
+                        .to_string(),
+                ),
             });
         } else if length > thresholds.max_fn_length / 2 {
             issues.push(ReviewIssue {
@@ -319,7 +399,9 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
                 line: *start_line,
                 column: 1,
                 message: format!("Function `{name}` is {length} lines."),
-                recommendation: Some("Consider extracting helper functions for readability.".to_string()),
+                recommendation: Some(
+                    "Consider extracting helper functions for readability.".to_string(),
+                ),
             });
         }
     }
@@ -330,7 +412,9 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
     let mut first_deep_line: Option<usize> = None;
     for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
-        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("* ") { continue; }
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("* ") {
+            continue;
+        }
         for ch in trimmed.chars() {
             match ch {
                 '{' | '[' => {
@@ -340,7 +424,9 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
                     }
                     max_nesting_val = max_nesting_val.max(current_nesting);
                 }
-                '}' | ']' => { current_nesting = current_nesting.saturating_sub(1); }
+                '}' | ']' => {
+                    current_nesting = current_nesting.saturating_sub(1);
+                }
                 _ => {}
             }
         }
@@ -352,15 +438,23 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
             file: file.to_string(),
             line: first_deep_line.unwrap_or(1),
             column: 1,
-            message: format!("Deep nesting (max depth: {max_nesting_val}, limit: {}). Refactor.", thresholds.max_nesting),
-            recommendation: Some("Extract nested logic, use early returns, guard clauses, or iterator combinators.".to_string()),
+            message: format!(
+                "Deep nesting (max depth: {max_nesting_val}, limit: {}). Refactor.",
+                thresholds.max_nesting
+            ),
+            recommendation: Some(
+                "Extract nested logic, use early returns, guard clauses, or iterator combinators."
+                    .to_string(),
+            ),
         });
     }
 
     // Non-snake_case functions
     for caps in RE_NON_SNAKE_FN.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "style".to_string(),
@@ -368,7 +462,10 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
                 line: line_at(content, m0.start()),
                 column: 1,
                 message: format!("Function `{}` should be snake_case.", name.as_str()),
-                recommendation: Some("Rename to snake_case. Use CamelCase for types, snake_case for functions.".to_string()),
+                recommendation: Some(
+                    "Rename to snake_case. Use CamelCase for types, snake_case for functions."
+                        .to_string(),
+                ),
             });
         }
     }
@@ -376,7 +473,9 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
     // TODO/FIXME comments
     for caps in RE_TODO_COMMENT.captures_iter(content) {
         let tag = caps.get(1).map(|t| t.as_str()).unwrap_or("TODO");
-        let Some(m0) = caps.get(0) else { continue; };
+        let Some(m0) = caps.get(0) else {
+            continue;
+        };
         let line_num = line_at(content, m0.start()) - 1;
         let s: &str = lines.get(line_num).map(|s| s.trim()).unwrap_or("");
         issues.push(ReviewIssue {
@@ -386,7 +485,9 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
             line: line_num + 1,
             column: 1,
             message: format!("{tag} comment: \"{s}\""),
-            recommendation: Some("Resolve before committing. Create tasks for each TODO.".to_string()),
+            recommendation: Some(
+                "Resolve before committing. Create tasks for each TODO.".to_string(),
+            ),
         });
     }
 
@@ -394,15 +495,23 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
     for (idx, line) in lines.iter().enumerate() {
         if line.len() > thresholds.max_line_length {
             let trimmed = line.trim();
-            if trimmed.starts_with("//") { continue; }
+            if trimmed.starts_with("//") {
+                continue;
+            }
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "style".to_string(),
                 file: file.to_string(),
                 line: idx + 1,
                 column: thresholds.max_line_length + 1,
-                message: format!("Line is {} chars (max: {}).", line.len(), thresholds.max_line_length),
-                recommendation: Some("Break long lines at logical points. Use rustfmt.".to_string()),
+                message: format!(
+                    "Line is {} chars (max: {}).",
+                    line.len(),
+                    thresholds.max_line_length
+                ),
+                recommendation: Some(
+                    "Break long lines at logical points. Use rustfmt.".to_string(),
+                ),
             });
         }
     }
@@ -410,7 +519,12 @@ pub(super) fn check_style(content: &str, lines: &[&str], file: &str, issues: &mu
 
 // ── Check: Safety ────────────────────────────────────────────────────────────
 
-pub(super) fn check_safety(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_safety(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_TRANSMUTE.find_iter(content) {
         issues.push(ReviewIssue {
             severity: Severity::Error,
@@ -419,7 +533,9 @@ pub(super) fn check_safety(content: &str, _lines: &[&str], file: &str, issues: &
             line: line_at(content, m.start()),
             column: 1,
             message: "mem::transmute: type sizes must match. Extremely unsafe.".to_string(),
-            recommendation: Some("Use bytemuck::Pod for plain-data casts, or From/Into/TryFrom.".to_string()),
+            recommendation: Some(
+                "Use bytemuck::Pod for plain-data casts, or From/Into/TryFrom.".to_string(),
+            ),
         });
     }
     for m in RE_MAYBE_UNINIT.find_iter(content) {
@@ -430,7 +546,10 @@ pub(super) fn check_safety(content: &str, _lines: &[&str], file: &str, issues: &
             line: line_at(content, m.start()),
             column: 1,
             message: "MaybeUninit: incorrect use causes UB.".to_string(),
-            recommendation: Some("Initialize all bytes before calling .assume_init(). Prefer safe init patterns.".to_string()),
+            recommendation: Some(
+                "Initialize all bytes before calling .assume_init(). Prefer safe init patterns."
+                    .to_string(),
+            ),
         });
     }
     for m in RE_PTR_OFFSET.find_iter(content) {
@@ -441,14 +560,21 @@ pub(super) fn check_safety(content: &str, _lines: &[&str], file: &str, issues: &
             line: line_at(content, m.start()),
             column: 1,
             message: ".offset() pointer arithmetic: out-of-bounds risk.".to_string(),
-            recommendation: Some("Use .add()/.sub() (still unsafe but clearer). Ensure bounds checking.".to_string()),
+            recommendation: Some(
+                "Use .add()/.sub() (still unsafe but clearer). Ensure bounds checking.".to_string(),
+            ),
         });
     }
 }
 
 // ── Check: Correctness ───────────────────────────────────────────────────────
 
-pub(super) fn check_correctness(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_correctness(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_TODO_MACRO.find_iter(content) {
         let context = &content[m.start()..std::cmp::min(m.start() + 60, content.len())];
         issues.push(ReviewIssue {
@@ -458,7 +584,10 @@ pub(super) fn check_correctness(content: &str, _lines: &[&str], file: &str, issu
             line: line_at(content, m.start()),
             column: 1,
             message: format!("todo!(): \"{}\"", context.trim()),
-            recommendation: Some("Implement the missing functionality. Use anyhow::bail!() for runtime errors.".to_string()),
+            recommendation: Some(
+                "Implement the missing functionality. Use anyhow::bail!() for runtime errors."
+                    .to_string(),
+            ),
         });
     }
     for m in RE_UNIMPLEMENTED.find_iter(content) {
@@ -480,20 +609,29 @@ pub(super) fn check_correctness(content: &str, _lines: &[&str], file: &str, issu
             line: line_at(content, m.start()),
             column: 1,
             message: "unreachable!(): confirm this path is truly impossible.".to_string(),
-            recommendation: Some("Only for logically impossible states. Consider if the type system can prove it.".to_string()),
+            recommendation: Some(
+                "Only for logically impossible states. Consider if the type system can prove it."
+                    .to_string(),
+            ),
         });
     }
     for m in RE_MATCH.find_iter(content) {
         let remaining = &content[m.end()..std::cmp::min(m.end() + 2000, content.len())];
-        if !remaining.contains("_ =>") && !remaining.contains("other =>") && remaining.contains("::") {
+        if !remaining.contains("_ =>")
+            && !remaining.contains("other =>")
+            && remaining.contains("::")
+        {
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "correctness".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m.start()),
                 column: 1,
-                message: "Match without wildcard `_ =>` arm. Will fail on new enum variants.".to_string(),
-                recommendation: Some("Add `_ => { ... }` arm. Or use #[non_exhaustive] on the enum.".to_string()),
+                message: "Match without wildcard `_ =>` arm. Will fail on new enum variants."
+                    .to_string(),
+                recommendation: Some(
+                    "Add `_ => { ... }` arm. Or use #[non_exhaustive] on the enum.".to_string(),
+                ),
             });
         }
     }
@@ -512,10 +650,19 @@ pub(super) fn check_correctness(content: &str, _lines: &[&str], file: &str, issu
 
 // ── Check: Concurrency ───────────────────────────────────────────────────────
 
-pub(super) fn check_concurrency(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_concurrency(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_REFCELL.find_iter(content) {
-        let surrounding = &content[m.start().saturating_sub(30)..std::cmp::min(m.end() + 30, content.len())];
-        if surrounding.contains("static") || surrounding.contains("lazy_static") || surrounding.contains("OnceCell") {
+        let surrounding =
+            &content[m.start().saturating_sub(30)..std::cmp::min(m.end() + 30, content.len())];
+        if surrounding.contains("static")
+            || surrounding.contains("lazy_static")
+            || surrounding.contains("OnceCell")
+        {
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "concurrency".to_string(),
@@ -523,7 +670,9 @@ pub(super) fn check_concurrency(content: &str, _lines: &[&str], file: &str, issu
                 line: line_at(content, m.start()),
                 column: 1,
                 message: "RefCell/Cell with shared/static state: not thread-safe.".to_string(),
-                recommendation: Some("Use Mutex<T> or RwLock<T> for thread-safe interior mutability.".to_string()),
+                recommendation: Some(
+                    "Use Mutex<T> or RwLock<T> for thread-safe interior mutability.".to_string(),
+                ),
             });
         }
     }
@@ -535,11 +684,17 @@ pub(super) fn check_concurrency(content: &str, _lines: &[&str], file: &str, issu
             line: line_at(content, m.start()),
             column: 1,
             message: "std::sync::Mutex: may block thread in async context.".to_string(),
-            recommendation: Some("Use tokio::sync::Mutex in async code if holding across .await points.".to_string()),
+            recommendation: Some(
+                "Use tokio::sync::Mutex in async code if holding across .await points.".to_string(),
+            ),
         });
     }
     for m in RE_UNSAFE_SEND_SYNC.find_iter(content) {
-        let trait_name = if m.as_str().contains("Send") { "Send" } else { "Sync" };
+        let trait_name = if m.as_str().contains("Send") {
+            "Send"
+        } else {
+            "Sync"
+        };
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "concurrency".to_string(),
@@ -558,7 +713,10 @@ pub(super) fn check_concurrency(content: &str, _lines: &[&str], file: &str, issu
             line: line_at(content, m.start()),
             column: 1,
             message: "static mut: UB without sync. Use Mutex/RwLock/OnceLock.".to_string(),
-            recommendation: Some("Use `static` with Mutex<T> for mutable global state, or OnceLock for lazy init.".to_string()),
+            recommendation: Some(
+                "Use `static` with Mutex<T> for mutable global state, or OnceLock for lazy init."
+                    .to_string(),
+            ),
         });
     }
     for m in RE_ARC.find_iter(content) {
@@ -572,7 +730,9 @@ pub(super) fn check_concurrency(content: &str, _lines: &[&str], file: &str, issu
                 line: line_at(content, m.start()),
                 column: 1,
                 message: "Arc wraps non-Send type: not thread-safe.".to_string(),
-                recommendation: Some("Use Arc<Mutex<T>> for thread-safe shared ownership.".to_string()),
+                recommendation: Some(
+                    "Use Arc<Mutex<T>> for thread-safe shared ownership.".to_string(),
+                ),
             });
         }
     }
@@ -580,21 +740,40 @@ pub(super) fn check_concurrency(content: &str, _lines: &[&str], file: &str, issu
 
 // ── Check: Documentation ─────────────────────────────────────────────────────
 
-pub(super) fn check_documentation(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_documentation(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     let pub_item_patterns: Vec<(&str, &str)> = vec![
         (r"(?m)^\s*pub\s+fn\s+([a-zA-Z_][a-zA-Z0-9_]*)", "function"),
         (r"(?m)^\s*pub\s+struct\s+([a-zA-Z_][a-zA-Z0-9_]*)", "struct"),
-        (r"(?m)^\s*pub\s+(?:enum|union)\s+([a-zA-Z_][a-zA-Z0-9_]*)", "enum"),
+        (
+            r"(?m)^\s*pub\s+(?:enum|union)\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "enum",
+        ),
         (r"(?m)^\s*pub\s+trait\s+([a-zA-Z_][a-zA-Z0-9_]*)", "trait"),
-        (r"(?m)^\s*pub\s+type\s+([a-zA-Z_][a-zA-Z0-9_]*)", "type alias"),
-        (r"(?m)^\s*pub\s+const\s+([a-zA-Z_][a-zA-Z0-9_]*)", "constant"),
+        (
+            r"(?m)^\s*pub\s+type\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "type alias",
+        ),
+        (
+            r"(?m)^\s*pub\s+const\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+            "constant",
+        ),
     ];
     for (pattern, item_type) in &pub_item_patterns {
         if let Ok(re) = Regex::new(pattern) {
             for caps in re.captures_iter(content) {
-                let m0 = match caps.get(0) { Some(m) => m, None => continue };
+                let m0 = match caps.get(0) {
+                    Some(m) => m,
+                    None => continue,
+                };
                 let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                if *item_type == "function" && (name.starts_with("test_") || name == "new") { continue; }
+                if *item_type == "function" && (name.starts_with("test_") || name == "new") {
+                    continue;
+                }
                 let before = &content[..m0.start()];
                 let has_doc = before.lines().rev().take(5).any(|l| {
                     let t = l.trim();
@@ -608,7 +787,10 @@ pub(super) fn check_documentation(content: &str, _lines: &[&str], file: &str, is
                         line: line_at(content, m0.start()),
                         column: 1,
                         message: format!("Public {item_type} `{name}` missing doc comments."),
-                        recommendation: Some("Add /// comments: purpose, params, returns, panics, errors.".to_string()),
+                        recommendation: Some(
+                            "Add /// comments: purpose, params, returns, panics, errors."
+                                .to_string(),
+                        ),
                     });
                 }
             }
@@ -616,16 +798,23 @@ pub(super) fn check_documentation(content: &str, _lines: &[&str], file: &str, is
     }
     // Functions with params but no parameter docs
     for caps in RE_PUB_FN.captures_iter(content) {
-        let m0 = match caps.get(0) { Some(m) => m, None => continue };
+        let m0 = match caps.get(0) {
+            Some(m) => m,
+            None => continue,
+        };
         let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let sig_end = content[m0.start()..].find('{').map(|i| m0.start() + i).unwrap_or(content.len());
+        let sig_end = content[m0.start()..]
+            .find('{')
+            .map(|i| m0.start() + i)
+            .unwrap_or(content.len());
         let sig = &content[m0.start()..sig_end];
         if sig.contains('(') && !sig.contains("()") {
             let before = &content[..m0.start()];
             let has_param_docs = before.lines().rev().take(15).any(|l| {
                 let t = l.trim();
                 (t.starts_with("///") && (t.contains("- ") || t.contains('`')))
-                    || t.contains("# Parameters") || t.contains("# Arguments")
+                    || t.contains("# Parameters")
+                    || t.contains("# Arguments")
             });
             if !has_param_docs {
                 issues.push(ReviewIssue {
@@ -635,7 +824,9 @@ pub(super) fn check_documentation(content: &str, _lines: &[&str], file: &str, is
                     line: line_at(content, m0.start()),
                     column: 1,
                     message: format!("Public fn `{name}` has undocmented parameters."),
-                    recommendation: Some("Add `# Parameters` section: `name` - description.".to_string()),
+                    recommendation: Some(
+                        "Add `# Parameters` section: `name` - description.".to_string(),
+                    ),
                 });
             }
         }
@@ -644,44 +835,71 @@ pub(super) fn check_documentation(content: &str, _lines: &[&str], file: &str, is
 
 // ── Check: Naming Conventions ────────────────────────────────────────────────
 
-pub(super) fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_naming(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     // Use helper from config module (it's also exported there for tests)
     use super::config::to_camel_case;
 
     for caps in RE_LOWERCASE_STRUCT.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "naming".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m0.start()),
                 column: 1,
-                message: format!("Struct `{}` should use CamelCase (e.g. `{}`).", name.as_str(), to_camel_case(name.as_str())),
-                recommendation: Some("Rename to CamelCase: type names use PascalCase convention.".to_string()),
+                message: format!(
+                    "Struct `{}` should use CamelCase (e.g. `{}`).",
+                    name.as_str(),
+                    to_camel_case(name.as_str())
+                ),
+                recommendation: Some(
+                    "Rename to CamelCase: type names use PascalCase convention.".to_string(),
+                ),
             });
         }
     }
     for caps in RE_LOWERCASE_ENUM.captures_iter(content) {
         if let Some(name) = caps.get(1) {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "naming".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m0.start()),
                 column: 1,
-                message: format!("Enum `{}` should use CamelCase (e.g. `{}`).", name.as_str(), to_camel_case(name.as_str())),
-                recommendation: Some("Rename to CamelCase: type names use PascalCase convention.".to_string()),
+                message: format!(
+                    "Enum `{}` should use CamelCase (e.g. `{}`).",
+                    name.as_str(),
+                    to_camel_case(name.as_str())
+                ),
+                recommendation: Some(
+                    "Rename to CamelCase: type names use PascalCase convention.".to_string(),
+                ),
             });
         }
     }
     for caps in RE_NON_SCREAMING_CONST.captures_iter(content) {
         if let Some(name) = caps.get(1) {
             let n = name.as_str();
-            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') { continue; }
-            if n.len() <= 2 { continue; }
-            let Some(m0) = caps.get(0) else { continue; };
+            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') {
+                continue;
+            }
+            if n.len() <= 2 {
+                continue;
+            }
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "naming".to_string(),
@@ -689,16 +907,24 @@ pub(super) fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &
                 line: line_at(content, m0.start()),
                 column: 1,
                 message: format!("Constant `{n}` should use SCREAMING_SNAKE_CASE."),
-                recommendation: Some("Rust convention: const values use UPPER_SNAKE_CASE naming.".to_string()),
+                recommendation: Some(
+                    "Rust convention: const values use UPPER_SNAKE_CASE naming.".to_string(),
+                ),
             });
         }
     }
     for caps in RE_NON_SCREAMING_STATIC.captures_iter(content) {
         if let Some(name) = caps.get(1) {
             let n = name.as_str();
-            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') { continue; }
-            if n.len() <= 2 { continue; }
-            let Some(m0) = caps.get(0) else { continue; };
+            if n.chars().any(|c| c.is_uppercase()) && n.contains('_') {
+                continue;
+            }
+            if n.len() <= 2 {
+                continue;
+            }
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Info,
                 check: "naming".to_string(),
@@ -706,7 +932,9 @@ pub(super) fn check_naming(content: &str, _lines: &[&str], file: &str, issues: &
                 line: line_at(content, m0.start()),
                 column: 1,
                 message: format!("Static `{n}` should use SCREAMING_SNAKE_CASE."),
-                recommendation: Some("Rust convention: static values use UPPER_SNAKE_CASE.".to_string()),
+                recommendation: Some(
+                    "Rust convention: static values use UPPER_SNAKE_CASE.".to_string(),
+                ),
             });
         }
     }
@@ -718,17 +946,29 @@ fn has_recent_async_fn(before: &str) -> bool {
     let recent: Vec<&str> = before.lines().rev().take(100).collect();
     for line in &recent {
         let t = line.trim();
-        if t.starts_with("async fn") || t.starts_with("pub async fn") || t.starts_with("pub(crate) async fn") {
+        if t.starts_with("async fn")
+            || t.starts_with("pub async fn")
+            || t.starts_with("pub(crate) async fn")
+        {
             return true;
         }
-        if t == "}" { return false; }
+        if t == "}" {
+            return false;
+        }
     }
     false
 }
 
-pub(super) fn check_async(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_async(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     let is_async_file = RE_ASYNC_FN.find(content).is_some() || RE_AWAIT.find(content).is_some();
-    if !is_async_file { return; }
+    if !is_async_file {
+        return;
+    }
     for m in RE_STD_MUTEX_LOCK.find_iter(content) {
         issues.push(ReviewIssue {
             severity: Severity::Warning,
@@ -737,7 +977,9 @@ pub(super) fn check_async(content: &str, _lines: &[&str], file: &str, issues: &m
             line: line_at(content, m.start()),
             column: 1,
             message: "std::sync::Mutex::lock() in async code: will block the thread.".to_string(),
-            recommendation: Some("Use tokio::sync::Mutex or futures::lock::Mutex for async code.".to_string()),
+            recommendation: Some(
+                "Use tokio::sync::Mutex or futures::lock::Mutex for async code.".to_string(),
+            ),
         });
     }
     if RE_ASYNC_FN.find(content).is_some() {
@@ -760,9 +1002,16 @@ pub(super) fn check_async(content: &str, _lines: &[&str], file: &str, issues: &m
 
 // ── Check: Security ──────────────────────────────────────────────────────────
 
-pub(super) fn check_security(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_security(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_SQL_INJECTION.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "security".to_string(),
@@ -774,7 +1023,9 @@ pub(super) fn check_security(content: &str, _lines: &[&str], file: &str, issues:
         });
     }
     for m in RE_HARDCODED_SECRET.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Warning,
             check: "security".to_string(),
@@ -797,7 +1048,9 @@ pub(super) fn check_security(content: &str, _lines: &[&str], file: &str, issues:
         });
     }
     for m in RE_OPENAI_KEY.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
         issues.push(ReviewIssue {
             severity: Severity::Error,
             check: "security".to_string(),
@@ -812,7 +1065,12 @@ pub(super) fn check_security(content: &str, _lines: &[&str], file: &str, issues:
 
 // ── Check: Complexity ────────────────────────────────────────────────────────
 
-pub(super) fn check_complexity(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_complexity(
+    content: &str,
+    lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     // Large file check
     if lines.len() > 1000 {
         issues.push(ReviewIssue {
@@ -822,32 +1080,50 @@ pub(super) fn check_complexity(content: &str, lines: &[&str], file: &str, issues
             line: 1,
             column: 1,
             message: format!("File is {} lines (>1000). Consider splitting.", lines.len()),
-            recommendation: Some("Split into smaller modules. Aim for <500 lines per file for maintainability.".to_string()),
+            recommendation: Some(
+                "Split into smaller modules. Aim for <500 lines per file for maintainability."
+                    .to_string(),
+            ),
         });
     }
 
     // Excessive function parameters
     for caps in RE_FN_PARAMS.captures_iter(content) {
         let params_str = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-        let param_count = params_str.split(',').map(|s| s.trim()).filter(|s| {
-            !s.is_empty() && *s != "self" && *s != "&self" && *s != "&mut self" && !s.starts_with("self:")
-        }).count();
+        let param_count = params_str
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| {
+                !s.is_empty()
+                    && *s != "self"
+                    && *s != "&self"
+                    && *s != "&mut self"
+                    && !s.starts_with("self:")
+            })
+            .count();
         if param_count > 5 {
-            let Some(m0) = caps.get(0) else { continue; };
+            let Some(m0) = caps.get(0) else {
+                continue;
+            };
             issues.push(ReviewIssue {
                 severity: Severity::Warning,
                 check: "complexity".to_string(),
                 file: file.to_string(),
                 line: line_at(content, m0.start()),
                 column: 1,
-                message: format!("Function has {param_count} parameters (max: 5). Consider refactoring."),
-                recommendation: Some("Use a struct to group related parameters, or split the function.".to_string()),
+                message: format!(
+                    "Function has {param_count} parameters (max: 5). Consider refactoring."
+                ),
+                recommendation: Some(
+                    "Use a struct to group related parameters, or split the function.".to_string(),
+                ),
             });
         }
     }
 
     // Cyclomatic complexity
-    let fn_positions: Vec<(usize, String)> = RE_FN_START.captures_iter(content)
+    let fn_positions: Vec<(usize, String)> = RE_FN_START
+        .captures_iter(content)
         .filter_map(|c| {
             let name = c.get(1).map(|m| m.as_str().to_string())?;
             let m0 = c.get(0)?;
@@ -860,19 +1136,30 @@ pub(super) fn check_complexity(content: &str, lines: &[&str], file: &str, issues
         let start_byte = find_line_start(content, *start_line);
         let end_byte = if i + 1 < fn_positions.len() {
             find_line_start(content, fn_positions[i + 1].0)
-        } else { content.len() };
-        if start_byte >= end_byte { continue; }
+        } else {
+            content.len()
+        };
+        if start_byte >= end_byte {
+            continue;
+        }
         let fn_body = &content[start_byte..end_byte];
 
         let mut complexity = 1;
         for m in fn_body.match_indices("if ") {
             let before = &fn_body[..m.0];
             let prev_ch = before.chars().last().unwrap_or(' ');
-            if prev_ch == ' ' || prev_ch == '\t' || prev_ch == '\n' || prev_ch == '{' || prev_ch == ';' {
+            if prev_ch == ' '
+                || prev_ch == '\t'
+                || prev_ch == '\n'
+                || prev_ch == '{'
+                || prev_ch == ';'
+            {
                 complexity += 1;
             }
         }
-        for _m in fn_body.match_indices("else if ") { complexity += 1; }
+        for _m in fn_body.match_indices("else if ") {
+            complexity += 1;
+        }
         complexity += fn_body.matches("=>").count();
         complexity += fn_body.matches("for ").count();
         complexity += fn_body.matches("while ").count();
@@ -897,8 +1184,12 @@ pub(super) fn check_complexity(content: &str, lines: &[&str], file: &str, issues
                 file: file.to_string(),
                 line: *start_line,
                 column: 1,
-                message: format!("Function `{name}` has moderate cyclomatic complexity (~{complexity})."),
-                recommendation: Some("Consider extracting helper functions to improve readability.".to_string()),
+                message: format!(
+                    "Function `{name}` has moderate cyclomatic complexity (~{complexity})."
+                ),
+                recommendation: Some(
+                    "Consider extracting helper functions to improve readability.".to_string(),
+                ),
             });
         }
     }
@@ -906,16 +1197,26 @@ pub(super) fn check_complexity(content: &str, lines: &[&str], file: &str, issues
 
 // ── Check: Testing Quality ───────────────────────────────────────────────────
 
-pub(super) fn check_testing(content: &str, lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
-    let test_positions: Vec<usize> = RE_TEST_FN.find_iter(content)
+pub(super) fn check_testing(
+    content: &str,
+    lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
+    let test_positions: Vec<usize> = RE_TEST_FN
+        .find_iter(content)
         .map(|m| line_at(content, m.start()))
         .collect();
     for test_line in &test_positions {
         let fn_body_start = find_line_start(content, *test_line + 1);
-        let search_start = content[fn_body_start..].find('\n')
-            .map(|pos| fn_body_start + pos + 1).unwrap_or(fn_body_start);
-        let next_test = content[search_start..].find("#[test]")
-            .map(|pos| search_start + pos).unwrap_or(content.len());
+        let search_start = content[fn_body_start..]
+            .find('\n')
+            .map(|pos| fn_body_start + pos + 1)
+            .unwrap_or(fn_body_start);
+        let next_test = content[search_start..]
+            .find("#[test]")
+            .map(|pos| search_start + pos)
+            .unwrap_or(content.len());
         let test_body = &content[fn_body_start..next_test];
         let assert_count = RE_ASSERT_MACRO.find_iter(test_body).count();
         if assert_count == 0 {
@@ -926,12 +1227,16 @@ pub(super) fn check_testing(content: &str, lines: &[&str], file: &str, issues: &
                 line: *test_line,
                 column: 1,
                 message: "Test function has no assertions. May not provide value.".to_string(),
-                recommendation: Some("Add assertions (assert_eq!, assert_ne!, assert!) to verify expected behavior.".to_string()),
+                recommendation: Some(
+                    "Add assertions (assert_eq!, assert_ne!, assert!) to verify expected behavior."
+                        .to_string(),
+                ),
             });
         }
     }
     // Overly long test functions
-    let fn_positions: Vec<(usize, String)> = RE_FN_START.captures_iter(content)
+    let fn_positions: Vec<(usize, String)> = RE_FN_START
+        .captures_iter(content)
         .filter_map(|c| {
             let name = c.get(1).map(|m| m.as_str().to_string())?;
             let m0 = c.get(0)?;
@@ -939,12 +1244,18 @@ pub(super) fn check_testing(content: &str, lines: &[&str], file: &str, issues: &
             let before = &content[..m0.start()];
             if before.lines().rev().take(3).any(|l| l.trim() == "#[test]") {
                 Some((line_num, name))
-            } else { None }
+            } else {
+                None
+            }
         })
         .collect();
     for i in 0..fn_positions.len() {
         let (start_line, name) = &fn_positions[i];
-        let end_line = if i + 1 < fn_positions.len() { fn_positions[i + 1].0 } else { lines.len() };
+        let end_line = if i + 1 < fn_positions.len() {
+            fn_positions[i + 1].0
+        } else {
+            lines.len()
+        };
         let length = end_line - start_line;
         if length > 100 {
             issues.push(ReviewIssue {
@@ -954,7 +1265,10 @@ pub(super) fn check_testing(content: &str, lines: &[&str], file: &str, issues: &
                 line: *start_line,
                 column: 1,
                 message: format!("Test function `{name}` is {length} lines. Consider splitting."),
-                recommendation: Some("Split into multiple focused test cases, or use test parameterization.".to_string()),
+                recommendation: Some(
+                    "Split into multiple focused test cases, or use test parameterization."
+                        .to_string(),
+                ),
             });
         }
     }
@@ -962,22 +1276,40 @@ pub(super) fn check_testing(content: &str, lines: &[&str], file: &str, issues: &
 
 // ── Check: Debug Residuals ───────────────────────────────────────────────────
 
-pub(super) fn check_debug(content: &str, _lines: &[&str], file: &str, issues: &mut Vec<ReviewIssue>) {
+pub(super) fn check_debug(
+    content: &str,
+    _lines: &[&str],
+    file: &str,
+    issues: &mut Vec<ReviewIssue>,
+) {
     for m in RE_DBG_MACRO.find_iter(content) {
-        if is_in_test_code(content, m.start()) { continue; }
-        let macro_name = if m.as_str().contains("dbg!") { "dbg!" }
-            else if m.as_str().contains("eprintln!") { "eprintln!" }
-            else { "println!" };
+        if is_in_test_code(content, m.start()) {
+            continue;
+        }
+        let macro_name = if m.as_str().contains("dbg!") {
+            "dbg!"
+        } else if m.as_str().contains("eprintln!") {
+            "eprintln!"
+        } else {
+            "println!"
+        };
 
         if macro_name == "println!" {
-            if file.ends_with("main.rs") || file.ends_with("bin/") { continue; }
+            if file.ends_with("main.rs") || file.ends_with("bin/") {
+                continue;
+            }
             let before = &content[..m.start()];
             let recent_lines: Vec<&str> = before.lines().rev().take(20).collect();
             let in_display = recent_lines.iter().any(|l| {
                 let t = l.trim();
-                t.contains("impl") && (t.contains("Display") || t.contains("Debug") || t.contains("fmt::Formatter"))
+                t.contains("impl")
+                    && (t.contains("Display")
+                        || t.contains("Debug")
+                        || t.contains("fmt::Formatter"))
             });
-            if in_display { continue; }
+            if in_display {
+                continue;
+            }
         }
         issues.push(ReviewIssue {
             severity: if macro_name == "dbg!" { Severity::Warning } else { Severity::Info },
@@ -1050,8 +1382,8 @@ pub(super) fn run_all_checks(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::config::Thresholds;
+    use super::*;
 
     #[test]
     fn test_line_at() {
@@ -1066,7 +1398,10 @@ mod tests {
     #[test]
     fn test_extract_var_name() {
         assert_eq!(extract_var_name("x.unwrap()"), "x");
-        assert_eq!(extract_var_name("something_else.unwrap()"), "something_else");
+        assert_eq!(
+            extract_var_name("something_else.unwrap()"),
+            "something_else"
+        );
     }
 
     #[test]
@@ -1122,7 +1457,10 @@ fn main() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_unsafe_code(code, &lines, "test.rs", &mut issues);
-        assert!(!issues.is_empty(), "Should detect unsafe block and ptr deref");
+        assert!(
+            !issues.is_empty(),
+            "Should detect unsafe block and ptr deref"
+        );
         assert!(issues.iter().any(|i| i.check == "unsafe"));
     }
 
@@ -1156,8 +1494,14 @@ enum myEnum {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_naming(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("myStruct")), "Should flag lowercase struct");
-        assert!(issues.iter().any(|i| i.message.contains("myEnum")), "Should flag lowercase enum");
+        assert!(
+            issues.iter().any(|i| i.message.contains("myStruct")),
+            "Should flag lowercase struct"
+        );
+        assert!(
+            issues.iter().any(|i| i.message.contains("myEnum")),
+            "Should flag lowercase enum"
+        );
     }
 
     #[test]
@@ -1175,7 +1519,11 @@ enum MyEnum {
         let mut issues = Vec::new();
         check_naming(code, &lines, "test.rs", &mut issues);
         let naming_issues: Vec<_> = issues.iter().filter(|i| i.check == "naming").collect();
-        assert!(naming_issues.is_empty(), "Should not flag correct CamelCase: {:?}", naming_issues);
+        assert!(
+            naming_issues.is_empty(),
+            "Should not flag correct CamelCase: {:?}",
+            naming_issues
+        );
     }
 
     #[test]
@@ -1187,20 +1535,34 @@ const MAX_SIZE: usize = 100;
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_naming(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("max_size")), "Should flag lowercase const");
-        assert!(!issues.iter().any(|i| i.message.contains("MAX_SIZE")), "Should not flag SCREAMING const");
+        assert!(
+            issues.iter().any(|i| i.message.contains("max_size")),
+            "Should flag lowercase const"
+        );
+        assert!(
+            !issues.iter().any(|i| i.message.contains("MAX_SIZE")),
+            "Should not flag SCREAMING const"
+        );
     }
 
     #[test]
     fn test_check_style_long_function() {
         let mut code = String::from("fn long_function() {\n");
-        for _ in 0..120 { code.push_str("    let _ = 1;\n"); }
+        for _ in 0..120 {
+            code.push_str("    let _ = 1;\n");
+        }
         code.push_str("}\n");
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
-        let thresholds = Thresholds { max_fn_length: 50, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 50,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
         check_style(&code, &lines, "test.rs", &mut issues, &thresholds);
-        assert!(issues.iter().any(|i| i.check == "style" && i.message.contains("long_function")));
+        assert!(issues
+            .iter()
+            .any(|i| i.check == "style" && i.message.contains("long_function")));
     }
 
     #[test]
@@ -1268,8 +1630,16 @@ pub fn documented() -> i32 { 5 }
         check_documentation(code, &lines, "test.rs", &mut issues);
         let has_undocumented = issues.iter().any(|i| i.message.contains("`undocumented`"));
         let has_documented = issues.iter().any(|i| i.message.contains("`documented`"));
-        assert!(has_undocumented, "Should flag undocumented fn, issues: {:?}", issues);
-        assert!(!has_documented, "Should not flag documented fn, issues: {:?}", issues);
+        assert!(
+            has_undocumented,
+            "Should flag undocumented fn, issues: {:?}",
+            issues
+        );
+        assert!(
+            !has_documented,
+            "Should not flag documented fn, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1283,7 +1653,10 @@ async fn async_fn() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_async(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.check == "async"), "Should detect blocking mutex in async");
+        assert!(
+            issues.iter().any(|i| i.check == "async"),
+            "Should detect blocking mutex in async"
+        );
     }
 
     #[test]
@@ -1296,7 +1669,11 @@ fn bad_query(user: &str) {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("SQL injection")), "Should detect SQL injection, issues: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("SQL injection")),
+            "Should detect SQL injection, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1309,7 +1686,13 @@ fn configure() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("hardcoded secret")), "Should detect hardcoded secret, issues: {:?}", issues);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.message.contains("hardcoded secret")),
+            "Should detect hardcoded secret, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1322,7 +1705,11 @@ fn main() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("Private key")), "Should detect private key, issues: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("Private key")),
+            "Should detect private key, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1335,7 +1722,11 @@ fn call_llm() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_security(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("OpenAI API key")), "Should detect OpenAI key, issues: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("OpenAI API key")),
+            "Should detect OpenAI key, issues: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1354,7 +1745,9 @@ fn call_llm() {
         assert_eq!(ignores.len(), 3);
         assert!(ignores.iter().any(|(l, c)| *l == 1 && c == "unsafe"));
         assert!(ignores.iter().any(|(l, c)| *l == 1 && c == "style"));
-        assert!(ignores.iter().any(|(l, c)| *l == 1 && c == "error_handling"));
+        assert!(ignores
+            .iter()
+            .any(|(l, c)| *l == 1 && c == "error_handling"));
     }
 
     #[test]
@@ -1392,7 +1785,11 @@ fn call_llm() {
         let mut issues = Vec::new();
         check_unsafe_code(code, &lines, "test.rs", &mut issues);
         issues.retain(|i| !is_ignored(&ignores, i.line, &i.check));
-        assert!(issues.is_empty(), "Unsafe issue should be suppressed by ignore directive, got: {:?}", issues);
+        assert!(
+            issues.is_empty(),
+            "Unsafe issue should be suppressed by ignore directive, got: {:?}",
+            issues
+        );
     }
 
     // ── Complexity tests ──────────────────────────────────────────────────────
@@ -1400,11 +1797,17 @@ fn call_llm() {
     #[test]
     fn test_check_complexity_large_file() {
         let mut code = String::new();
-        for i in 0..1200 { code.push_str(&format!("let x_{} = {};\n", i, i)); }
+        for i in 0..1200 {
+            code.push_str(&format!("let x_{} = {};\n", i, i));
+        }
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(&code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains(">1000")), "Should flag large file, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains(">1000")),
+            "Should flag large file, got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1415,7 +1818,11 @@ fn bad_function(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i32) {}
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("parameters")), "Should flag excessive params, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("parameters")),
+            "Should flag excessive params, got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1426,8 +1833,15 @@ fn good_function(a: i32, b: i32) {}
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(code, &lines, "test.rs", &mut issues);
-        let param_issues: Vec<_> = issues.iter().filter(|i| i.message.contains("parameters")).collect();
-        assert!(param_issues.is_empty(), "Should not flag 2 params, got: {:?}", param_issues);
+        let param_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("parameters"))
+            .collect();
+        assert!(
+            param_issues.is_empty(),
+            "Should not flag 2 params, got: {:?}",
+            param_issues
+        );
     }
 
     #[test]
@@ -1458,7 +1872,11 @@ fn complex_function(x: i32) -> i32 {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_complexity(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("complexity")), "Should flag high cyclomatic complexity, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("complexity")),
+            "Should flag high cyclomatic complexity, got: {:?}",
+            issues
+        );
     }
 
     // ── Testing quality tests ─────────────────────────────────────────────────
@@ -1475,7 +1893,11 @@ fn test_no_assert() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_testing(code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("no assertions")), "Should flag test without assertions, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("no assertions")),
+            "Should flag test without assertions, got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1490,19 +1912,32 @@ fn test_with_assert() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_testing(code, &lines, "test.rs", &mut issues);
-        let no_assert_issues: Vec<_> = issues.iter().filter(|i| i.message.contains("no assertions")).collect();
-        assert!(no_assert_issues.is_empty(), "Should not flag test with assertions, got: {:?}", no_assert_issues);
+        let no_assert_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("no assertions"))
+            .collect();
+        assert!(
+            no_assert_issues.is_empty(),
+            "Should not flag test with assertions, got: {:?}",
+            no_assert_issues
+        );
     }
 
     #[test]
     fn test_check_testing_long_test() {
         let mut code = String::from("#[test]\nfn test_long() {\n");
-        for _ in 0..120 { code.push_str("    let _x = 1;\n"); }
+        for _ in 0..120 {
+            code.push_str("    let _x = 1;\n");
+        }
         code.push_str("}\n");
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_testing(&code, &lines, "test.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("long")), "Should flag long test, got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("long")),
+            "Should flag long test, got: {:?}",
+            issues
+        );
     }
 
     // ── Debug residual tests ──────────────────────────────────────────────────
@@ -1519,7 +1954,11 @@ fn calculate() -> i32 {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_debug(code, &lines, "src/lib.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("dbg!")), "Should flag dbg!(), got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("dbg!")),
+            "Should flag dbg!(), got: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -1532,6 +1971,10 @@ fn process() {
         let lines: Vec<&str> = code.lines().collect();
         let mut issues = Vec::new();
         check_debug(code, &lines, "src/lib.rs", &mut issues);
-        assert!(issues.iter().any(|i| i.message.contains("eprintln!")), "Should flag eprintln!(), got: {:?}", issues);
+        assert!(
+            issues.iter().any(|i| i.message.contains("eprintln!")),
+            "Should flag eprintln!(), got: {:?}",
+            issues
+        );
     }
 }

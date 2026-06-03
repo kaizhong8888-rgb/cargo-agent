@@ -4,9 +4,7 @@
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
 use serde_json::Value;
 use std::collections::HashMap;
-use sysinfo::{
-    CpuRefreshKind, Disks, Networks, System,
-};
+use sysinfo::{CpuRefreshKind, Disks, Networks, System};
 
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(SysMonitorTool));
@@ -16,7 +14,9 @@ struct SysMonitorTool;
 
 #[async_trait::async_trait]
 impl Tool for SysMonitorTool {
-    fn name(&self) -> &str { "sysmonitor" }
+    fn name(&self) -> &str {
+        "sysmonitor"
+    }
 
     fn description(&self) -> &str {
         "Query system resource usage. Actions: info, cpu, memory, disk, network, processes, all."
@@ -24,14 +24,25 @@ impl Tool for SysMonitorTool {
 
     fn parameters(&self) -> Vec<ToolParameter> {
         vec![
-            tp("action", "Action: info, cpu, memory, disk, network, processes, all", true),
-            tp("process_count", "Number of top processes (default: 10)", false),
+            tp(
+                "action",
+                "Action: info, cpu, memory, disk, network, processes, all",
+                true,
+            ),
+            tp(
+                "process_count",
+                "Number of top processes (default: 10)",
+                false,
+            ),
         ]
     }
 
     async fn execute(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
         let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
-        let pc = params.get("process_count").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        let pc = params
+            .get("process_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10) as usize;
         match action {
             "info" => Ok(sys_info()),
             "cpu" => Ok(cpu_info()),
@@ -49,7 +60,12 @@ impl Tool for SysMonitorTool {
 }
 
 fn tp(n: &str, d: &str, r: bool) -> ToolParameter {
-    ToolParameter { name: n.into(), description: d.into(), required: r, parameter_type: "string".into() }
+    ToolParameter {
+        name: n.into(),
+        description: d.into(),
+        required: r,
+        parameter_type: "string".into(),
+    }
 }
 
 fn sys_info() -> Value {
@@ -74,15 +90,19 @@ fn cpu_info() -> Value {
     std::thread::sleep(std::time::Duration::from_millis(200));
     sys.refresh_cpu_specifics(CpuRefreshKind::everything());
 
-    let cpus: Vec<Value> = sys.cpus().iter().map(|cpu| {
-        serde_json::json!({
-            "brand": cpu.brand(),
-            "frequency_mhz": cpu.frequency(),
-            "usage_percent": cpu.cpu_usage(),
-            "name": cpu.name(),
-            "vendor_id": cpu.vendor_id(),
+    let cpus: Vec<Value> = sys
+        .cpus()
+        .iter()
+        .map(|cpu| {
+            serde_json::json!({
+                "brand": cpu.brand(),
+                "frequency_mhz": cpu.frequency(),
+                "usage_percent": cpu.cpu_usage(),
+                "name": cpu.name(),
+                "vendor_id": cpu.vendor_id(),
+            })
         })
-    }).collect();
+        .collect();
 
     serde_json::json!({
         "total_cores": sys.cpus().len(),
@@ -114,24 +134,29 @@ fn memory_info() -> Value {
 
 fn disk_info() -> Value {
     let disks = Disks::new_with_refreshed_list();
-    let list: Vec<Value> = disks.iter().map(|d| {
-        let total = d.total_space();
-        let avail = d.available_space();
-        let used = total.saturating_sub(avail);
-        serde_json::json!({
-            "name": d.name().to_string_lossy(),
-            "mount_point": d.mount_point().to_string_lossy(),
-            "file_system": d.file_system().to_string_lossy().to_string(),
-            "total_bytes": total, "total_display": fmt_size(total),
-            "used_bytes": used, "used_display": fmt_size(used),
-            "available_bytes": avail, "available_display": fmt_size(avail),
-            "usage_percent": pct(used, total),
-            "removable": d.is_removable(),
+    let list: Vec<Value> = disks
+        .iter()
+        .map(|d| {
+            let total = d.total_space();
+            let avail = d.available_space();
+            let used = total.saturating_sub(avail);
+            serde_json::json!({
+                "name": d.name().to_string_lossy(),
+                "mount_point": d.mount_point().to_string_lossy(),
+                "file_system": d.file_system().to_string_lossy().to_string(),
+                "total_bytes": total, "total_display": fmt_size(total),
+                "used_bytes": used, "used_display": fmt_size(used),
+                "available_bytes": avail, "available_display": fmt_size(avail),
+                "usage_percent": pct(used, total),
+                "removable": d.is_removable(),
+            })
         })
-    }).collect();
+        .collect();
 
-    let (ts, ta) = (disks.iter().map(|d| d.total_space()).sum::<u64>(),
-                    disks.iter().map(|d| d.available_space()).sum::<u64>());
+    let (ts, ta) = (
+        disks.iter().map(|d| d.total_space()).sum::<u64>(),
+        disks.iter().map(|d| d.available_space()).sum::<u64>(),
+    );
     serde_json::json!({
         "total_space_bytes": ts, "total_space_display": fmt_size(ts),
         "total_used_bytes": ts.saturating_sub(ta), "total_used_display": fmt_size(ts.saturating_sub(ta)),
@@ -150,8 +175,10 @@ fn network_info() -> Value {
         })
     }).collect();
 
-    let (rx, tx) = (nets.values().map(|d| d.total_received()).sum::<u64>(),
-                    nets.values().map(|d| d.total_transmitted()).sum::<u64>());
+    let (rx, tx) = (
+        nets.values().map(|d| d.total_received()).sum::<u64>(),
+        nets.values().map(|d| d.total_transmitted()).sum::<u64>(),
+    );
     serde_json::json!({
         "total_received_bytes": rx, "total_received_display": fmt_size(rx),
         "total_transmitted_bytes": tx, "total_transmitted_display": fmt_size(tx),
@@ -163,37 +190,61 @@ fn process_info(count: usize) -> Value {
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, false);
 
-    let mut procs: Vec<Value> = sys.processes().iter().map(|(pid, p)| {
-        serde_json::json!({
-            "pid": pid.as_u32(),
-            "name": p.name().to_string_lossy(),
-            "cpu_percent": p.cpu_usage(),
-            "memory_bytes": p.memory(),
-            "memory_display": fmt_size(p.memory()),
-            "status": format!("{:?}", p.status()),
+    let mut procs: Vec<Value> = sys
+        .processes()
+        .iter()
+        .map(|(pid, p)| {
+            serde_json::json!({
+                "pid": pid.as_u32(),
+                "name": p.name().to_string_lossy(),
+                "cpu_percent": p.cpu_usage(),
+                "memory_bytes": p.memory(),
+                "memory_display": fmt_size(p.memory()),
+                "status": format!("{:?}", p.status()),
+            })
         })
-    }).collect();
+        .collect();
 
-    procs.sort_by(|a, b| b["cpu_percent"].as_f64().unwrap_or(0.0).partial_cmp(&a["cpu_percent"].as_f64().unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
+    procs.sort_by(|a, b| {
+        b["cpu_percent"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .partial_cmp(&a["cpu_percent"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     procs.truncate(count);
 
     serde_json::json!({ "total_processes": sys.processes().len(), "top_processes": procs })
 }
 
 fn pct(part: u64, total: u64) -> String {
-    if total > 0 { format!("{:.1}", (part as f64 / total as f64) * 100.0) } else { "0".into() }
+    if total > 0 {
+        format!("{:.1}", (part as f64 / total as f64) * 100.0)
+    } else {
+        "0".into()
+    }
 }
 
 fn fmt_duration(secs: u64) -> String {
-    let d = secs / 86400; let h = (secs % 86400) / 3600; let m = (secs % 3600) / 60;
+    let d = secs / 86400;
+    let h = (secs % 86400) / 3600;
+    let m = (secs % 3600) / 60;
     format!("{d}d {h}h {m}m")
 }
 
 fn fmt_size(bytes: u64) -> String {
     const U: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-    let mut s = bytes as f64; let mut i = 0;
-    while s >= 1024.0 && i < 4 { s /= 1024.0; i += 1; }
-    if i == 0 { format!("{} {}", bytes, U[i]) } else { format!("{:.2} {}", s, U[i]) }
+    let mut s = bytes as f64;
+    let mut i = 0;
+    while s >= 1024.0 && i < 4 {
+        s /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{} {}", bytes, U[i])
+    } else {
+        format!("{:.2} {}", s, U[i])
+    }
 }
 
 #[cfg(test)]
@@ -203,16 +254,24 @@ mod tests {
     // ---- pct ----
 
     #[test]
-    fn test_pct_full() { assert_eq!(pct(100, 100), "100.0"); }
+    fn test_pct_full() {
+        assert_eq!(pct(100, 100), "100.0");
+    }
 
     #[test]
-    fn test_pct_half() { assert_eq!(pct(50, 100), "50.0"); }
+    fn test_pct_half() {
+        assert_eq!(pct(50, 100), "50.0");
+    }
 
     #[test]
-    fn test_pct_zero_part() { assert_eq!(pct(0, 100), "0.0"); }
+    fn test_pct_zero_part() {
+        assert_eq!(pct(0, 100), "0.0");
+    }
 
     #[test]
-    fn test_pct_zero_total() { assert_eq!(pct(50, 0), "0"); }
+    fn test_pct_zero_total() {
+        assert_eq!(pct(50, 0), "0");
+    }
 
     #[test]
     fn test_pct_large() {
@@ -228,16 +287,24 @@ mod tests {
     // ---- fmt_duration ----
 
     #[test]
-    fn test_fmt_duration_zero() { assert_eq!(fmt_duration(0), "0d 0h 0m"); }
+    fn test_fmt_duration_zero() {
+        assert_eq!(fmt_duration(0), "0d 0h 0m");
+    }
 
     #[test]
-    fn test_fmt_duration_one_min() { assert_eq!(fmt_duration(60), "0d 0h 1m"); }
+    fn test_fmt_duration_one_min() {
+        assert_eq!(fmt_duration(60), "0d 0h 1m");
+    }
 
     #[test]
-    fn test_fmt_duration_one_hour() { assert_eq!(fmt_duration(3600), "0d 1h 0m"); }
+    fn test_fmt_duration_one_hour() {
+        assert_eq!(fmt_duration(3600), "0d 1h 0m");
+    }
 
     #[test]
-    fn test_fmt_duration_one_day() { assert_eq!(fmt_duration(86400), "1d 0h 0m"); }
+    fn test_fmt_duration_one_day() {
+        assert_eq!(fmt_duration(86400), "1d 0h 0m");
+    }
 
     #[test]
     fn test_fmt_duration_complex() {
@@ -258,34 +325,54 @@ mod tests {
     // ---- fmt_size ----
 
     #[test]
-    fn test_fmt_size_zero() { assert_eq!(fmt_size(0), "0 B"); }
+    fn test_fmt_size_zero() {
+        assert_eq!(fmt_size(0), "0 B");
+    }
 
     #[test]
-    fn test_fmt_size_bytes() { assert_eq!(fmt_size(512), "512 B"); }
+    fn test_fmt_size_bytes() {
+        assert_eq!(fmt_size(512), "512 B");
+    }
 
     #[test]
-    fn test_fmt_size_just_below_kb() { assert_eq!(fmt_size(1023), "1023 B"); }
+    fn test_fmt_size_just_below_kb() {
+        assert_eq!(fmt_size(1023), "1023 B");
+    }
 
     #[test]
-    fn test_fmt_size_kb() { assert_eq!(fmt_size(1024), "1.00 KB"); }
+    fn test_fmt_size_kb() {
+        assert_eq!(fmt_size(1024), "1.00 KB");
+    }
 
     #[test]
-    fn test_fmt_size_just_above_kb() { assert_eq!(fmt_size(1025), "1.00 KB"); }
+    fn test_fmt_size_just_above_kb() {
+        assert_eq!(fmt_size(1025), "1.00 KB");
+    }
 
     #[test]
-    fn test_fmt_size_mb() { assert_eq!(fmt_size(1_048_576), "1.00 MB"); }
+    fn test_fmt_size_mb() {
+        assert_eq!(fmt_size(1_048_576), "1.00 MB");
+    }
 
     #[test]
-    fn test_fmt_size_partial_mb() { assert_eq!(fmt_size(2_621_440), "2.50 MB"); }
+    fn test_fmt_size_partial_mb() {
+        assert_eq!(fmt_size(2_621_440), "2.50 MB");
+    }
 
     #[test]
-    fn test_fmt_size_gb() { assert_eq!(fmt_size(1_073_741_824), "1.00 GB"); }
+    fn test_fmt_size_gb() {
+        assert_eq!(fmt_size(1_073_741_824), "1.00 GB");
+    }
 
     #[test]
-    fn test_fmt_size_tb() { assert_eq!(fmt_size(1_099_511_627_776), "1.00 TB"); }
+    fn test_fmt_size_tb() {
+        assert_eq!(fmt_size(1_099_511_627_776), "1.00 TB");
+    }
 
     #[test]
-    fn test_fmt_size_5tb() { assert_eq!(fmt_size(5 * 1_099_511_627_776), "5.00 TB"); }
+    fn test_fmt_size_5tb() {
+        assert_eq!(fmt_size(5 * 1_099_511_627_776), "5.00 TB");
+    }
 
     #[test]
     fn test_fmt_size_boundary() {

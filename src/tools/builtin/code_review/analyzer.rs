@@ -1,10 +1,10 @@
 //! File analysis orchestration — single-file and batch (parallel/sequential).
 
-use super::checks::{parse_ignore_directives, run_all_checks, is_ignored};
-use super::config::{ActiveChecks, ReviewIssue, Severity, Thresholds, severity_threshold};
+use super::checks::{is_ignored, parse_ignore_directives, run_all_checks};
+use super::config::{severity_threshold, ActiveChecks, ReviewIssue, Severity, Thresholds};
 use serde_json::Value;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Per-file analysis result returned by `analyze_file`.
 pub(super) struct FileAnalysisResult {
@@ -179,61 +179,108 @@ pub(super) async fn analyze_batch(
                 if show_progress {
                     eprintln!(
                         "[SEQ] [{}/{}] Completed: {} ({} issues)",
-                        idx + 1, num_files, file, issue_count
+                        idx + 1,
+                        num_files,
+                        file,
+                        issue_count
                     );
                 }
             }
         }
     }
 
-    Ok((all_issues, file_summaries, total_errors, total_warnings, total_info))
+    Ok((
+        all_issues,
+        file_summaries,
+        total_errors,
+        total_warnings,
+        total_info,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::config::{ActiveChecks, Thresholds};
+    use super::*;
 
     #[test]
     fn test_analyze_file_basic() {
         let checks = ActiveChecks::all();
-        let thresholds = Thresholds { max_fn_length: 100, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 100,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
         let tmp = std::env::temp_dir().join("code_review_test_analyze_basic.rs");
-        std::fs::write(&tmp, r#"
+        std::fs::write(
+            &tmp,
+            r#"
 fn main() {
     let x = unsafe { 5 };
     unsafe fn bad() {}
     println!("hello");
     let _ = std::fs::read_to_string("/nonexistent");
 }
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let result = analyze_file(tmp.to_str().unwrap(), &checks, &thresholds, "info");
         assert!(result.is_some(), "analyze_file should return Some");
         let r = result.unwrap();
-        assert!(r.errors > 0 || r.warnings > 0, "Should find issues, got errors={}, warnings={}, info={}", r.errors, r.warnings, r.info);
-        assert!(r.issues.iter().any(|i| i.check == "unsafe"), "Should find unsafe issues");
-        assert!(r.issues.iter().any(|i| i.check == "debug"), "Should find println!/debug issues");
+        assert!(
+            r.errors > 0 || r.warnings > 0,
+            "Should find issues, got errors={}, warnings={}, info={}",
+            r.errors,
+            r.warnings,
+            r.info
+        );
+        assert!(
+            r.issues.iter().any(|i| i.check == "unsafe"),
+            "Should find unsafe issues"
+        );
+        assert!(
+            r.issues.iter().any(|i| i.check == "debug"),
+            "Should find println!/debug issues"
+        );
         let _ = std::fs::remove_file(&tmp);
     }
 
     #[test]
     fn test_analyze_file_io_error() {
         let checks = ActiveChecks::all();
-        let thresholds = Thresholds { max_fn_length: 100, max_nesting: 8, max_line_length: 120 };
-        let result = analyze_file("/tmp/nonexistent_file_12345.rs", &checks, &thresholds, "info");
+        let thresholds = Thresholds {
+            max_fn_length: 100,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
+        let result = analyze_file(
+            "/tmp/nonexistent_file_12345.rs",
+            &checks,
+            &thresholds,
+            "info",
+        );
         assert!(result.is_some(), "Should return Some even for I/O error");
         let r = result.unwrap();
-        assert!(r.issues.iter().any(|i| i.check == "io"), "Should produce an I/O error issue");
+        assert!(
+            r.issues.iter().any(|i| i.check == "io"),
+            "Should produce an I/O error issue"
+        );
         assert_eq!(r.errors, 1);
     }
 
     #[test]
     fn test_analyze_file_severity_filtering() {
         let checks = ActiveChecks::all();
-        let thresholds = Thresholds { max_fn_length: 100, max_nesting: 8, max_line_length: 120 };
+        let thresholds = Thresholds {
+            max_fn_length: 100,
+            max_nesting: 8,
+            max_line_length: 120,
+        };
         let tmp = std::env::temp_dir().join("code_review_test_severity.rs");
-        std::fs::write(&tmp, r#"
+        std::fs::write(
+            &tmp,
+            r#"
 pub fn ok_fn() {}
 
 /// docs
@@ -242,14 +289,26 @@ pub fn documented() {}
 // This triggers Error-level issues:
 unsafe trait BadTrait {}
 panic!("oh no");
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let result = analyze_file(tmp.to_str().unwrap(), &checks, &thresholds, "error");
         assert!(result.is_some());
         let r = result.unwrap();
-        assert!(r.issues.iter().any(|i| i.severity == Severity::Error), "Should retain errors, got: {:?}", r.issues);
-        assert!(r.issues.iter().any(|i| i.message.contains("panic!")), "Should flag panic! as error");
-        assert!(r.issues.iter().all(|i| i.severity == Severity::Error), "Only errors should remain");
+        assert!(
+            r.issues.iter().any(|i| i.severity == Severity::Error),
+            "Should retain errors, got: {:?}",
+            r.issues
+        );
+        assert!(
+            r.issues.iter().any(|i| i.message.contains("panic!")),
+            "Should flag panic! as error"
+        );
+        assert!(
+            r.issues.iter().all(|i| i.severity == Severity::Error),
+            "Only errors should remain"
+        );
         let _ = std::fs::remove_file(&tmp);
     }
 }

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cargo-agent - 智能 Rust 编程助手</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; }
+        .slide {
+            width: 100vw; height: 100vh; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; padding: 60px;
+            page-break-after: always; position: relative; overflow: hidden;
+        }
+        .slide:not(:last-child) { border-bottom: 3px solid #e0e0e0; }
+        
+        /* Theme colors */
+        .title-slide { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: white; }
+        .content-slide { background: #ffffff; color: #333; }
+        .accent-slide { background: linear-gradient(135deg, #0f3460 0%, #533483 100%); color: white; }
+        .end-slide { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: white; }
+        
+        /* Typography */
+        h1 { font-size: 3.5em; margin-bottom: 0.3em; }
+        h2 { font-size: 2.5em; margin-bottom: 0.5em; color: #0f3460; }
+        .accent-slide h2, .title-slide h1, .end-slide h1 { color: #e94560; }
+        .accent-slide h2 { color: #fff; }
+        h3 { font-size: 1.8em; margin-bottom: 0.4em; }
+        p, li { font-size: 1.3em; line-height: 1.8; }
+        .subtitle { font-size: 1.5em; opacity: 0.9; margin-bottom: 1em; }
+        
+        /* Lists */
+        ul { list-style: none; text-align: left; max-width: 800px; }
+        ul li { padding: 8px 0; padding-left: 30px; position: relative; }
+        ul li::before { content: "▸"; position: absolute; left: 0; color: #e94560; font-weight: bold; }
+        
+        /* Grid layouts */
+        .grid { display: grid; gap: 20px; margin-top: 30px; max-width: 900px; width: 100%; }
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+        .card {
+            background: rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;
+            text-align: center; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2);
+        }
+        .card-light { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; text-align: center; }
+        .card-icon { font-size: 2.5em; margin-bottom: 10px; }
+        .card-title { font-size: 1.2em; font-weight: bold; margin-bottom: 8px; }
+        .card-desc { font-size: 0.95em; opacity: 0.85; }
+        
+        /* Table */
+        table { border-collapse: collapse; margin: 20px auto; font-size: 1.1em; }
+        th, td { padding: 12px 20px; text-align: left; }
+        th { background: #0f3460; color: white; }
+        td { border-bottom: 1px solid #e0e0e0; }
+        tr:hover td { background: #f0f4ff; }
+        
+        /* Code block */
+        pre { background: #1a1a2e; color: #e0e0e0; padding: 20px; border-radius: 10px;
+              font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.9em;
+              max-width: 700px; overflow-x: auto; text-align: left; }
+        
+        /* Architecture diagram */
+        .arch-box { border: 2px solid; padding: 15px; margin: 10px; text-align: center; border-radius: 8px; }
+        .arch-outer { border-color: #e94560; background: rgba(233,69,96,0.1); }
+        .arch-inner { border-color: #0f3460; background: rgba(15,52,96,0.1); }
+        .arch-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        
+        /* Navigation */
+        .nav { position: fixed; bottom: 20px; right: 20px; display: flex; gap: 10px; z-index: 100; }
+        .nav button {
+            padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer;
+            background: #0f3460; color: white; font-size: 1em; transition: all 0.3s;
+        }
+        .nav button:hover { background: #e94560; }
+        .page-num { position: fixed; bottom: 20px; left: 20px; font-size: 0.9em; color: #999; }
+        
+        /* Print styles */
+        @media print {
+            .slide { height: 100vh; border-bottom: none; }
+            .nav { display: none; }
+            .page-num { display: none; }
+        }
+        
+        /* Quote */
+        .quote { font-style: italic; opacity: 0.9; border-left: 4px solid #e94560; padding-left: 20px; margin-top: 30px; }
+    </style>
+</head>
+<body>
+
+<!-- Slide 1: Title -->
+<div class="slide title-slide">
+    <h1>cargo-agent</h1>
+    <p class="subtitle">智能 Rust 编程助手</p>
+    <p class="quote">具备自我进化能力的 AI 编程助手，专注于 Rust 开发生态</p>
+</div>
+
+<!-- Slide 2: About -->
+<div class="slide content-slide">
+    <h2>关于 cargo-agent</h2>
+    <ul>
+        <li><strong>自我进化</strong>：能够修改自身源代码，持续学习和改进</li>
+        <li><strong>Rust 专精</strong>：深度集成 Rust 工具链和生态系统</li>
+        <li><strong>工具丰富</strong>：内置 50+ 专业工具，覆盖开发全流程</li>
+        <li><strong>记忆系统</strong>：支持持久化记忆和知识管理</li>
+        <li><strong>任务规划</strong>：可将复杂需求分解为可追踪的子任务</li>
+    </ul>
+</div>
+
+<!-- Slide 3: Core Features -->
+<div class="slide content-slide">
+    <h2>核心功能一览</h2>
+    <div class="grid grid-4">
+        <div class="card-light"><div class="card-icon">📦</div><div class="card-title">项目管理</div><div class="card-desc">依赖管理<br>项目脚手架<br>CI/CD 集成</div></div>
+        <div class="card-light"><div class="card-icon">🔍</div><div class="card-title">代码分析</div><div class="card-desc">AST 分析<br>结构分析<br>复杂度评估</div></div>
+        <div class="card-light"><div class="card-icon">🧪</div><div class="card-title">测试生成</div><div class="card-desc">单元测试<br>集成测试<br>属性测试</div></div>
+        <div class="card-light"><div class="card-icon">📝</div><div class="card-title">文档生成</div><div class="card-desc">API 文档<br>README<br>架构图</div></div>
+        <div class="card-light"><div class="card-icon">🌲</div><div class="card-title">Git 工作流</div><div class="card-desc">分支管理<br>变更日志<br>发布自动化</div></div>
+        <div class="card-light"><div class="card-icon">🔐</div><div class="card-title">安全扫描</div><div class="card-desc">漏洞检测<br>密钥检测<br>代码审计</div></div>
+        <div class="card-light"><div class="card-icon">⚡</div><div class="card-title">性能优化</div><div class="card-desc">基准测试<br>热点分析<br>智能重构</div></div>
+        <div class="card-light"><div class="card-icon">🗃️</div><div class="card-title">数据库</div><div class="card-desc">SQLite 操作<br>CSV 导入导出<br>迁移管理</div></div>
+    </div>
+</div>
+
+<!-- Slide 4: Code Analysis -->
+<div class="slide content-slide">
+    <h2>代码分析能力</h2>
+    <div class="grid grid-2">
+        <div class="card-light">
+            <div class="card-icon">🏗️</div>
+            <div class="card-title">结构与依赖</div>
+            <div class="card-desc">提取函数、结构体、枚举、特征定义<br>分析 use 语句和外部 crate 依赖</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">📊</div>
+            <div class="card-title">复杂度与模式</div>
+            <div class="card-desc">函数长度、嵌套深度分析<br>检测 unsafe、unwrap、todo 等模式</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">🔬</div>
+            <div class="card-title">AST 级分析</div>
+            <div class="card-desc">基于 syn 的完整语法树解析<br>公共 API 提取</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">⭐</div>
+            <div class="card-title">质量评估</div>
+            <div class="card-desc">0-100 分质量评分<br>重复代码检测与定位</div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 5: Refactoring -->
+<div class="slide accent-slide">
+    <h2>智能重构与优化</h2>
+    <ul>
+        <li><strong>安全重构</strong>：添加/移除 derive、替换 unwrap、重命名</li>
+        <li><strong>布尔简化</strong>：简化复杂布尔表达式</li>
+        <li><strong>现代化</strong>：更新为现代 Rust 模式</li>
+        <li><strong>性能优化</strong>：检测性能瓶颈并提供优化建议</li>
+        <li><strong>惯用法改进</strong>：建议更符合 Rust 风格的写法</li>
+        <li><strong>Clippy 集成</strong>：运行 lint、分类结果、自动修复</li>
+        <li><strong>基准测试</strong>：micro-benchmark、实现对比、热点分析</li>
+    </ul>
+</div>
+
+<!-- Slide 6: Self Evolution -->
+<div class="slide content-slide">
+    <h2>🧬 自我进化系统</h2>
+    <p style="margin-bottom: 30px; font-size: 1.2em; color: #666;">cargo-agent 最独特的能力——可以修改和改进自己</p>
+    <div class="grid grid-2">
+        <div class="card-light">
+            <div class="card-icon">✏️</div>
+            <div class="card-title">源码修改</div>
+            <div class="card-desc">安全地读取、写入、创建、删除文件</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">🔧</div>
+            <div class="card-title">工具创建</div>
+            <div class="card-desc">动态生成新工具并集成到系统</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">✅</div>
+            <div class="card-title">验证机制</div>
+            <div class="card-desc">修改后自动运行 cargo check 确保正确性</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">🧠</div>
+            <div class="card-title">记忆存储</div>
+            <div class="card-desc">持久化知识和经验，支持标签和重要性分级</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">📈</div>
+            <div class="card-title">进化记录</div>
+            <div class="card-desc">记录工具创建、代码变更、经验教训</div>
+        </div>
+        <div class="card-light">
+            <div class="card-icon">🔄</div>
+            <div class="card-title">自我反思</div>
+            <div class="card-desc">分析过去行为，识别改进模式</div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 7: Architecture -->
+<div class="slide content-slide">
+    <h2>技术架构</h2>
+    <div style="max-width: 700px; width: 100%;">
+        <div class="arch-box arch-outer" style="margin-bottom: 15px;">
+            <strong>用户交互层</strong><br><small>自然语言 → 工具调用</small>
+        </div>
+        <div style="font-size: 1.5em; color: #e94560;">▼</div>
+        <div class="arch-box arch-outer">
+            <strong>核心引擎</strong>
+            <div class="arch-row" style="margin-top: 10px;">
+                <div class="arch-box arch-inner" style="flex: 1;">工具系统</div>
+                <div class="arch-box arch-inner" style="flex: 1;">记忆管理</div>
+                <div class="arch-box arch-inner" style="flex: 1;">任务规划</div>
+            </div>
+        </div>
+        <div style="font-size: 1.5em; color: #e94560;">▼</div>
+        <div class="arch-box arch-outer">
+            <strong>工具层 (50+ 专业工具)</strong><br><small>代码分析 | 数据处理 | 系统操作 | Git 集成</small>
+        </div>
+        <div style="font-size: 1.5em; color: #e94560;">▼</div>
+        <div class="arch-box arch-outer">
+            <strong>基础设施</strong><br><small>Rust 工具链 | Git | 文件系统 | 网络</small>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 8: Use Cases -->
+<div class="slide content-slide">
+    <h2>使用场景</h2>
+    <table>
+        <tr><th>场景</th><th>说明</th></tr>
+        <tr><td>🚀 新项目启动</td><td>快速生成项目结构、配置依赖</td></tr>
+        <tr><td>🔍 代码审查</td><td>分析代码质量、检测潜在问题</td></tr>
+        <tr><td>📝 文档维护</td><td>自动生成和更新文档</td></tr>
+        <tr><td>🧪 测试覆盖</td><td>为现有代码生成全面测试</td></tr>
+        <tr><td>⚡ 性能调优</td><td>识别热点、运行基准测试</td></tr>
+        <tr><td>🔒 安全检查</td><td>扫描漏洞、检测硬编码密钥</td></tr>
+        <tr><td>🌲 版本管理</td><td>分支操作、变更日志、发布流程</td></tr>
+        <tr><td>📊 数据分析</td><td>处理 CSV/JSON 数据、生成报告</td></tr>
+    </table>
+</div>
+
+<!-- Slide 9: Quick Start -->
+<div class="slide accent-slide">
+    <h2>快速开始</h2>
+    <ol style="text-align: left; max-width: 600px; font-size: 1.2em; line-height: 2;">
+        <li>安装 cargo-agent</li>
+        <li>配置必要的环境变量（如 API 密钥）</li>
+        <li>在 Rust 项目目录中运行</li>
+        <li>使用自然语言描述需求</li>
+        <li>cargo-agent 将自动分析并执行任务</li>
+    </ol>
+    <h3 style="margin-top: 30px;">示例命令</h3>
+    <pre style="margin-top: 15px; font-size: 0.85em;">
+# 分析代码质量
+"分析 src/ 目录的代码质量"
+
+# 生成测试
+"为 lib.rs 生成单元测试"
+
+# 创建项目
+"创建一个新的 CLI 项目"
+
+# 代码检查
+"运行 clippy 并修复常见问题"
+    </pre>
+</div>
+
+<!-- Slide 10: End -->
+<div class="slide end-slide">
+    <h1>Thank You!</h1>
+    <p class="subtitle">cargo-agent - 让 Rust 开发更智能</p>
+    <p class="quote">自我进化 · Rust 专精 · 50+ 工具 · 持续成长</p>
+</div>
+
+<!-- Navigation -->
+<div class="nav">
+    <button onclick="prevSlide()">◀ 上一页</button>
+    <button onclick="nextSlide()">下一页 ▶</button>
+</div>
+<div class="page-num" id="pageNum">1 / 10</div>
+
+<script>
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    
+    function showSlide(n) {
+        slides.forEach(s => s.style.display = 'none');
+        currentSlide = Math.max(0, Math.min(n, slides.length - 1));
+        slides[currentSlide].style.display = 'flex';
+        document.getElementById('pageNum').textContent = `${currentSlide + 1} / ${slides.length}`;
+        window.scrollTo(0, 0);
+    }
+    
+    function nextSlide() { showSlide(currentSlide + 1); }
+    function prevSlide() { showSlide(currentSlide - 1); }
+    
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ') nextSlide();
+        if (e.key === 'ArrowLeft') prevSlide();
+    });
+    
+    showSlide(0);
+</script>
+</body>
+</html>

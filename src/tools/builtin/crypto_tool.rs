@@ -1506,7 +1506,9 @@ mod tests {
     fn test_ssh_public_key_bad_base64() {
         let result = parse_ssh_public_key("ssh-ed25519 !!!not-base64!!!");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid SSH public key base64"));
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid SSH public key base64"));
     }
 
     #[test]
@@ -1600,7 +1602,9 @@ mod tests {
     // Tool integration tests
     // =========================================================================
 
-    fn make_tool() -> CryptoTool { CryptoTool }
+    fn make_tool() -> CryptoTool {
+        CryptoTool
+    }
 
     #[tokio::test]
     async fn test_hash_sha256() {
@@ -1797,7 +1801,10 @@ mod tests {
             let mut sp = HashMap::new();
             sp.insert("action".to_string(), json!("ssh_sign"));
             sp.insert("data".to_string(), json!("ssh message"));
-            sp.insert("private_key".to_string(), Value::String(privkey.to_string()));
+            sp.insert(
+                "private_key".to_string(),
+                Value::String(privkey.to_string()),
+            );
             tool.execute(&sp).await
         };
 
@@ -1957,7 +1964,10 @@ mod tests {
         params.insert("action".to_string(), json!("decrypt"));
         params.insert("nonce".to_string(), json!("not-base64!!!"));
         params.insert("ciphertext".to_string(), json!("YWJj"));
-        params.insert("key".to_string(), json!("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY="));
+        params.insert(
+            "key".to_string(),
+            json!("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY="),
+        );
         assert!(tool.execute(&params).await.is_err());
     }
 

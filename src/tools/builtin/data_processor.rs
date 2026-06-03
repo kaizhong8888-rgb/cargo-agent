@@ -406,9 +406,8 @@ fn get_string(row: &HashMap<String, Value>, column: &str) -> String {
 /// Uses HashSet for O(1) membership checks instead of Vec::contains O(n).
 #[inline]
 fn collect_columns(rows: &[HashMap<String, Value>]) -> Vec<String> {
-    let mut seen: HashSet<String> = HashSet::with_capacity(
-        rows.first().map(|r| r.len()).unwrap_or(0),
-    );
+    let mut seen: HashSet<String> =
+        HashSet::with_capacity(rows.first().map(|r| r.len()).unwrap_or(0));
     let mut order = Vec::with_capacity(seen.capacity());
     for row in rows {
         for key in row.keys() {
@@ -1290,7 +1289,10 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
             let sum: f64 = numeric_vals.iter().sum();
             let mean = sum / numeric_vals.len() as f64;
             let min = numeric_vals.iter().cloned().fold(f64::MAX, f64::min);
-            let max = numeric_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let max = numeric_vals
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
 
             descriptions.push(json!({
                 "column": col,
@@ -1307,7 +1309,11 @@ fn cmd_describe(params: &HashMap<String, Value>) -> Result<Value, String> {
                 .iter()
                 .filter_map(|r| {
                     let s = get_string(r, col);
-                    if s.is_empty() { None } else { Some(s) }
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s)
+                    }
                 })
                 .collect();
 
@@ -1457,19 +1463,35 @@ fn build_filter_op(
     rows: &[HashMap<String, Value>],
     column: &str,
 ) -> Result<FilterOp, String> {
-    let is_numeric = value.parse::<f64>().is_ok()
-        || rows.iter().any(|r| get_numeric(r, column).is_some());
+    let is_numeric =
+        value.parse::<f64>().is_ok() || rows.iter().any(|r| get_numeric(r, column).is_some());
 
     Ok(match (op, is_numeric) {
         ("==", _) => FilterOp::Eq(value.to_string()),
         ("!=", _) => FilterOp::Ne(value.to_string()),
-        (">", true) => FilterOp::GtNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        (">", true) => FilterOp::GtNum(
+            value
+                .parse::<f64>()
+                .map_err(|e| format!("Invalid numeric value '{value}': {e}"))?,
+        ),
         (">", false) => FilterOp::GtStr(value.to_string()),
-        (">=", true) => FilterOp::GeNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        (">=", true) => FilterOp::GeNum(
+            value
+                .parse::<f64>()
+                .map_err(|e| format!("Invalid numeric value '{value}': {e}"))?,
+        ),
         (">=", false) => FilterOp::GeStr(value.to_string()),
-        ("<", true) => FilterOp::LtNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        ("<", true) => FilterOp::LtNum(
+            value
+                .parse::<f64>()
+                .map_err(|e| format!("Invalid numeric value '{value}': {e}"))?,
+        ),
         ("<", false) => FilterOp::LtStr(value.to_string()),
-        ("<=", true) => FilterOp::LeNum(value.parse::<f64>().map_err(|e| format!("Invalid numeric value '{value}': {e}"))?),
+        ("<=", true) => FilterOp::LeNum(
+            value
+                .parse::<f64>()
+                .map_err(|e| format!("Invalid numeric value '{value}': {e}"))?,
+        ),
         ("<=", false) => FilterOp::LeStr(value.to_string()),
         ("contains", _) => FilterOp::Contains(value.to_string()),
         ("startswith", _) => FilterOp::StartsWith(value.to_string()),
@@ -1485,7 +1507,17 @@ fn parse_condition(
 ) -> Result<(String, FilterOp), String> {
     let condition = condition.trim();
     // Try multi-char operators first (longer matches take priority)
-    let operators = [">=", "<=", "!=", "==", ">", "<", " contains ", " startswith ", " endswith "];
+    let operators = [
+        ">=",
+        "<=",
+        "!=",
+        "==",
+        ">",
+        "<",
+        " contains ",
+        " startswith ",
+        " endswith ",
+    ];
 
     for op in &operators {
         if let Some(pos) = condition.find(op) {

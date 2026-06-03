@@ -456,6 +456,201 @@ impl GeneticOptimizer {
     }
 }
 
+/// Walk-Forward Analysis result for a single window
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalkForwardWindowResult {
+    /// Window index (0-based)
+    pub window_idx: usize,
+    /// Training period start/end bar index
+    pub train_start: usize,
+    pub train_end: usize,
+    /// Test period start/end bar index
+    pub test_start: usize,
+    pub test_end: usize,
+    /// Best parameters found for this window
+    pub best_params: ParamSet,
+    /// In-sample (training) performance
+    pub in_sample_return_pct: f64,
+    pub in_sample_sharpe: f64,
+    /// Out-of-sample (test) performance
+    pub out_of_sample_return_pct: f64,
+    pub out_of_sample_sharpe: f64,
+    pub out_of_sample_trades: usize,
+    /// Degradation ratio (OOS/IS) - closer to 1.0 is better
+    pub performance_ratio: f64,
+}
+
+/// Walk-Forward Analysis aggregate results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalkForwardResult {
+    pub windows: Vec<WalkForwardWindowResult>,
+    pub total_windows: usize,
+    /// Aggregated out-of-sample metrics
+    pub aggregate_return_pct: f64,
+    pub aggregate_sharpe: f64,
+    pub aggregate_trades: usize,
+    /// Average performance degradation
+    pub avg_performance_ratio: f64,
+    /// Percentage of profitable windows
+    pub profitable_windows_pct: f64,
+}
+
+/// Walk-Forward Analyzer: rolling train/test validation
+pub struct WalkForwardAnalyzer;
+
+impl WalkForwardAnalyzer {
+    #[allow(clippy::too_many_arguments)]
+    pub fn analyze(
+        candles: &[Candle],
+        strategy_factory: &dyn ParametricStrategy,
+        initial_capital: f64,
+        commission_rate: f64,
+        slippage: f64,
+        weights: &ObjectiveWeights,
+        train_window: usize,
+        test_window: usize,
+    ) -> WalkForwardResult {
+        let mut window_results = Vec::new();
+        let total_len = candles.len();
+        let step = test_window; // slide by test_window
+        let mut window_idx = 0;
+        let mut start = 0;
+
+        while start + train_window + test_window <= total_len {
+            let train_end = start + train_window;
+            let test_end = train_end + test_window;
+
+            let train_data = &candles[start..train_end];
+            let test_data = &candles[train_end..test_end];
+
+            // Grid search on training data (simplified: just find best single param set)
+            let param_ranges = strategy_factory.param_ranges();
+            if !param_ranges.is_empty() {
+                let results = GridSearchOptimizer::optimize(
+                    train_data,
+                    strategy_factory,
+                    &param_ranges,
+                    initial_capital,
+                    commission_rate,
+                    slippage,
+                    weights,
+                );
+
+                // If grid search found results, use best params on test data
+                if !results.is_empty() {
+                    let best = &results[0];
+
+                    // Evaluate best params on test (out-of-sample) data
+                    let oos_result = Self::evaluate_single(
+                        test_data,
+                        strategy_factory,
+                        &best.params,
+                        initial_capital,
+                        commission_rate,
+                        slippage,
+                    );
+
+                    let perf_ratio = if best.total_return_pct.abs() > 0.01 {
+                        oos_result.total_return_pct / best.total_return_pct
+                    } else {
+                        0.0
+                    };
+
+                    window_results.push(WalkForwardWindowResult {
+                        window_idx,
+                        train_start: start,
+                        train_end,
+                        test_start: train_end,
+                        test_end,
+                        best_params: best.params.clone(),
+                        in_sample_return_pct: best.total_return_pct,
+                        in_sample_sharpe: best.sharpe_ratio,
+                        out_of_sample_return_pct: oos_result.total_return_pct,
+                        out_of_sample_sharpe: oos_result.sharpe_ratio,
+                        out_of_sample_trades: oos_result.total_trades,
+                        performance_ratio: perf_ratio,
+                    });
+                }
+            }
+
+            start += step;
+            window_idx += 1;
+        }
+
+        // Aggregate results
+        let total_windows = window_results.len();
+        let profitable_windows = window_results
+            .iter()
+            .filter(|w| w.out_of_sample_return_pct > 0.0)
+            .count();
+
+        let aggregate_return: f64 = window_results
+            .iter()
+            .map(|w| w.out_of_sample_return_pct)
+            .sum();
+        let aggregate_trades: usize = window_results.iter().map(|w| w.out_of_sample_trades).sum();
+        let avg_sharpe = if total_windows > 0 {
+            window_results
+                .iter()
+                .map(|w| w.out_of_sample_sharpe)
+                .sum::<f64>()
+                / total_windows as f64
+        } else {
+            0.0
+        };
+        let avg_perf_ratio = if total_windows > 0 {
+            window_results
+                .iter()
+                .map(|w| w.performance_ratio)
+                .sum::<f64>()
+                / total_windows as f64
+        } else {
+            0.0
+        };
+
+        WalkForwardResult {
+            windows: window_results,
+            total_windows,
+            aggregate_return_pct: aggregate_return,
+            aggregate_sharpe: avg_sharpe,
+            aggregate_trades,
+            avg_performance_ratio: avg_perf_ratio,
+            profitable_windows_pct: if total_windows > 0 {
+                profitable_windows as f64 / total_windows as f64 * 100.0
+            } else {
+                0.0
+            },
+        }
+    }
+
+    fn evaluate_single(
+        candles: &[Candle],
+        strategy_factory: &dyn ParametricStrategy,
+        params: &ParamSet,
+        initial_capital: f64,
+        commission_rate: f64,
+        slippage: f64,
+    ) -> OptimizationResult {
+        let strategy = strategy_factory.create(params);
+        let mut engine = BacktestEngine::new(initial_capital, commission_rate, slippage);
+        let trades = engine.run(candles, strategy.as_ref()).unwrap_or_default();
+        let report = BacktestResult::new(&engine, candles, &trades);
+
+        OptimizationResult {
+            params: params.clone(),
+            total_return_pct: report.engine.total_return_pct,
+            sharpe_ratio: report.engine.sharpe_ratio,
+            max_drawdown_pct: report.engine.max_drawdown_pct,
+            calmar_ratio: report.engine.calmar_ratio,
+            sortino_ratio: report.engine.sortino_ratio,
+            profit_factor: report.engine.profit_factor,
+            win_rate: report.engine.win_rate,
+            total_trades: report.engine.total_trades,
+            composite_score: 0.0,
+        }
+    }
+}
+
 /// 参数化策略 trait：根据参数集创建策略实例
 pub trait ParametricStrategy: Send + Sync {
     /// 策略基名

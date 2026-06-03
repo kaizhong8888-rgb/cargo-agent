@@ -1,5 +1,6 @@
 use crate::trading::data::Candle;
 use crate::trading::indicators;
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 /// 交易方向
@@ -21,11 +22,66 @@ pub trait Strategy {
     /// 在给定 K 线数据上生成交易信号序列
     /// 返回与 candles 等长的信号向量
     fn generate(&self, candles: &[Candle]) -> Vec<Signal>;
+
+    /// P1: 使用预分配的 OHLCV 数组生成信号（避免重复分配）
+    /// 默认实现委托给 generate()，子类可覆盖以优化性能
+    fn generate_with_data(
+        &self,
+        closes: &[f64],
+        highs: &[f64],
+        lows: &[f64],
+        volumes: &[f64],
+        _candles: &[Candle],
+    ) -> Vec<Signal> {
+        let _ = (highs, lows, volumes); // 默认不使用
+        self.generate_from_closes(closes)
+    }
+
+    /// 便捷方法：仅使用收盘价生成信号
+    fn generate_from_closes(&self, closes: &[f64]) -> Vec<Signal> {
+        // 默认实现需要完整 Candle 数据，返回空
+        vec![Signal::Hold; closes.len()]
+    }
+}
+
+/// P1: 预分配的 OHLCV 数据容器（避免策略重复分配）
+#[derive(Clone)]
+pub struct OhlcvData {
+    pub closes: Vec<f64>,
+    pub highs: Vec<f64>,
+    pub lows: Vec<f64>,
+    pub volumes: Vec<f64>,
+}
+
+impl OhlcvData {
+    /// 从 Candle 数组预分配所有 OHLCV 数组
+    pub fn from_candles(candles: &[Candle]) -> Self {
+        let n = candles.len();
+        let mut closes = Vec::with_capacity(n);
+        let mut highs = Vec::with_capacity(n);
+        let mut lows = Vec::with_capacity(n);
+        let mut volumes = Vec::with_capacity(n);
+
+        for c in candles {
+            closes.push(c.close);
+            highs.push(c.high);
+            lows.push(c.low);
+            volumes.push(c.volume);
+        }
+
+        Self {
+            closes,
+            highs,
+            lows,
+            volumes,
+        }
+    }
 }
 
 // ========================================================================
 // 1️⃣ 双均线交叉策略 (SMA Crossover)
 // ========================================================================
+#[derive(Debug)]
 pub struct SmaCrossover {
     fast_period: usize,
     slow_period: usize,
@@ -33,11 +89,21 @@ pub struct SmaCrossover {
 
 impl SmaCrossover {
     pub fn new(fast_period: usize, slow_period: usize) -> Self {
-        assert!(fast_period < slow_period, "快周期必须小于慢周期");
-        Self {
+        Self::try_new(fast_period, slow_period).expect("快周期必须小于慢周期")
+    }
+
+    pub fn try_new(fast_period: usize, slow_period: usize) -> anyhow::Result<Self> {
+        if fast_period >= slow_period {
+            return Err(anyhow!(
+                "快周期必须小于慢周期 (fast={}, slow={})",
+                fast_period,
+                slow_period
+            ));
+        }
+        Ok(Self {
             fast_period,
             slow_period,
-        }
+        })
     }
 }
 
@@ -48,12 +114,16 @@ impl Strategy for SmaCrossover {
 
     fn generate(&self, candles: &[Candle]) -> Vec<Signal> {
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
-        let fast_sma = indicators::sma(&closes, self.fast_period);
-        let slow_sma = indicators::sma(&closes, self.slow_period);
+        self.generate_from_closes(&closes)
+    }
 
-        let mut signals = vec![Signal::Hold; candles.len()];
+    fn generate_from_closes(&self, closes: &[f64]) -> Vec<Signal> {
+        let fast_sma = indicators::sma(closes, self.fast_period);
+        let slow_sma = indicators::sma(closes, self.slow_period);
+        let n = closes.len();
+        let mut signals = vec![Signal::Hold; n];
 
-        for i in 1..candles.len() {
+        for i in 1..n {
             if i < self.slow_period {
                 continue;
             }
@@ -85,6 +155,7 @@ impl Strategy for SmaCrossover {
 // ========================================================================
 // 2️⃣ 双均线交叉 + RSI 过滤策略
 // ========================================================================
+#[derive(Debug)]
 pub struct SmaCrossoverWithRsi {
     fast_period: usize,
     slow_period: usize,
@@ -101,15 +172,44 @@ impl SmaCrossoverWithRsi {
         rsi_oversold: f64,
         rsi_overbought: f64,
     ) -> Self {
-        assert!(fast_period < slow_period, "快周期必须小于慢周期");
-        assert!(rsi_oversold < rsi_overbought, "超卖阈值必须小于超买阈值");
-        Self {
+        Self::try_new(
             fast_period,
             slow_period,
             rsi_period,
             rsi_oversold,
             rsi_overbought,
+        )
+        .expect("invalid SmaCrossoverWithRsi params")
+    }
+
+    pub fn try_new(
+        fast_period: usize,
+        slow_period: usize,
+        rsi_period: usize,
+        rsi_oversold: f64,
+        rsi_overbought: f64,
+    ) -> anyhow::Result<Self> {
+        if fast_period >= slow_period {
+            return Err(anyhow!(
+                "快周期必须小于慢周期 (fast={}, slow={})",
+                fast_period,
+                slow_period
+            ));
         }
+        if rsi_oversold >= rsi_overbought {
+            return Err(anyhow!(
+                "超卖阈值必须小于超买阈值 (oversold={}, overbought={})",
+                rsi_oversold,
+                rsi_overbought
+            ));
+        }
+        Ok(Self {
+            fast_period,
+            slow_period,
+            rsi_period,
+            rsi_oversold,
+            rsi_overbought,
+        })
     }
 }
 
@@ -224,6 +324,7 @@ pub enum MacdMode {
     CrossoverWithDivergence,
 }
 
+#[derive(Debug)]
 pub struct MacdStrategy {
     fast_period: usize,
     slow_period: usize,
@@ -239,14 +340,30 @@ impl MacdStrategy {
         signal_period: usize,
         mode: MacdMode,
     ) -> Self {
-        assert!(fast_period < slow_period, "快周期必须小于慢周期");
-        Self {
+        Self::try_new(fast_period, slow_period, signal_period, mode)
+            .expect("invalid MacdStrategy params")
+    }
+
+    pub fn try_new(
+        fast_period: usize,
+        slow_period: usize,
+        signal_period: usize,
+        mode: MacdMode,
+    ) -> anyhow::Result<Self> {
+        if fast_period >= slow_period {
+            return Err(anyhow!(
+                "MACD 快周期必须小于慢周期 (fast={}, slow={})",
+                fast_period,
+                slow_period
+            ));
+        }
+        Ok(Self {
             fast_period,
             slow_period,
             signal_period,
             mode,
             divergence_lookback: 20,
-        }
+        })
     }
 
     fn detect_bullish_divergence(&self, closes: &[f64], macd_line: &[f64], i: usize) -> bool {
@@ -354,7 +471,11 @@ impl Strategy for MacdStrategy {
             let curr_hist = histogram[i];
             let prev_hist = histogram[i - 1];
 
-            if prev_macd.is_nan() || curr_macd.is_nan() || prev_signal.is_nan() || curr_signal.is_nan() {
+            if prev_macd.is_nan()
+                || curr_macd.is_nan()
+                || prev_signal.is_nan()
+                || curr_signal.is_nan()
+            {
                 continue;
             }
 
@@ -398,6 +519,7 @@ impl Strategy for MacdStrategy {
 // ========================================================================
 // 5️⃣ 海龟交易法则 (Turtle Trading - Donchian Breakout)
 // ========================================================================
+#[derive(Debug)]
 pub struct TurtleTradingStrategy {
     entry_period: usize,
     exit_period: usize,
@@ -412,63 +534,88 @@ impl TurtleTradingStrategy {
         atr_period: usize,
         stop_loss_atr: f64,
     ) -> Self {
-        assert!(entry_period > 0 && exit_period > 0 && atr_period > 0);
-        Self {
+        Self::try_new(entry_period, exit_period, atr_period, stop_loss_atr)
+            .expect("invalid TurtleTradingStrategy params")
+    }
+
+    pub fn try_new(
+        entry_period: usize,
+        exit_period: usize,
+        atr_period: usize,
+        stop_loss_atr: f64,
+    ) -> anyhow::Result<Self> {
+        if entry_period == 0 || exit_period == 0 || atr_period == 0 {
+            return Err(anyhow!(
+                "海龟交易参数不能为零 (entry={}, exit={}, atr={})",
+                entry_period,
+                exit_period,
+                atr_period
+            ));
+        }
+        Ok(Self {
             entry_period,
             exit_period,
             atr_period,
             stop_loss_atr,
-        }
+        })
     }
 
+    /// P1: 使用单调队列（Deque）实现 O(n) 滑动窗口最大值
     fn donchian_channel_high(prices: &[f64], period: usize) -> Vec<f64> {
         let len = prices.len();
         if len < period || period == 0 {
             return vec![f64::NAN; len];
         }
-        let mut result = vec![f64::NAN; len];
-        // 滑动窗口最大值: 直接扫描 (period通常较小 10-55)
-        let mut max_val = f64::NEG_INFINITY;
-        for i in 0..period {
-            if prices[i] > max_val { max_val = prices[i]; }
-        }
-        result[period - 1] = max_val;
-        for i in period..len {
-            if prices[i] > max_val {
-                max_val = prices[i];
-            } else {
-                // 最大值被滑出窗口，需要重新扫描
-                max_val = f64::NEG_INFINITY;
-                for j in (i + 1 - period)..=i {
-                    if prices[j] > max_val { max_val = prices[j]; }
-                }
+        let mut result = Vec::with_capacity(len);
+        // 单调递减双端队列：存储索引
+        let mut dq: Vec<usize> = Vec::with_capacity(period);
+
+        for i in 0..len {
+            // 移除超出窗口的元素
+            if !dq.is_empty() && dq[0] + period <= i {
+                dq.remove(0);
             }
-            result[i] = max_val;
+            // 维护单调递减：移除尾部所有小于等于当前值的索引
+            while !dq.is_empty() && prices[*dq.last().unwrap()] <= prices[i] {
+                dq.pop();
+            }
+            dq.push(i);
+            // 窗口头部即为最大值
+            if i >= period - 1 {
+                result.push(prices[dq[0]]);
+            } else {
+                result.push(f64::NAN);
+            }
         }
         result
     }
 
+    /// P1: 使用单调队列（Deque）实现 O(n) 滑动窗口最小值
     fn donchian_channel_low(prices: &[f64], period: usize) -> Vec<f64> {
         let len = prices.len();
         if len < period || period == 0 {
             return vec![f64::NAN; len];
         }
-        let mut result = vec![f64::NAN; len];
-        let mut min_val = f64::INFINITY;
-        for i in 0..period {
-            if prices[i] < min_val { min_val = prices[i]; }
-        }
-        result[period - 1] = min_val;
-        for i in period..len {
-            if prices[i] < min_val {
-                min_val = prices[i];
-            } else {
-                min_val = f64::INFINITY;
-                for j in (i + 1 - period)..=i {
-                    if prices[j] < min_val { min_val = prices[j]; }
-                }
+        let mut result = Vec::with_capacity(len);
+        // 单调递增双端队列：存储索引
+        let mut dq: Vec<usize> = Vec::with_capacity(period);
+
+        for i in 0..len {
+            // 移除超出窗口的元素
+            if !dq.is_empty() && dq[0] + period <= i {
+                dq.remove(0);
             }
-            result[i] = min_val;
+            // 维护单调递增：移除尾部所有大于等于当前值的索引
+            while !dq.is_empty() && prices[*dq.last().unwrap()] >= prices[i] {
+                dq.pop();
+            }
+            dq.push(i);
+            // 窗口头部即为最小值
+            if i >= period - 1 {
+                result.push(prices[dq[0]]);
+            } else {
+                result.push(f64::NAN);
+            }
         }
         result
     }
@@ -644,6 +791,7 @@ impl Strategy for BollingerBandsStrategy {
 // ========================================================================
 // 7️⃣ 三均线趋势跟踪策略 (Triple EMA)
 // ========================================================================
+#[derive(Debug)]
 pub struct TripleEmaStrategy {
     fast_period: usize,
     mid_period: usize,
@@ -652,15 +800,28 @@ pub struct TripleEmaStrategy {
 
 impl TripleEmaStrategy {
     pub fn new(fast_period: usize, mid_period: usize, slow_period: usize) -> Self {
-        assert!(
-            fast_period < mid_period && mid_period < slow_period,
-            "周期必须 fast < mid < slow"
-        );
-        Self {
+        Self::try_new(fast_period, mid_period, slow_period)
+            .expect("invalid TripleEmaStrategy params")
+    }
+
+    pub fn try_new(
+        fast_period: usize,
+        mid_period: usize,
+        slow_period: usize,
+    ) -> anyhow::Result<Self> {
+        if fast_period >= mid_period || mid_period >= slow_period {
+            return Err(anyhow!(
+                "EMA 周期必须 fast < mid < slow (fast={}, mid={}, slow={})",
+                fast_period,
+                mid_period,
+                slow_period
+            ));
+        }
+        Ok(Self {
             fast_period,
             mid_period,
             slow_period,
-        }
+        })
     }
 }
 
@@ -741,7 +902,11 @@ impl VwapRsiStrategy {
             cum_pv += typical_price * c.volume;
             cum_vol += c.volume;
 
-            vwap.push(if cum_vol > 0.0 { cum_pv / cum_vol } else { f64::NAN });
+            vwap.push(if cum_vol > 0.0 {
+                cum_pv / cum_vol
+            } else {
+                f64::NAN
+            });
         }
 
         vwap
@@ -1120,7 +1285,12 @@ impl Strategy for IchimokuStrategy {
             // 多头条件: TK金叉 + 价格在云层上方 + 迟行带确认
             let tk_bullish = tenkan > kijun;
             let above_cloud = price > span_a.max(span_b);
-            let chikou_confirmed = chikou.is_nan() || chikou > closes.get(i.saturating_add(26)).copied().unwrap_or(f64::MAX);
+            let chikou_confirmed = chikou.is_nan()
+                || chikou
+                    > closes
+                        .get(i.saturating_add(26))
+                        .copied()
+                        .unwrap_or(f64::MAX);
 
             if tk_bullish && above_cloud && chikou_confirmed {
                 // 确认: TK交叉后confirm_period根K线保持
@@ -1164,7 +1334,10 @@ pub struct AdxDiStrategy {
 
 impl AdxDiStrategy {
     pub fn new(adx_period: usize, adx_threshold: f64) -> Self {
-        Self { adx_period, adx_threshold }
+        Self {
+            adx_period,
+            adx_threshold,
+        }
     }
 }
 
@@ -1183,7 +1356,9 @@ impl Strategy for AdxDiStrategy {
         let mut signals = vec![Signal::Hold; n];
 
         let warmup = self.adx_period * 2 + 1;
-        if n <= warmup { return signals; }
+        if n <= warmup {
+            return signals;
+        }
 
         for i in warmup..n {
             let adx = adx_out.adx[i];
@@ -1220,7 +1395,10 @@ pub struct AtrTrailingStopStrategy {
 
 impl AtrTrailingStopStrategy {
     pub fn new(atr_period: usize, multiplier: f64) -> Self {
-        Self { atr_period, multiplier }
+        Self {
+            atr_period,
+            multiplier,
+        }
     }
 }
 
@@ -1234,18 +1412,23 @@ impl Strategy for AtrTrailingStopStrategy {
         let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
 
-        let ats = indicators::atr_trailing_stop(&highs, &lows, &closes, self.atr_period, self.multiplier);
+        let ats =
+            indicators::atr_trailing_stop(&highs, &lows, &closes, self.atr_period, self.multiplier);
         let n = closes.len();
         let mut signals = vec![Signal::Hold; n];
 
         let warmup = self.atr_period + 1;
-        if n <= warmup { return signals; }
+        if n <= warmup {
+            return signals;
+        }
 
         for i in warmup..n {
             let curr_dir = ats.direction[i];
             let prev_dir = ats.direction[i - 1];
 
-            if prev_dir == 0 || curr_dir == 0 { continue; }
+            if prev_dir == 0 || curr_dir == 0 {
+                continue;
+            }
 
             // 从空头止损翻多头止损 → 买入
             if prev_dir == -1 && curr_dir == 1 {
@@ -1300,13 +1483,21 @@ impl Strategy for StochasticRsiStrategy {
         let lows: Vec<f64> = candles.iter().map(|c| c.low).collect();
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
 
-        let stoch = indicators::stochastic(&highs, &lows, &closes, self.stoch_k_period, self.stoch_d_period);
+        let stoch = indicators::stochastic(
+            &highs,
+            &lows,
+            &closes,
+            self.stoch_k_period,
+            self.stoch_d_period,
+        );
         let rsi_vals = indicators::rsi(&closes, self.rsi_period);
         let n = closes.len();
         let mut signals = vec![Signal::Hold; n];
 
         let warmup = self.stoch_k_period.max(self.rsi_period) + self.stoch_d_period * 2;
-        if n <= warmup { return signals; }
+        if n <= warmup {
+            return signals;
+        }
 
         for i in warmup..n {
             let k = stoch.k[i];
@@ -1316,14 +1507,17 @@ impl Strategy for StochasticRsiStrategy {
             let rsi_val = rsi_vals[i];
             let prev_rsi = rsi_vals[i - 1];
 
-            if k.is_nan() || d.is_nan() || rsi_val.is_nan() { continue; }
+            if k.is_nan() || d.is_nan() || rsi_val.is_nan() {
+                continue;
+            }
 
             // 买入: K从下方上穿D(金叉) + RSI在超卖区域回升
             if prev_k <= prev_d && k > d && rsi_val < self.oversold && prev_rsi <= rsi_val {
                 signals[i] = Signal::Buy;
             }
             // 卖出: K从上方下穿D(死叉) + RSI在超买区域回落
-            else if prev_k >= prev_d && k < d && rsi_val > self.overbought && prev_rsi >= rsi_val {
+            else if prev_k >= prev_d && k < d && rsi_val > self.overbought && prev_rsi >= rsi_val
+            {
                 signals[i] = Signal::Sell;
             }
         }
@@ -1337,13 +1531,17 @@ impl Strategy for StochasticRsiStrategy {
 // ========================================================================
 pub struct WilliamsRStrategy {
     period: usize,
-    oversold: f64,  // 默认 -80
+    oversold: f64,   // 默认 -80
     overbought: f64, // 默认 -20
 }
 
 impl WilliamsRStrategy {
     pub fn new(period: usize, oversold: f64, overbought: f64) -> Self {
-        Self { period, oversold, overbought }
+        Self {
+            period,
+            oversold,
+            overbought,
+        }
     }
 }
 
@@ -1361,12 +1559,16 @@ impl Strategy for WilliamsRStrategy {
         let n = closes.len();
         let mut signals = vec![Signal::Hold; n];
 
-        if n <= self.period { return signals; }
+        if n <= self.period {
+            return signals;
+        }
 
         for i in self.period..n {
             let curr = wr[i];
             let prev = wr[i - 1];
-            if curr.is_nan() { continue; }
+            if curr.is_nan() {
+                continue;
+            }
 
             // 买入: %R 从超卖区(-100附近)回升
             if prev <= self.oversold && curr > self.oversold {
@@ -1410,7 +1612,9 @@ impl Strategy for ObvMomentumStrategy {
         let mut signals = vec![Signal::Hold; n];
 
         let warmup = self.sma_period + 1;
-        if n <= warmup { return signals; }
+        if n <= warmup {
+            return signals;
+        }
 
         for i in warmup..n {
             let obv = obv_vals[i];
@@ -1418,7 +1622,9 @@ impl Strategy for ObvMomentumStrategy {
             let prev_obv = obv_vals[i - 1];
             let prev_sma = obv_sma[i - 1];
 
-            if obv.is_nan() || sma.is_nan() { continue; }
+            if obv.is_nan() || sma.is_nan() {
+                continue;
+            }
 
             // 买入: OBV 上穿其SMA (资金流入确认)
             if prev_obv <= prev_sma && obv > sma {
@@ -1448,12 +1654,20 @@ pub struct MultiFactorMomentum {
 
 impl MultiFactorMomentum {
     pub fn new(
-        fast_ema: usize, slow_ema: usize, rsi_period: usize,
-        rsi_oversold: f64, rsi_overbought: f64, volume_sma_period: usize,
+        fast_ema: usize,
+        slow_ema: usize,
+        rsi_period: usize,
+        rsi_oversold: f64,
+        rsi_overbought: f64,
+        volume_sma_period: usize,
     ) -> Self {
         Self {
-            fast_ema, slow_ema, rsi_period,
-            rsi_oversold, rsi_overbought, volume_sma_period,
+            fast_ema,
+            slow_ema,
+            rsi_period,
+            rsi_oversold,
+            rsi_overbought,
+            volume_sma_period,
         }
     }
 }
@@ -1475,8 +1689,13 @@ impl Strategy for MultiFactorMomentum {
         let n = closes.len();
         let mut signals = vec![Signal::Hold; n];
 
-        let warmup = self.slow_ema.max(self.rsi_period).max(self.volume_sma_period);
-        if n <= warmup + 1 { return signals; }
+        let warmup = self
+            .slow_ema
+            .max(self.rsi_period)
+            .max(self.volume_sma_period);
+        if n <= warmup + 1 {
+            return signals;
+        }
 
         for i in (warmup + 1)..n {
             let f = fast[i];
@@ -1487,7 +1706,9 @@ impl Strategy for MultiFactorMomentum {
             let vol = volumes[i];
             let avg_vol = vol_sma[i];
 
-            if f.is_nan() || s.is_nan() || rsi.is_nan() || avg_vol.is_nan() { continue; }
+            if f.is_nan() || s.is_nan() || rsi.is_nan() || avg_vol.is_nan() {
+                continue;
+            }
 
             // 因子1: EMA金叉/死叉
             let trend_bullish = pf <= ps && f > s;
@@ -1521,13 +1742,17 @@ impl Strategy for MultiFactorMomentum {
 // ========================================================================
 pub struct PairsTradingStrategy {
     lookback: usize,
-    entry_z: f64,  // 入场 Z-Score 阈值 (默认 2.0)
-    exit_z: f64,   // 出场 Z-Score 阈值 (默认 0.5)
+    entry_z: f64, // 入场 Z-Score 阈值 (默认 2.0)
+    exit_z: f64,  // 出场 Z-Score 阈值 (默认 0.5)
 }
 
 impl PairsTradingStrategy {
     pub fn new(lookback: usize, entry_z: f64, exit_z: f64) -> Self {
-        Self { lookback, entry_z, exit_z }
+        Self {
+            lookback,
+            entry_z,
+            exit_z,
+        }
     }
 }
 
@@ -1541,17 +1766,22 @@ impl Strategy for PairsTradingStrategy {
         let n = closes.len();
         let mut signals = vec![Signal::Hold; n];
 
-        if n < self.lookback + 1 { return signals; }
+        if n < self.lookback + 1 {
+            return signals;
+        }
 
         let mut in_position = false;
 
         for i in self.lookback..n {
             let window = &closes[i - self.lookback..i];
             let mean: f64 = window.iter().sum::<f64>() / self.lookback as f64;
-            let variance: f64 = window.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / self.lookback as f64;
+            let variance: f64 =
+                window.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / self.lookback as f64;
             let std = variance.sqrt();
 
-            if std < f64::EPSILON { continue; }
+            if std < f64::EPSILON {
+                continue;
+            }
 
             let z_score = (closes[i] - mean) / std;
 
@@ -1573,9 +1803,9 @@ impl Strategy for PairsTradingStrategy {
                     // 之前做多 → 现在卖出平仓
                     // 简化处理: 根据z_score方向决定
                     if z_score > 0.0 {
-                        signals[i] = Signal::Buy;  // 之前做空, 现在买入
+                        signals[i] = Signal::Buy; // 之前做空, 现在买入
                     } else {
-                        signals[i] = Signal::Sell;  // 之前做多, 现在卖出
+                        signals[i] = Signal::Sell; // 之前做多, 现在卖出
                     }
                     in_position = false;
                 }
@@ -1768,5 +1998,49 @@ mod tests {
             let signals = strat.generate(&candles);
             assert_eq!(signals.len(), candles.len());
         }
+    }
+
+    #[test]
+    fn test_try_new_sma_crossover_valid() {
+        let result = SmaCrossover::try_new(5, 20);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_try_new_sma_crossover_invalid() {
+        let result = SmaCrossover::try_new(20, 5);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("快周期"));
+    }
+
+    #[test]
+    fn test_try_new_rsi_invalid_thresholds() {
+        let result = SmaCrossoverWithRsi::try_new(5, 20, 14, 70.0, 30.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("超卖阈值"));
+    }
+
+    #[test]
+    fn test_try_new_macd_invalid_periods() {
+        let result = MacdStrategy::try_new(26, 12, 9, MacdMode::Crossover);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("快周期"));
+    }
+
+    #[test]
+    fn test_try_new_turtle_zero_periods() {
+        let result = TurtleTradingStrategy::try_new(0, 10, 20, 2.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("不能为零"));
+    }
+
+    #[test]
+    fn test_try_new_triple_ema_invalid_order() {
+        let result = TripleEmaStrategy::try_new(20, 5, 13);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("fast < mid < slow"));
     }
 }

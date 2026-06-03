@@ -1,4 +1,6 @@
+use crate::hooks::{ChatEndContext, ChatStartContext, HookEvent, HookManager, ToolCallContext, ToolCallResult};
 use crate::memory::SqliteMemoryStore;
+use crate::metrics::SessionMetrics;
 use crate::model::client::{ModelClient, ModelResponse};
 use crate::skills::SkillRegistry;
 use crate::tools::ToolRegistry;
@@ -6,6 +8,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Maximum number of conversation messages before truncation.
 const MAX_MESSAGES: usize = 200;
@@ -67,6 +70,10 @@ pub struct AIAgent {
     pub current_tool: Arc<std::sync::Mutex<String>>,
     /// Current model name being used.
     pub current_model: Arc<std::sync::Mutex<String>>,
+    /// Hook manager for lifecycle event callbacks.
+    hook_manager: HookManager,
+    /// Session-level metrics tracker.
+    session_metrics: Arc<SessionMetrics>,
 }
 
 /// Tracks token consumption for cost monitoring and smart truncation.
@@ -84,6 +91,19 @@ impl AIAgent {
         tool_registry: ToolRegistry,
         skill_registry: Arc<SkillRegistry>,
     ) -> Self {
+        let session_metrics = Arc::new(SessionMetrics::new());
+
+        // Set up default hooks: audit log + metrics
+        let mut hook_manager = HookManager::new();
+        let metrics_for_hook = Arc::new(parking_lot::Mutex::new(
+            crate::metrics::ToolCallMetrics::default(),
+        ));
+        hook_manager.register("audit_log", crate::hooks::create_audit_log_hook());
+        hook_manager.register(
+            "metrics",
+            crate::hooks::create_metrics_hook(metrics_for_hook.clone()),
+        );
+
         Self {
             tool_registry,
             skill_registry,
@@ -95,6 +115,8 @@ impl AIAgent {
             current_status: Arc::new(AtomicU8::new(AgentStatus::Idle as u8)),
             current_tool: Arc::new(std::sync::Mutex::new(String::new())),
             current_model: Arc::new(std::sync::Mutex::new(String::new())),
+            hook_manager,
+            session_metrics,
         }
     }
 
@@ -208,6 +230,20 @@ impl AIAgent {
     }
 
     pub async fn chat(&mut self, user_message: &str) -> Result<String> {
+        self.session_metrics.record_user_message();
+
+        // Fire before_chat hook
+        let model_name = self.client.model_name();
+        let msg_count = self.messages.len();
+        let before_ctx = HookEvent::BeforeChat(ChatStartContext {
+            user_message,
+            model: model_name,
+            message_count: msg_count,
+        });
+        self.hook_manager.dispatch_and_log(&before_ctx);
+
+        let chat_start = Instant::now();
+
         self.inject_skill_context(user_message);
         self.inject_memory_context(user_message);
 
@@ -216,7 +252,36 @@ impl AIAgent {
             "content": user_message,
         }));
 
-        self.run_turns().await
+        let result = self.run_turns().await;
+
+        // Record chat latency
+        let chat_latency_ms = chat_start.elapsed().as_millis() as u64;
+        self.session_metrics.record_chat_latency(chat_latency_ms);
+
+        // Fire after_chat hook
+        let tool_call_count = self
+            .messages
+            .iter()
+            .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("tool"))
+            .count();
+        let after_ctx = HookEvent::AfterChat(ChatEndContext {
+            user_message: user_message.to_string(),
+            response: result.as_deref().unwrap_or("").to_string(),
+            duration_ms: chat_latency_ms,
+            tool_calls: tool_call_count,
+            prompt_tokens: self.token_usage.prompt_tokens,
+            completion_tokens: self.token_usage.completion_tokens,
+            error: result.as_ref().err().map(|e| e.to_string()),
+        });
+        self.hook_manager.dispatch_and_log(&after_ctx);
+
+        if result.is_ok() {
+            self.session_metrics.record_assistant_response();
+        } else {
+            self.session_metrics.record_chat_error();
+        }
+
+        result
     }
 
     async fn run_turns(&mut self) -> Result<String> {
@@ -244,6 +309,13 @@ impl AIAgent {
                 self.token_usage.completion_tokens += usage.completion_tokens as u64;
                 self.token_usage.total_tokens += usage.total_tokens as u64;
                 self.token_usage.api_calls += 1;
+
+                // Record to session metrics
+                self.session_metrics.record_api_call(
+                    usage.prompt_tokens as u64,
+                    usage.completion_tokens as u64,
+                    usage.total_tokens as u64,
+                );
             }
 
             self.set_status(AgentStatus::GeneratingResponse);
@@ -427,20 +499,51 @@ impl AIAgent {
         let args: serde_json::Value =
             serde_json::from_str(arguments).unwrap_or(serde_json::json!({}));
 
-        let params = args
+        let params: std::collections::HashMap<String, serde_json::Value> = args
             .as_object()
             .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
 
-        match self.tool_registry.get(name) {
+        // Fire before_tool hook
+        let before_ctx = HookEvent::BeforeTool(ToolCallContext {
+            tool_name: name,
+            arguments: &params,
+        });
+        self.hook_manager.dispatch_and_log(&before_ctx);
+
+        let exec_start = Instant::now();
+
+        let (result_str, success) = match self.tool_registry.get(name) {
             Some(tool) => match tool.execute(&params).await {
-                Ok(value) => {
-                    serde_json::to_string(&value).unwrap_or("Serialization error".to_string())
-                }
-                Err(e) => format!("Tool error: {e}"),
+                Ok(value) => (
+                    serde_json::to_string(&value).unwrap_or("Serialization error".to_string()),
+                    true,
+                ),
+                Err(e) => (format!("Tool error: {e}"), false),
             },
-            None => format!("Unknown tool: {name}"),
+            None => (format!("Unknown tool: {name}"), false),
+        };
+
+        let duration_ms = exec_start.elapsed().as_millis() as u64;
+
+        // Record tool metrics
+        if success {
+            self.session_metrics.record_tool_success(duration_ms);
+        } else {
+            self.session_metrics.record_tool_error(duration_ms);
         }
+
+        // Fire after_tool hook
+        let after_ctx = HookEvent::AfterTool(ToolCallResult {
+            tool_name: name,
+            arguments: &params,
+            result: &result_str,
+            duration_ms,
+            success,
+        });
+        self.hook_manager.dispatch_and_log(&after_ctx);
+
+        result_str
     }
 
     /// Return cumulative token usage for this conversation.
@@ -470,12 +573,16 @@ impl AIAgent {
 
     /// Set the current runtime status (atomic, lock-free for UI polling).
     pub fn set_status(&self, status: AgentStatus) {
-        self.current_status.store(status as u8, std::sync::atomic::Ordering::Release);
+        self.current_status
+            .store(status as u8, std::sync::atomic::Ordering::Release);
     }
 
     /// Get the current runtime status.
     pub fn get_status(&self) -> AgentStatus {
-        match self.current_status.load(std::sync::atomic::Ordering::Acquire) {
+        match self
+            .current_status
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             1 => AgentStatus::SearchingMemories,
             2 => AgentStatus::CallingLLM,
             3 => AgentStatus::ExecutingTool,
@@ -529,6 +636,16 @@ impl AIAgent {
     /// Return the full conversation history (for export or inspection).
     pub fn messages(&self) -> &[serde_json::Value] {
         &self.messages
+    }
+
+    /// Return a reference to the session metrics tracker.
+    pub fn session_metrics(&self) -> &Arc<SessionMetrics> {
+        &self.session_metrics
+    }
+
+    /// Return a reference to the hook manager.
+    pub fn hook_manager(&self) -> &HookManager {
+        &self.hook_manager
     }
 }
 

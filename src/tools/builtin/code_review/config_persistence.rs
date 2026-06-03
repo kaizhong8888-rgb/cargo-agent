@@ -10,8 +10,14 @@ const CONFIG_NAMESPACE: &str = "code_review_config:";
 /// Parameters that can be saved/loaded as config profiles.
 fn configurable_param_names() -> &'static [&'static str] {
     &[
-        "recursive", "checks", "format", "min_severity",
-        "max_fn_length", "max_nesting", "max_line_length", "parallel",
+        "recursive",
+        "checks",
+        "format",
+        "min_severity",
+        "max_fn_length",
+        "max_nesting",
+        "max_line_length",
+        "parallel",
     ]
 }
 
@@ -21,11 +27,18 @@ fn configurable_param_names() -> &'static [&'static str] {
 pub(super) fn merge_config_params(params: &HashMap<String, Value>) -> Result<Value, String> {
     let save_config = params.get("save_config").and_then(|v| v.as_str());
     let load_config = params.get("load_config").and_then(|v| v.as_str());
-    let list_configs = params.get("list_configs").and_then(|v| v.as_bool()).unwrap_or(false);
+    let list_configs = params
+        .get("list_configs")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let delete_config = params.get("delete_config").and_then(|v| v.as_str());
 
-    if list_configs { return list_saved_configs(); }
-    if let Some(name) = delete_config { return delete_saved_config(name); }
+    if list_configs {
+        return list_saved_configs();
+    }
+    if let Some(name) = delete_config {
+        return delete_saved_config(name);
+    }
 
     if let Some(config_name) = load_config {
         let store = ConfigStore::load();
@@ -34,8 +47,12 @@ pub(super) fn merge_config_params(params: &HashMap<String, Value>) -> Result<Val
             Some(config_obj) => {
                 if let Some(obj) = config_obj.as_object() {
                     let mut merged = serde_json::Map::new();
-                    for (k, v) in obj { merged.insert(k.clone(), v.clone()); }
-                    for (k, v) in params { merged.insert(k.clone(), v.clone()); }
+                    for (k, v) in obj {
+                        merged.insert(k.clone(), v.clone());
+                    }
+                    for (k, v) in params {
+                        merged.insert(k.clone(), v.clone());
+                    }
                     return Ok(Value::Object(merged));
                 } else {
                     return Ok(serde_json::json!({
@@ -66,7 +83,8 @@ pub(super) fn merge_config_params(params: &HashMap<String, Value>) -> Result<Val
     }
 
     // Return merged params as a JSON object (no "status" field, so execute continues)
-    let obj: serde_json::Map<String, Value> = params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let obj: serde_json::Map<String, Value> =
+        params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     Ok(Value::Object(obj))
 }
 

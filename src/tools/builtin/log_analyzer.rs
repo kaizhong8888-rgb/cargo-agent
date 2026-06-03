@@ -65,18 +65,17 @@ static RE_LOG_LINE: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
-static RE_HOUR: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\d{2}:\d{2}:\d{2}"#).expect("valid regex")
-});
+static RE_HOUR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\d{2}:\d{2}:\d{2}"#).expect("valid regex"));
 
 // Match timestamps for extraction
-static RE_TIMESTAMP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#).expect("valid regex")
-});
+static RE_TIMESTAMP: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"#).expect("valid regex"));
 
 // Match log levels
 static RE_LEVEL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b"#).expect("valid regex")
+    Regex::new(r#"(?i)\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b"#)
+        .expect("valid regex")
 });
 
 // ============================================================================
@@ -167,7 +166,10 @@ impl Tool for LogAnalyzerTool {
             .map_err(|e| format!("Failed to read log file '{path}': {e}"))?;
 
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
-        let context_lines = params.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+        let context_lines = params
+            .get("context_lines")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2) as usize;
 
         let entries = parse_log_content(&content);
 
@@ -188,7 +190,11 @@ impl Tool for LogAnalyzerTool {
                 let regex_pat = params.get("regex").and_then(|v| v.as_str());
 
                 let filtered = filter_entries(&entries, level_filter, keyword, regex_pat)?;
-                let results: Vec<Value> = filtered.iter().take(limit).map(|e| entry_to_json(e)).collect();
+                let results: Vec<Value> = filtered
+                    .iter()
+                    .take(limit)
+                    .map(|e| entry_to_json(e))
+                    .collect();
 
                 Ok(json!({
                     "status": "ok",
@@ -228,7 +234,13 @@ impl Tool for LogAnalyzerTool {
             "tail" => {
                 let level_filter = params.get("level").and_then(|v| v.as_str());
                 let filtered = filter_entries(&entries, level_filter, None, None)?;
-                let tail: Vec<Value> = filtered.iter().rev().take(limit).rev().map(|e| entry_to_json(e)).collect();
+                let tail: Vec<Value> = filtered
+                    .iter()
+                    .rev()
+                    .take(limit)
+                    .rev()
+                    .map(|e| entry_to_json(e))
+                    .collect();
                 Ok(json!({
                     "status": "ok",
                     "action": "tail",
@@ -292,18 +304,26 @@ fn parse_log_content(content: &str) -> Vec<LogEntry> {
 fn parse_log_line(line: &str, line_number: usize) -> LogEntry {
     if let Some(cap) = RE_LOG_LINE.captures(line) {
         // Try ISO format
-        let timestamp = cap.name("iso").map(|m| m.as_str().to_string())
+        let timestamp = cap
+            .name("iso")
+            .map(|m| m.as_str().to_string())
             .or_else(|| cap.name("bracket_ts").map(|m| m.as_str().to_string()))
             .or_else(|| cap.name("syslog_ts").map(|m| m.as_str().to_string()));
 
-        let level = cap.name("level1").map(|m| normalize_level(m.as_str()))
+        let level = cap
+            .name("level1")
+            .map(|m| normalize_level(m.as_str()))
             .or_else(|| cap.name("level2").map(|m| normalize_level(m.as_str())))
             .or_else(|| cap.name("level3").map(|m| normalize_level(m.as_str())));
 
-        let module = cap.name("module1").map(|m| m.as_str().to_string())
+        let module = cap
+            .name("module1")
+            .map(|m| m.as_str().to_string())
             .or_else(|| cap.name("service").map(|m| m.as_str().to_string()));
 
-        let message = cap.name("msg1").map(|m| m.as_str().to_string())
+        let message = cap
+            .name("msg1")
+            .map(|m| m.as_str().to_string())
             .or_else(|| cap.name("msg2").map(|m| m.as_str().to_string()))
             .or_else(|| cap.name("msg3").map(|m| m.as_str().to_string()))
             .or_else(|| cap.name("msg4").map(|m| m.as_str().to_string()))
@@ -311,7 +331,8 @@ fn parse_log_line(line: &str, line_number: usize) -> LogEntry {
 
         // If level wasn't captured by the main regex, try to find it in the message
         let level = level.or_else(|| {
-            RE_LEVEL.captures(line)
+            RE_LEVEL
+                .captures(line)
                 .and_then(|c| c.get(1))
                 .map(|m| normalize_level(m.as_str()))
         });
@@ -326,7 +347,8 @@ fn parse_log_line(line: &str, line_number: usize) -> LogEntry {
         }
     } else {
         // Fallback: try to extract level and message
-        let level = RE_LEVEL.captures(line)
+        let level = RE_LEVEL
+            .captures(line)
             .and_then(|c| c.get(1))
             .map(|m| normalize_level(m.as_str()));
 
@@ -432,12 +454,24 @@ fn compute_stats(entries: &[LogEntry]) -> Value {
     let with_level = entries.iter().filter(|e| e.level.is_some()).count();
     let with_module = entries.iter().filter(|e| e.module.is_some()).count();
 
-    let error_count = entries.iter().filter(|e| matches!(e.level.as_deref(), Some("ERROR"))).count();
-    let warn_count = entries.iter().filter(|e| matches!(e.level.as_deref(), Some("WARN"))).count();
-    let fatal_count = entries.iter().filter(|e| matches!(e.level.as_deref(), Some("FATAL"))).count();
+    let error_count = entries
+        .iter()
+        .filter(|e| matches!(e.level.as_deref(), Some("ERROR")))
+        .count();
+    let warn_count = entries
+        .iter()
+        .filter(|e| matches!(e.level.as_deref(), Some("WARN")))
+        .count();
+    let fatal_count = entries
+        .iter()
+        .filter(|e| matches!(e.level.as_deref(), Some("FATAL")))
+        .count();
 
     let error_rate = if total > 0 {
-        format!("{:.1}%", (error_count + fatal_count) as f64 / total as f64 * 100.0)
+        format!(
+            "{:.1}%",
+            (error_count + fatal_count) as f64 / total as f64 * 100.0
+        )
     } else {
         "0.0%".to_string()
     };
@@ -483,12 +517,16 @@ fn find_top_errors(entries: &[LogEntry], limit: usize) -> Vec<Value> {
     let mut sorted: Vec<(String, usize)> = error_counts.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-    sorted.into_iter().take(limit).map(|(msg, count)| {
-        json!({
-            "message": msg,
-            "count": count,
+    sorted
+        .into_iter()
+        .take(limit)
+        .map(|(msg, count)| {
+            json!({
+                "message": msg,
+                "count": count,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 fn compute_hourly_distribution(entries: &[LogEntry]) -> Value {
@@ -580,7 +618,8 @@ fn detect_patterns(entries: &[LogEntry]) -> Vec<Value> {
     }
 
     // Detect rapid errors (many errors within a short time span)
-    let timestamped_errors: Vec<_> = entries.iter()
+    let timestamped_errors: Vec<_> = entries
+        .iter()
         .filter(|e| matches!(e.level.as_deref(), Some("ERROR") | Some("FATAL")))
         .filter(|e| e.timestamp.is_some())
         .collect();
@@ -631,7 +670,10 @@ fn search_entries(
     let mut results = Vec::new();
 
     for (idx, entry) in entries.iter().enumerate() {
-        let matches_keyword = entry.message.to_lowercase().contains(&keyword.to_lowercase())
+        let matches_keyword = entry
+            .message
+            .to_lowercase()
+            .contains(&keyword.to_lowercase())
             || entry.raw.to_lowercase().contains(&keyword.to_lowercase());
 
         let matches_regex = regex_filter
@@ -681,7 +723,11 @@ fn generate_timeline(entries: &[LogEntry]) -> Vec<Value> {
             // Extract YYYY-MM-DD HH:MM
             if let Some(time_bucket) = extract_time_bucket(ts) {
                 let level = entry.level.clone().unwrap_or_else(|| "UNKNOWN".to_string());
-                *buckets.entry(time_bucket).or_default().entry(level).or_insert(0) += 1;
+                *buckets
+                    .entry(time_bucket)
+                    .or_default()
+                    .entry(level)
+                    .or_insert(0) += 1;
             }
         }
     }
@@ -689,13 +735,16 @@ fn generate_timeline(entries: &[LogEntry]) -> Vec<Value> {
     let mut sorted: Vec<(String, HashMap<String, usize>)> = buckets.into_iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
-    sorted.into_iter().map(|(bucket, counts)| {
-        json!({
-            "time": bucket,
-            "counts": counts,
-            "total": counts.values().sum::<usize>(),
+    sorted
+        .into_iter()
+        .map(|(bucket, counts)| {
+            json!({
+                "time": bucket,
+                "counts": counts,
+                "total": counts.values().sum::<usize>(),
+            })
         })
-    }).collect()
+        .collect()
 }
 
 fn extract_time_bucket(timestamp: &str) -> Option<String> {
@@ -760,7 +809,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("parse".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -785,7 +837,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("filter".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
         params.insert("level".to_string(), Value::String("ERROR".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
@@ -806,7 +861,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("filter".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
         params.insert("keyword".to_string(), Value::String("database".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
@@ -827,7 +885,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("stats".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -849,7 +910,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("tail".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
         params.insert("limit".to_string(), Value::Number(5.into()));
 
         let result = tool.execute(&params).await.unwrap();
@@ -872,8 +936,14 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("search".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
-        params.insert("keyword".to_string(), Value::String("port 8080".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
+        params.insert(
+            "keyword".to_string(),
+            Value::String("port 8080".to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -894,7 +964,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("timeline".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -913,7 +986,10 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("patterns".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -929,11 +1005,17 @@ mod tests {
 
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("invalid".to_string()));
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown action"));
     }
 
     #[tokio::test]
@@ -942,7 +1024,10 @@ mod tests {
         let log = create_test_log("some log line\n");
 
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String(log.to_str().unwrap().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(log.to_str().unwrap().to_string()),
+        );
 
         let result = tool.execute(&params).await;
         assert!(result.is_err());
@@ -953,7 +1038,10 @@ mod tests {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("parse".to_string()));
-        params.insert("path".to_string(), Value::String("/nonexistent/logfile.log".to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String("/nonexistent/logfile.log".to_string()),
+        );
 
         let result = tool.execute(&params).await;
         assert!(result.is_err());

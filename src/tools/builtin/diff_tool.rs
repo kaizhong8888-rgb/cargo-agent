@@ -89,12 +89,27 @@ impl Tool for DiffTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: action")?;
 
-        let context_lines = params.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
-        let ignore_whitespace = params.get("ignore_whitespace").and_then(|v| v.as_bool()).unwrap_or(false);
-        let max_width = params.get("max_width").and_then(|v| v.as_u64()).unwrap_or(120) as usize;
+        let context_lines = params
+            .get("context_lines")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3) as usize;
+        let ignore_whitespace = params
+            .get("ignore_whitespace")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let max_width = params
+            .get("max_width")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(120) as usize;
 
-        let old_path_label = params.get("old_path").and_then(|v| v.as_str()).unwrap_or("a/file");
-        let new_path_label = params.get("new_path").and_then(|v| v.as_str()).unwrap_or("b/file");
+        let old_path_label = params
+            .get("old_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("a/file");
+        let new_path_label = params
+            .get("new_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("b/file");
 
         // Load old/new content
         let old_text = load_text(params.get("old").and_then(|v| v.as_str()))?;
@@ -115,7 +130,13 @@ impl Tool for DiffTool {
                 }))
             }
             "unified" => {
-                let unified = generate_unified_diff(&old_lines, &new_lines, old_path_label, new_path_label, context_lines);
+                let unified = generate_unified_diff(
+                    &old_lines,
+                    &new_lines,
+                    old_path_label,
+                    new_path_label,
+                    context_lines,
+                );
                 Ok(json!({
                     "status": "ok",
                     "action": "unified",
@@ -134,7 +155,8 @@ impl Tool for DiffTool {
             }
             "stat" => {
                 let stats = compute_stats(&old_lines, &new_lines);
-                let diffstat = generate_diffstat(&old_lines, &new_lines, old_path_label, new_path_label);
+                let diffstat =
+                    generate_diffstat(&old_lines, &new_lines, old_path_label, new_path_label);
                 Ok(json!({
                     "status": "ok",
                     "action": "stat",
@@ -143,7 +165,13 @@ impl Tool for DiffTool {
                 }))
             }
             "patch" => {
-                let patch = generate_patch(&old_lines, &new_lines, old_path_label, new_path_label, context_lines);
+                let patch = generate_patch(
+                    &old_lines,
+                    &new_lines,
+                    old_path_label,
+                    new_path_label,
+                    context_lines,
+                );
                 Ok(json!({
                     "status": "ok",
                     "action": "patch",
@@ -272,7 +300,11 @@ fn generate_unified_diff(
         } else if in_hunk {
             current_hunk.push(change.clone());
             // Check if we've seen enough context after the change
-            let trailing_unchanged = current_hunk.iter().rev().take_while(|c| c["type"].as_str() == Some("unchanged")).count();
+            let trailing_unchanged = current_hunk
+                .iter()
+                .rev()
+                .take_while(|c| c["type"].as_str() == Some("unchanged"))
+                .count();
             if trailing_unchanged > context {
                 // Remove excess context and close hunk
                 let excess = trailing_unchanged - context;
@@ -292,7 +324,11 @@ fn generate_unified_diff(
 
     if in_hunk && !current_hunk.is_empty() {
         // Trim trailing context
-        let trailing = current_hunk.iter().rev().take_while(|c| c["type"].as_str() == Some("unchanged")).count();
+        let trailing = current_hunk
+            .iter()
+            .rev()
+            .take_while(|c| c["type"].as_str() == Some("unchanged"))
+            .count();
         if trailing > context {
             current_hunk.truncate(current_hunk.len() - (trailing - context));
         }
@@ -387,7 +423,8 @@ fn generate_side_by_side(old: &[String], new: &[String], max_width: usize) -> St
     // Header
     let header = format!(
         "{:<width$} | {:<width$}",
-        "< old", "> new",
+        "< old",
+        "> new",
         width = half_width
     );
     output.push_str(&header);
@@ -438,9 +475,18 @@ fn generate_side_by_side(old: &[String], new: &[String], max_width: usize) -> St
 
 fn compute_stats(old: &[String], new: &[String]) -> Value {
     let changes = compute_diff(old, new);
-    let additions = changes.iter().filter(|c| c["type"].as_str() == Some("added")).count();
-    let deletions = changes.iter().filter(|c| c["type"].as_str() == Some("removed")).count();
-    let unchanged = changes.iter().filter(|c| c["type"].as_str() == Some("unchanged")).count();
+    let additions = changes
+        .iter()
+        .filter(|c| c["type"].as_str() == Some("added"))
+        .count();
+    let deletions = changes
+        .iter()
+        .filter(|c| c["type"].as_str() == Some("removed"))
+        .count();
+    let unchanged = changes
+        .iter()
+        .filter(|c| c["type"].as_str() == Some("unchanged"))
+        .count();
 
     json!({
         "additions": additions,
@@ -454,19 +500,34 @@ fn compute_stats(old: &[String], new: &[String]) -> Value {
 
 fn generate_diffstat(old: &[String], new: &[String], old_label: &str, new_label: &str) -> String {
     let changes = compute_diff(old, new);
-    let additions = changes.iter().filter(|c| c["type"].as_str() == Some("added")).count();
-    let deletions = changes.iter().filter(|c| c["type"].as_str() == Some("removed")).count();
+    let additions = changes
+        .iter()
+        .filter(|c| c["type"].as_str() == Some("added"))
+        .count();
+    let deletions = changes
+        .iter()
+        .filter(|c| c["type"].as_str() == Some("removed"))
+        .count();
     let total = additions + deletions;
 
     let max_bar = 50;
-    let bar_add = if total > 0 { (additions * max_bar / total).min(max_bar) } else { 0 };
-    let bar_del = if total > 0 { (deletions * max_bar / total).min(max_bar) } else { 0 };
+    let bar_add = if total > 0 {
+        (additions * max_bar / total).min(max_bar)
+    } else {
+        0
+    };
+    let bar_del = if total > 0 {
+        (deletions * max_bar / total).min(max_bar)
+    } else {
+        0
+    };
 
     let bar = format!("{}{}", "+".repeat(bar_add), "-".repeat(bar_del));
 
     format!(
         " {} -> {} | {} {}{}{}\n {} file{} changed, {} insertion{}(+), {} deletion{}(-)",
-        old_label, new_label,
+        old_label,
+        new_label,
         total,
         bar,
         if total > 0 { " " } else { "" },
@@ -506,7 +567,10 @@ fn apply_patch(target: &str, patch: &str) -> Result<String, String> {
     let target_lines: Vec<&str> = target.lines().collect();
     let patch_lines: Vec<&str> = patch.lines().collect();
 
-    let mut result = target_lines.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let mut result = target_lines
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
     let mut offset: i32 = 0;
 
     // Parse hunks from patch
@@ -585,11 +649,7 @@ fn split_lines(text: &str, ignore_whitespace: bool) -> Vec<String> {
     if ignore_whitespace {
         lines
             .into_iter()
-            .map(|s| {
-                s.split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
+            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
             .collect()
     } else {
         lines

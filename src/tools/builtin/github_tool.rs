@@ -134,9 +134,17 @@ async fn github_get(path: &str) -> Result<Value, String> {
     let url = format!("https://api.github.com{path}");
     let resp = reqwest::Client::new()
         .get(&url)
-        .headers(build_headers().into_iter().map(|(k, v)| {
-            (reqwest::header::HeaderName::from_bytes(k.as_bytes()).unwrap(), reqwest::header::HeaderValue::from_str(&v).unwrap())
-        }).collect::<reqwest::header::HeaderMap>())
+        .headers(
+            build_headers()
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        reqwest::header::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                        reqwest::header::HeaderValue::from_str(&v).unwrap(),
+                    )
+                })
+                .collect::<reqwest::header::HeaderMap>(),
+        )
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed: {e}"))?;
@@ -170,7 +178,9 @@ async fn list_prs(
     limit: usize,
     params: &HashMap<String, Value>,
 ) -> Result<Value, String> {
-    let mut path = format!("/repos/{owner}/{repo}/pulls?state={state}&per_page={limit}&sort=updated&direction=desc");
+    let mut path = format!(
+        "/repos/{owner}/{repo}/pulls?state={state}&per_page={limit}&sort=updated&direction=desc"
+    );
 
     if let Some(branch) = params.get("branch").and_then(|v| v.as_str()) {
         path.push_str(&format!("&head={owner}:{branch}"));
@@ -217,7 +227,9 @@ async fn list_prs(
 
 /// List issues for a repository.
 async fn list_issues(owner: &str, repo: &str, state: &str, limit: usize) -> Result<Value, String> {
-    let path = format!("/repos/{owner}/{repo}/issues?state={state}&per_page={limit}&sort=updated&direction=desc");
+    let path = format!(
+        "/repos/{owner}/{repo}/issues?state={state}&per_page={limit}&sort=updated&direction=desc"
+    );
     let body = github_get(&path).await?;
 
     let issues = match &body {
@@ -261,7 +273,8 @@ async fn list_issues(owner: &str, repo: &str, state: &str, limit: usize) -> Resu
 
 /// Check latest CI workflow run status.
 async fn check_ci(owner: &str, repo: &str, limit: usize) -> Result<Value, String> {
-    let path = format!("/repos/{owner}/{repo}/actions/runs?per_page={limit}&status=completed&page=1");
+    let path =
+        format!("/repos/{owner}/{repo}/actions/runs?per_page={limit}&status=completed&page=1");
     let body = github_get(&path).await?;
 
     let workflow_runs = body
@@ -295,7 +308,10 @@ async fn check_ci(owner: &str, repo: &str, limit: usize) -> Result<Value, String
     // Summary stats
     let success_count = runs.iter().filter(|r| r["conclusion"] == "success").count();
     let failure_count = runs.iter().filter(|r| r["conclusion"] == "failure").count();
-    let cancelled_count = runs.iter().filter(|r| r["conclusion"] == "cancelled").count();
+    let cancelled_count = runs
+        .iter()
+        .filter(|r| r["conclusion"] == "cancelled")
+        .count();
 
     Ok(json!({
         "action": "check_ci",
@@ -383,7 +399,9 @@ mod tests {
         params.insert("repo".to_string(), json!("rust"));
         let result = GitHubTool.execute(&params).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required parameter: owner"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required parameter: owner"));
     }
 
     #[tokio::test]

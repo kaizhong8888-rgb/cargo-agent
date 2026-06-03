@@ -39,6 +39,11 @@ impl ModelClient {
         }
     }
 
+    /// Return the configured model name.
+    pub fn model_name(&self) -> &str {
+        &self.model
+    }
+
     /// Send a chat completion request with automatic retry.
     ///
     /// Retries on transient errors (429 rate limit, 5xx server errors) with exponential backoff.
@@ -261,7 +266,8 @@ impl ModelClient {
         }
 
         if let Some(t) = tools {
-            let anthropic_tools: Vec<Value> = t.iter()
+            let anthropic_tools: Vec<Value> = t
+                .iter()
                 .filter_map(|tool| {
                     let func = tool.get("function")?;
                     let name = func.get("name")?.as_str()?;
@@ -365,8 +371,7 @@ impl ModelClient {
                 Some("tool_use") => {
                     let id = part["id"].as_str().unwrap_or("").to_string();
                     let name = part["name"].as_str().unwrap_or("").to_string();
-                    let args = part["input"]
-                        .to_string();
+                    let args = part["input"].to_string();
                     tool_calls.push(ToolCallInfo {
                         id,
                         name,
@@ -392,16 +397,24 @@ impl ModelClient {
             other => other.to_string(),
         };
 
-        let usage = data.get("usage").and_then(|u| u.as_object()).map(|u| UsageInfo {
-            prompt_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            total_tokens: 0,
-        });
+        let usage = data
+            .get("usage")
+            .and_then(|u| u.as_object())
+            .map(|u| UsageInfo {
+                prompt_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                completion_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0)
+                    as u32,
+                total_tokens: 0,
+            });
 
         Ok(ModelResponse {
             content,
             reasoning: None,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
             finish_reason,
             usage,
         })

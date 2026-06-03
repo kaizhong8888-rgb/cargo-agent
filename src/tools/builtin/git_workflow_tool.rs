@@ -22,13 +22,14 @@ use std::process::Command;
 // ============================================================================
 
 static RE_CONVENTIONAL_COMMIT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+?\))?:\s*(.+)$")
-        .expect("valid regex")
+    Regex::new(
+        r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+?\))?:\s*(.+)$",
+    )
+    .expect("valid regex")
 });
 
-static RE_COMMIT_WITH_AUTHOR: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^([a-f0-9]+)\s*<([^>]+)>\s*(.+)$").expect("valid regex")
-});
+static RE_COMMIT_WITH_AUTHOR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^([a-f0-9]+)\s*<([^>]+)>\s*(.+)$").expect("valid regex"));
 
 // ============================================================================
 // GitWorkflowTool
@@ -50,7 +51,9 @@ impl Tool for GitWorkflowTool {
         vec![
             ToolParameter {
                 name: "action".to_string(),
-                description: "Action: branch, changelog, release, merge, pr_description, blame, contributors".to_string(),
+                description:
+                    "Action: branch, changelog, release, merge, pr_description, blame, contributors"
+                        .to_string(),
                 required: true,
                 parameter_type: "string".to_string(),
             },
@@ -62,7 +65,8 @@ impl Tool for GitWorkflowTool {
             },
             ToolParameter {
                 name: "branch_name".to_string(),
-                description: "Branch name for branch/create/delete/switch/merge actions".to_string(),
+                description: "Branch name for branch/create/delete/switch/merge actions"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -86,7 +90,8 @@ impl Tool for GitWorkflowTool {
             },
             ToolParameter {
                 name: "since".to_string(),
-                description: "Start point for changelog (tag/commit/branch, default: last tag)".to_string(),
+                description: "Start point for changelog (tag/commit/branch, default: last tag)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -194,7 +199,11 @@ fn handle_branch(params: &HashMap<String, Value>, repo: &str) -> Result<Value, S
             }
             let is_current = trimmed.starts_with("* ");
             let name = if is_current {
-                trimmed[2..].split_whitespace().next().unwrap_or("").to_string()
+                trimmed[2..]
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
             } else {
                 trimmed.split_whitespace().next().unwrap_or("").to_string()
             };
@@ -223,14 +232,17 @@ fn handle_branch(params: &HashMap<String, Value>, repo: &str) -> Result<Value, S
     } else {
         // Check if branch exists
         match run_git(repo, &["rev-parse", "--verify", branch_name]) {
-            Ok(_) => "delete", // Branch exists, delete it
+            Ok(_) => "delete",  // Branch exists, delete it
             Err(_) => "create", // Branch doesn't exist, create it
         }
     };
 
     match sub_action {
         "create" => {
-            let base = params.get("target_branch").and_then(|v| v.as_str()).unwrap_or("HEAD");
+            let base = params
+                .get("target_branch")
+                .and_then(|v| v.as_str())
+                .unwrap_or("HEAD");
             run_git(repo, &["branch", branch_name, base])?;
             Ok(json!({
                 "status": "ok",
@@ -241,7 +253,10 @@ fn handle_branch(params: &HashMap<String, Value>, repo: &str) -> Result<Value, S
             }))
         }
         "switch" => {
-            let source = params.get("source_branch").and_then(|v| v.as_str()).unwrap_or("");
+            let source = params
+                .get("source_branch")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if source.is_empty() {
                 run_git(repo, &["checkout", branch_name])?;
             } else {
@@ -278,10 +293,7 @@ fn handle_changelog(
     repo: &str,
     format: &str,
 ) -> Result<Value, String> {
-    let since = params
-        .get("since")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let since = params.get("since").and_then(|v| v.as_str()).unwrap_or("");
 
     // Get the range
     let range = if since.is_empty() {
@@ -296,18 +308,20 @@ fn handle_changelog(
 
     // Get commits with type prefix
     let format_str = "%H%n%s%n%an%n%ai";
-    let commits_raw = run_git(repo, &["log", &range, "--pretty=format:" , format_str])?;
+    let commits_raw = run_git(repo, &["log", &range, "--pretty=format:", format_str])?;
 
     // Parse commits
     let mut lines = commits_raw.lines();
     let mut commits = Vec::new();
-    while let (Some(hash), Some(msg), Some(author), Some(date)) = (
-        lines.next(),
-        lines.next(),
-        lines.next(),
-        lines.next(),
-    ) {
-        commits.push((hash.to_string(), msg.to_string(), author.to_string(), date.to_string()));
+    while let (Some(hash), Some(msg), Some(author), Some(date)) =
+        (lines.next(), lines.next(), lines.next(), lines.next())
+    {
+        commits.push((
+            hash.to_string(),
+            msg.to_string(),
+            author.to_string(),
+            date.to_string(),
+        ));
     }
 
     // Categorize by conventional commit type
@@ -316,14 +330,20 @@ fn handle_changelog(
 
     for (hash, msg, author, date) in &commits {
         if let Some(cap) = RE_CONVENTIONAL_COMMIT.captures(msg) {
-            let commit_type = cap.get(1).map(|m| m.as_str()).unwrap_or("other").to_string();
+            let commit_type = cap
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or("other")
+                .to_string();
             let scope = cap.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
             let description = cap.get(3).map(|m| m.as_str()).unwrap_or(msg).to_string();
 
-            categorized
-                .entry(commit_type)
-                .or_default()
-                .push((hash.clone(), msg.clone(), description, scope));
+            categorized.entry(commit_type).or_default().push((
+                hash.clone(),
+                msg.clone(),
+                description,
+                scope,
+            ));
         } else {
             uncategorized.push((hash.clone(), msg.clone(), author.clone(), date.clone()));
         }
@@ -441,10 +461,7 @@ fn handle_release(
         "HEAD".to_string()
     };
 
-    let commits_raw = run_git(
-        repo,
-        &["log", &changelog_since, "--pretty=format:%s"],
-    )?;
+    let commits_raw = run_git(repo, &["log", &changelog_since, "--pretty=format:%s"])?;
 
     let mut features = Vec::new();
     let mut fixes = Vec::new();
@@ -523,9 +540,7 @@ fn handle_merge(params: &HashMap<String, Value>, repo: &str) -> Result<Value, St
         .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: source_branch for merge action")?;
 
-    let target = params
-        .get("target_branch")
-        .and_then(|v| v.as_str());
+    let target = params.get("target_branch").and_then(|v| v.as_str());
 
     // Switch to target branch first
     let target_branch = target.unwrap_or("main");
@@ -535,17 +550,15 @@ fn handle_merge(params: &HashMap<String, Value>, repo: &str) -> Result<Value, St
     let merge_result = run_git(repo, &["merge", "--no-edit", source]);
 
     match merge_result {
-        Ok(output) => {
-            Ok(json!({
-                "status": "ok",
-                "action": "merge",
-                "source": source,
-                "target": target_branch,
-                "success": true,
-                "conflicts": false,
-                "output": output,
-            }))
-        }
+        Ok(output) => Ok(json!({
+            "status": "ok",
+            "action": "merge",
+            "source": source,
+            "target": target_branch,
+            "success": true,
+            "conflicts": false,
+            "output": output,
+        })),
         Err(e) => {
             // Check if it's a conflict
             let is_conflict = e.contains("CONFLICT");
@@ -593,7 +606,9 @@ fn handle_pr_description(
         .unwrap_or("main");
 
     // Get diff stats
-    let diff_stat = run_git(repo, &["diff", "--stat", &format!("{target}..{source}")]).ok().unwrap_or_default();
+    let diff_stat = run_git(repo, &["diff", "--stat", &format!("{target}..{source}")])
+        .ok()
+        .unwrap_or_default();
 
     // Get commits
     let commits_raw = run_git(
@@ -612,7 +627,8 @@ fn handle_pr_description(
         }
         if let Some(cap) = RE_COMMIT_WITH_AUTHOR.captures(line) {
             let hash = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-            commits.push(format!("- {} {} ({})",
+            commits.push(format!(
+                "- {} {} ({})",
                 &hash[..8.min(hash.len())],
                 cap.get(3).map(|m| m.as_str()).unwrap_or(""),
                 cap.get(2).map(|m| m.as_str()).unwrap_or("unknown"),
@@ -700,10 +716,7 @@ fn handle_blame(
         .and_then(|v| v.as_str())
         .ok_or("Missing required parameter: file_path for blame action")?;
 
-    let blame_raw = run_git(
-        repo,
-        &["blame", "--line-porcelain", file_path],
-    )?;
+    let blame_raw = run_git(repo, &["blame", "--line-porcelain", file_path])?;
 
     let mut blame_entries = Vec::new();
     let mut current: Option<HashMap<String, String>> = None;
@@ -713,9 +726,7 @@ fn handle_blame(
             if let Some(entry) = current.take() {
                 blame_entries.push(entry);
             }
-            current = Some(HashMap::from([
-                ("author".to_string(), hash.to_string()),
-            ]));
+            current = Some(HashMap::from([("author".to_string(), hash.to_string())]));
         } else if let Some(time) = line.strip_prefix("author-time ") {
             if let Some(ref mut entry) = current {
                 entry.insert("time".to_string(), time.to_string());
@@ -868,8 +879,6 @@ mod tests {
 
     #[test]
     fn commit_with_author_regex() {
-        assert!(RE_COMMIT_WITH_AUTHOR.is_match(
-            "abc1234 <john@example.com> feat: add new feature"
-        ));
+        assert!(RE_COMMIT_WITH_AUTHOR.is_match("abc1234 <john@example.com> feat: add new feature"));
     }
 }

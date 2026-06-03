@@ -8,6 +8,7 @@ use crossterm::cursor;
 use crossterm::terminal;
 use crossterm::QueueableCommand;
 use std::io::{self, Write};
+use std::sync::Arc;
 
 // ============================================================================
 // Banner
@@ -265,6 +266,179 @@ impl Drop for Spinner {
 }
 
 // ============================================================================
+// Blinking Status LED — shows real-time agent state during processing
+// ============================================================================
+
+/// Color codes for the status LED (ANSI SGR codes).
+mod led_colors {
+    pub const CYAN: &str = "36"; // Calling LLM
+    pub const MAGENTA: &str = "35"; // Executing tool
+    pub const YELLOW: &str = "33"; // Generating response
+    pub const BLUE: &str = "34"; // Searching memories
+    pub const ORANGE: &str = "38;5;208"; // Truncating context (approximate)
+    pub const GREY: &str = "90"; // Idle
+}
+
+/// Timing constants for LED blinking.
+mod led_timing {
+    /// Slow blink: visible duration (ms) for LLM calls, memory search, composing.
+    pub const SLOW_ON_MS: u64 = 500;
+    /// Slow blink: off duration (ms).
+    pub const SLOW_OFF_MS: u64 = 300;
+    /// Fast blink: visible duration (ms) for tool execution, context truncation.
+    pub const FAST_ON_MS: u64 = 200;
+    /// Fast blink: off duration (ms).
+    pub const FAST_OFF_MS: u64 = 150;
+}
+
+/// A blinking LED indicator that reflects the agent's current runtime state.
+///
+/// Renders a colored dot (●) with a text label on its own line. The dot
+/// blinks at different speeds depending on the state (slow for LLM calls,
+/// fast for tool execution). Runs in a background thread for smooth animation.
+pub struct StatusIndicator {
+    handle: Option<std::thread::JoinHandle<()>>,
+    stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    status: Arc<std::sync::atomic::AtomicU8>,
+    current_tool: Arc<std::sync::Mutex<String>>,
+}
+
+impl StatusIndicator {
+    /// Create a new status indicator for the given agent.
+    pub fn new(
+        status: Arc<std::sync::atomic::AtomicU8>,
+        current_tool: Arc<std::sync::Mutex<String>>,
+    ) -> Self {
+        Self {
+            handle: None,
+            stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            status,
+            current_tool,
+        }
+    }
+
+    /// Start the blinking indicator. Spawns a background thread.
+    pub fn start(&mut self) {
+        let stop = Arc::clone(&self.stop_flag);
+        let status = Arc::clone(&self.status);
+        let tool = Arc::clone(&self.current_tool);
+
+        let handle = std::thread::spawn(move || {
+            // Enable raw mode for cursor control
+            let _ = terminal::enable_raw_mode();
+            let mut stdout = io::stdout();
+            let _ = stdout.queue(cursor::Hide);
+            let _ = stdout.flush();
+
+            let mut visible = true;
+
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                let status_code = status.load(std::sync::atomic::Ordering::Acquire);
+                let state = match status_code {
+                    1 => LedState::SearchingMemories,
+                    2 => LedState::CallingLLM,
+                    3 => LedState::ExecutingTool,
+                    4 => LedState::GeneratingResponse,
+                    5 => LedState::TruncatingContext,
+                    _ => LedState::Idle,
+                };
+
+                let tool_name = tool.lock().ok().map(|g| g.clone()).unwrap_or_default();
+
+                let (color, label, fast_blink) = state.render(&tool_name);
+
+                let (on_ms, off_ms) = if fast_blink {
+                    (led_timing::FAST_ON_MS, led_timing::FAST_OFF_MS)
+                } else {
+                    (led_timing::SLOW_ON_MS, led_timing::SLOW_OFF_MS)
+                };
+
+                if state == LedState::Idle {
+                    visible = false;
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                }
+
+                if visible {
+                    let output = format!("\r\x1b[K  \x1b[{}m●\x1b[0m {}", color, label.dimmed());
+                    let _ = stdout.write_all(output.as_bytes());
+                    let _ = stdout.flush();
+                    std::thread::sleep(std::time::Duration::from_millis(on_ms));
+                } else {
+                    let _ = stdout.write_all(b"\r\x1b[K");
+                    let _ = stdout.flush();
+                    std::thread::sleep(std::time::Duration::from_millis(off_ms));
+                }
+
+                visible = !visible;
+            }
+
+            // Cleanup
+            let _ = stdout.write_all(b"\r\x1b[K");
+            let _ = stdout.queue(cursor::Show);
+            let _ = stdout.flush();
+            let _ = terminal::disable_raw_mode();
+        });
+
+        self.handle = Some(handle);
+    }
+
+    /// Stop the indicator and wait for the background thread to exit.
+    pub fn stop(mut self) {
+        self.stop_flag
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Represents the visual state of the LED indicator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LedState {
+    Idle,
+    SearchingMemories,
+    CallingLLM,
+    ExecutingTool,
+    GeneratingResponse,
+    TruncatingContext,
+}
+
+impl LedState {
+    /// Returns (color_code, label, fast_blink).
+    fn render(&self, tool_name: &str) -> (&'static str, String, bool) {
+        match self {
+            Self::Idle => (led_colors::GREY, String::new(), false),
+            Self::SearchingMemories => (
+                led_colors::BLUE,
+                "🔍 Searching memories...".to_string(),
+                false,
+            ),
+            Self::CallingLLM => (led_colors::CYAN, "🤖 Calling LLM...".to_string(), false),
+            Self::ExecutingTool => (
+                led_colors::MAGENTA,
+                if tool_name.is_empty() {
+                    "⚙️  Executing tool...".to_string()
+                } else {
+                    format!("⚙️  Executing {}...", tool_name)
+                },
+                true,
+            ),
+            Self::GeneratingResponse => (
+                led_colors::YELLOW,
+                "✍️  Composing response...".to_string(),
+                false,
+            ),
+            Self::TruncatingContext => (
+                led_colors::ORANGE,
+                "📏 Managing context...".to_string(),
+                true,
+            ),
+        }
+    }
+}
+
+// ============================================================================
 // Status bar — shows token usage, context length, model info after response
 // ============================================================================
 
@@ -302,11 +476,7 @@ pub fn print_status_bar(info: &StatusInfo) {
         } else {
             "📊"
         };
-        parts.push(format!(
-            "{} {} tokens",
-            icon,
-            token_str.bold()
-        ));
+        parts.push(format!("{} {} tokens", icon, token_str.bold()));
     }
 
     // Context usage
@@ -320,7 +490,11 @@ pub fn print_status_bar(info: &StatusInfo) {
 
     // Model
     if !info.model_name.is_empty() {
-        let model_short = info.model_name.split('/').next_back().unwrap_or(&info.model_name);
+        let model_short = info
+            .model_name
+            .split('/')
+            .next_back()
+            .unwrap_or(&info.model_name);
         parts.push(format!("🤖 {}", model_short.dimmed()));
     }
 
@@ -346,10 +520,7 @@ pub fn print_status_bar(info: &StatusInfo) {
     }
 
     println!();
-    println!(
-        "  {}",
-        format!("  {}", parts.join("  │  ")).dimmed()
-    );
+    println!("  {}", format!("  {}", parts.join("  │  ")).dimmed());
 }
 
 /// Format token count for display (e.g. 1234 → "1.2K", 1234567 → "1.2M")

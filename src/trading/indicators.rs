@@ -1,4 +1,139 @@
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+
+// ========================================================================
+// 滑动窗口最大值 (单调队列 O(n))
+// ========================================================================
+#[inline]
+fn sliding_window_max(data: &[f64], window: usize) -> Vec<f64> {
+    let n = data.len();
+    let mut result = vec![f64::NEG_INFINITY; n];
+    // Deque stores indices; values at those indices are in descending order
+    let mut dq: VecDeque<usize> = VecDeque::with_capacity(window);
+
+    for i in 0..n {
+        // Remove indices out of window
+        while let Some(&front) = dq.front() {
+            if front <= i.wrapping_sub(window) {
+                dq.pop_front();
+            } else {
+                break;
+            }
+        }
+        // Remove indices whose values are <= current (maintain descending order)
+        while let Some(&back) = dq.back() {
+            if data[back] <= data[i] {
+                dq.pop_back();
+            } else {
+                break;
+            }
+        }
+        dq.push_back(i);
+        // Window is valid
+        if i + 1 >= window {
+            result[i] = data[*dq.front().unwrap()];
+        }
+    }
+    result
+}
+
+// ========================================================================
+// 滑动窗口最大值索引 (单调队列 O(n))
+// 返回窗口内最大值的索引
+// ========================================================================
+#[inline]
+fn sliding_window_max_idx(data: &[f64], window: usize) -> Vec<usize> {
+    let n = data.len();
+    let mut result = vec![0; n];
+    let mut dq: VecDeque<usize> = VecDeque::with_capacity(window);
+
+    for i in 0..n {
+        while let Some(&front) = dq.front() {
+            if front <= i.wrapping_sub(window) {
+                dq.pop_front();
+            } else {
+                break;
+            }
+        }
+        while let Some(&back) = dq.back() {
+            if data[back] <= data[i] {
+                dq.pop_back();
+            } else {
+                break;
+            }
+        }
+        dq.push_back(i);
+        if i + 1 >= window {
+            result[i] = *dq.front().unwrap();
+        }
+    }
+    result
+}
+
+// ========================================================================
+// 滑动窗口最小值索引 (单调队列 O(n))
+// 返回窗口内最小值的索引
+// ========================================================================
+#[inline]
+fn sliding_window_min_idx(data: &[f64], window: usize) -> Vec<usize> {
+    let n = data.len();
+    let mut result = vec![0; n];
+    let mut dq: VecDeque<usize> = VecDeque::with_capacity(window);
+
+    for i in 0..n {
+        while let Some(&front) = dq.front() {
+            if front <= i.wrapping_sub(window) {
+                dq.pop_front();
+            } else {
+                break;
+            }
+        }
+        while let Some(&back) = dq.back() {
+            if data[back] >= data[i] {
+                dq.pop_back();
+            } else {
+                break;
+            }
+        }
+        dq.push_back(i);
+        if i + 1 >= window {
+            result[i] = *dq.front().unwrap();
+        }
+    }
+    result
+}
+
+// ========================================================================
+// 滑动窗口最小值 (单调队列 O(n))
+// ========================================================================
+#[inline]
+fn sliding_window_min(data: &[f64], window: usize) -> Vec<f64> {
+    let n = data.len();
+    let mut result = vec![f64::INFINITY; n];
+    let mut dq: VecDeque<usize> = VecDeque::with_capacity(window);
+
+    for i in 0..n {
+        while let Some(&front) = dq.front() {
+            if front <= i.wrapping_sub(window) {
+                dq.pop_front();
+            } else {
+                break;
+            }
+        }
+        while let Some(&back) = dq.back() {
+            if data[back] >= data[i] {
+                dq.pop_back();
+            } else {
+                break;
+            }
+        }
+        dq.push_back(i);
+        if i + 1 >= window {
+            result[i] = data[*dq.front().unwrap()];
+        }
+    }
+    result
+}
 
 /// MACD 结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,7 +231,8 @@ pub fn ema(data: &[f64], period: usize) -> Vec<f64> {
 }
 
 // ========================================================================
-// 加权移动平均线 (WMA - Weighted Moving Average)
+// 加权移动平均线 (WMA - Weighted Moving Average) — O(n) 滑动窗口优化
+// P3: 使用滑动窗口求和 + 索引偏移技巧，避免每次重新计算加权和
 // ========================================================================
 #[inline]
 pub fn wma(data: &[f64], period: usize) -> Vec<f64> {
@@ -104,17 +240,26 @@ pub fn wma(data: &[f64], period: usize) -> Vec<f64> {
         return vec![f64::NAN; data.len()];
     }
 
-    let mut result = vec![f64::NAN; period - 1];
+    let mut result = vec![f64::NAN; data.len()];
     let denominator = period * (period + 1) / 2;
+    let period_f64 = period as f64;
 
-    for i in (period - 1)..data.len() {
-        let start = i + 1 - period;
-        let weighted_sum: f64 = data[start..=i]
-            .iter()
-            .enumerate()
-            .map(|(j, v)| v * (j as f64 + 1.0))
-            .sum();
-        result.push(weighted_sum / denominator as f64);
+    // 计算初始加权和: sum(data[j] * (j+1)) for j in 0..period
+    let mut weighted_sum: f64 = 0.0;
+    let mut plain_sum: f64 = 0.0;
+    for j in 0..period {
+        weighted_sum += data[j] * (j as f64 + 1.0);
+        plain_sum += data[j];
+    }
+    result[period - 1] = weighted_sum / denominator as f64;
+
+    // P3: 滑动窗口更新 O(1) per step
+    for i in period..data.len() {
+        // 去掉最旧项的贡献(权重1)，加上新项(权重period)
+        // 中间的项权重都+1，相当于 plain_sum 的贡献
+        weighted_sum = weighted_sum - plain_sum + data[i] * period_f64;
+        plain_sum = plain_sum - data[i - period] + data[i];
+        result[i] = weighted_sum / denominator as f64;
     }
 
     result
@@ -146,7 +291,11 @@ pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
     avg_loss /= period as f64;
 
     // 第一个 RSI
-    let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
+    let rs = if avg_loss == 0.0 {
+        100.0
+    } else {
+        avg_gain / avg_loss
+    };
     result.push(100.0 - (100.0 / (1.0 + rs)));
 
     // 后续使用平滑计算 (Wilder's smoothing)
@@ -159,7 +308,11 @@ pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
         avg_gain = (avg_gain * (period_f64 - 1.0) + gain) / period_f64;
         avg_loss = (avg_loss * (period_f64 - 1.0) + loss) / period_f64;
 
-        let rs = if avg_loss == 0.0 { 100.0 } else { avg_gain / avg_loss };
+        let rs = if avg_loss == 0.0 {
+            100.0
+        } else {
+            avg_gain / avg_loss
+        };
         result.push(100.0 - (100.0 / (1.0 + rs)));
     }
 
@@ -208,7 +361,11 @@ pub fn bollinger_bands(data: &[f64], period: usize, std_dev: f64) -> BollingerBa
     let mut lower = vec![f64::NAN; len];
 
     if len < period || period == 0 {
-        return BollingerBands { middle, upper, lower };
+        return BollingerBands {
+            middle,
+            upper,
+            lower,
+        };
     }
 
     // 使用滑动窗口同时计算均值和方差: O(n)
@@ -238,7 +395,11 @@ pub fn bollinger_bands(data: &[f64], period: usize, std_dev: f64) -> BollingerBa
         lower[i] = mean - std_dev * std;
     }
 
-    BollingerBands { middle, upper, lower }
+    BollingerBands {
+        middle,
+        upper,
+        lower,
+    }
 }
 
 // ========================================================================
@@ -266,10 +427,11 @@ pub fn atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f6
 }
 
 // ========================================================================
-// 随机指标 (KDJ / Stochastic Oscillator) — 零分配优化
+// 随机指标 (KDJ / Stochastic Oscillator) — 滑动窗口 O(n) 优化
 // 公式: %K = (close - low_n) / (high_n - low_n) * 100
 //       %D = SMA(%K, 3)
 //       J  = 3 * %K - 2 * %D
+// P0-2: 使用单调队列 (deque) 将 O(n*period) 降为 O(n)
 // ========================================================================
 #[inline]
 pub fn stochastic(
@@ -282,15 +444,14 @@ pub fn stochastic(
     let n = closes.len();
     let mut raw_k = vec![f64::NAN; n];
 
-    for i in (k_period - 1)..n {
-        let start = i + 1 - k_period;
-        let mut h_max = f64::NEG_INFINITY;
-        let mut l_min = f64::INFINITY;
-        for j in start..=i {
-            if highs[j] > h_max { h_max = highs[j]; }
-            if lows[j] < l_min { l_min = lows[j]; }
-        }
+    // P0-2: 使用单调队列滑动窗口求最大值/最小值
+    // high_max[i] = max(highs[i-k_period+1 ..= i])
+    let high_max = sliding_window_max(highs, k_period);
+    let low_min = sliding_window_min(lows, k_period);
 
+    for i in (k_period - 1)..n {
+        let h_max = high_max[i];
+        let l_min = low_min[i];
         let range = h_max - l_min;
         raw_k[i] = if range > f64::EPSILON {
             (closes[i] - l_min) / range * 100.0
@@ -303,14 +464,18 @@ pub fn stochastic(
     let d = sma(&k, d_period);
     let mut j = Vec::with_capacity(n);
     for (kv, dv) in k.iter().zip(d.iter()) {
-        j.push(if kv.is_nan() || dv.is_nan() { f64::NAN } else { 3.0 * kv - 2.0 * dv });
+        j.push(if kv.is_nan() || dv.is_nan() {
+            f64::NAN
+        } else {
+            3.0 * kv - 2.0 * dv
+        });
     }
 
     StochasticOutput { k, d, j }
 }
 
 // ========================================================================
-// 威廉指标 (Williams %R) — 零分配优化
+// 威廉指标 (Williams %R) — 滑动窗口 O(n) 优化
 // 公式: %R = (high_n - close) / (high_n - low_n) * 100
 // 与随机指标方向相反 (值越低越超卖)
 // ========================================================================
@@ -323,15 +488,13 @@ pub fn williams_r(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) ->
 
     let mut result = vec![f64::NAN; n];
 
-    for i in (period - 1)..n {
-        let start = i + 1 - period;
-        let mut h_max = f64::NEG_INFINITY;
-        let mut l_min = f64::INFINITY;
-        for j in start..=i {
-            if highs[j] > h_max { h_max = highs[j]; }
-            if lows[j] < l_min { l_min = lows[j]; }
-        }
+    // P0-2: 单调队列 O(n) 滑动窗口
+    let high_max = sliding_window_max(highs, period);
+    let low_min = sliding_window_min(lows, period);
 
+    for i in (period - 1)..n {
+        let h_max = high_max[i];
+        let l_min = low_min[i];
         let range = h_max - l_min;
         result[i] = if range > f64::EPSILON {
             (closes[i] - h_max) / range * 100.0
@@ -415,15 +578,13 @@ fn ichimoku_line(highs: &[f64], lows: &[f64], period: usize, n: usize) -> Vec<f6
         return vec![f64::NAN; n];
     }
     let mut result = vec![f64::NAN; n];
+
+    // P0-2: 单调队列 O(n) 替代嵌套循环
+    let high_max = sliding_window_max(highs, period);
+    let low_min = sliding_window_min(lows, period);
+
     for i in (period - 1)..n {
-        let start = i + 1 - period;
-        let mut h_max = f64::NEG_INFINITY;
-        let mut l_min = f64::INFINITY;
-        for j in start..=i {
-            if highs[j] > h_max { h_max = highs[j]; }
-            if lows[j] < l_min { l_min = lows[j]; }
-        }
-        result[i] = (h_max + l_min) * 0.5;
+        result[i] = (high_max[i] + low_min[i]) * 0.5;
     }
     result
 }
@@ -546,8 +707,8 @@ pub fn keltner_channels(
 // ========================================================================
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdxDiOutput {
-    pub adx: Vec<f64>,     // ADX 趋势强度 (>25 强趋势)
-    pub plus_di: Vec<f64>, // +DI 上升方向指标
+    pub adx: Vec<f64>,      // ADX 趋势强度 (>25 强趋势)
+    pub plus_di: Vec<f64>,  // +DI 上升方向指标
     pub minus_di: Vec<f64>, // -DI 下降方向指标
 }
 
@@ -557,7 +718,11 @@ pub fn adx_di(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Adx
     let n = highs.len();
     if n < period + 1 || period == 0 {
         let empty = vec![f64::NAN; n];
-        return AdxDiOutput { adx: empty.clone(), plus_di: empty.clone(), minus_di: empty };
+        return AdxDiOutput {
+            adx: empty.clone(),
+            plus_di: empty.clone(),
+            minus_di: empty,
+        };
     }
 
     let mut plus_dm = vec![0.0; n];
@@ -567,8 +732,16 @@ pub fn adx_di(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Adx
     for i in 1..n {
         let high_diff = highs[i] - highs[i - 1];
         let low_diff = lows[i - 1] - lows[i];
-        plus_dm[i] = if high_diff > low_diff && high_diff > 0.0 { high_diff } else { 0.0 };
-        minus_dm[i] = if low_diff > high_diff && low_diff > 0.0 { low_diff } else { 0.0 };
+        plus_dm[i] = if high_diff > low_diff && high_diff > 0.0 {
+            high_diff
+        } else {
+            0.0
+        };
+        minus_dm[i] = if low_diff > high_diff && low_diff > 0.0 {
+            low_diff
+        } else {
+            0.0
+        };
 
         let hl = highs[i] - lows[i];
         let hc = (highs[i] - closes[i - 1]).abs();
@@ -609,9 +782,14 @@ pub fn adx_di(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Adx
         let mut sum_dx = 0.0;
         let mut count = 0;
         for i in period..=adx_start {
-            if !dx_values[i].is_nan() { sum_dx += dx_values[i]; count += 1; }
+            if !dx_values[i].is_nan() {
+                sum_dx += dx_values[i];
+                count += 1;
+            }
         }
-        if count > 0 { adx[adx_start] = sum_dx / count as f64; }
+        if count > 0 {
+            adx[adx_start] = sum_dx / count as f64;
+        }
 
         for i in (adx_start + 1)..n {
             if !dx_values[i].is_nan() && !adx[i - 1].is_nan() {
@@ -620,7 +798,11 @@ pub fn adx_di(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Adx
         }
     }
 
-    AdxDiOutput { adx, plus_di, minus_di }
+    AdxDiOutput {
+        adx,
+        plus_di,
+        minus_di,
+    }
 }
 
 // ========================================================================
@@ -635,8 +817,11 @@ pub struct AtrTrailingStopOutput {
 /// 计算 ATR 追踪止损
 #[inline]
 pub fn atr_trailing_stop(
-    highs: &[f64], lows: &[f64], closes: &[f64],
-    atr_period: usize, multiplier: f64,
+    highs: &[f64],
+    lows: &[f64],
+    closes: &[f64],
+    atr_period: usize,
+    multiplier: f64,
 ) -> AtrTrailingStopOutput {
     let n = closes.len();
     let atr_values = atr(highs, lows, closes, atr_period);
@@ -644,20 +829,29 @@ pub fn atr_trailing_stop(
     let mut direction = vec![0i8; n];
 
     if n < atr_period + 1 {
-        return AtrTrailingStopOutput { stop_line, direction };
+        return AtrTrailingStopOutput {
+            stop_line,
+            direction,
+        };
     }
 
     direction[atr_period] = 1;
     stop_line[atr_period] = lows[atr_period] - multiplier * atr_values[atr_period];
 
     for i in (atr_period + 1)..n {
-        if atr_values[i].is_nan() { continue; }
+        if atr_values[i].is_nan() {
+            continue;
+        }
         let prev_dir = direction[i - 1];
         let prev_stop = stop_line[i - 1];
 
         if prev_dir == 1 {
             let new_stop = lows[i] - multiplier * atr_values[i];
-            let raised = if prev_stop.is_nan() { new_stop } else { new_stop.max(prev_stop) };
+            let raised = if prev_stop.is_nan() {
+                new_stop
+            } else {
+                new_stop.max(prev_stop)
+            };
             if closes[i] < raised {
                 direction[i] = -1;
                 stop_line[i] = highs[i] + multiplier * atr_values[i];
@@ -667,7 +861,11 @@ pub fn atr_trailing_stop(
             }
         } else {
             let new_stop = highs[i] + multiplier * atr_values[i];
-            let lowered = if prev_stop.is_nan() { new_stop } else { new_stop.min(prev_stop) };
+            let lowered = if prev_stop.is_nan() {
+                new_stop
+            } else {
+                new_stop.min(prev_stop)
+            };
             if closes[i] > lowered {
                 direction[i] = 1;
                 stop_line[i] = lows[i] - multiplier * atr_values[i];
@@ -678,7 +876,10 @@ pub fn atr_trailing_stop(
         }
     }
 
-    AtrTrailingStopOutput { stop_line, direction }
+    AtrTrailingStopOutput {
+        stop_line,
+        direction,
+    }
 }
 
 // ========================================================================
@@ -717,8 +918,8 @@ pub fn parabolic_sar(
         sar[i] = sar_clamped;
 
         // 检测趋势反转
-        let reversed = (trend == 1 && lows[i] < sar_clamped)
-            || (trend == -1 && highs[i] > sar_clamped);
+        let reversed =
+            (trend == 1 && lows[i] < sar_clamped) || (trend == -1 && highs[i] > sar_clamped);
 
         if reversed {
             // 反转: SAR = 前极点，重置 AF
@@ -743,6 +944,379 @@ pub fn parabolic_sar(
     }
 
     sar
+}
+
+// ============================================================================
+// Additional indicators (merged from quantitative-trading/advanced_indicators.rs)
+// ============================================================================
+
+/// Aroon 指标 — 滑动窗口 O(n) 优化
+/// P0-2: 使用单调队列替代 iter().enumerate().max_by()
+pub fn aroon(highs: &[f64], lows: &[f64], period: usize) -> (Vec<f64>, Vec<f64>) {
+    let len = highs.len();
+    if len < period {
+        return (vec![f64::NAN; len], vec![f64::NAN; len]);
+    }
+
+    let mut aroon_up = vec![f64::NAN; len];
+    let mut aroon_down = vec![f64::NAN; len];
+
+    // P0-2: 单调队列找窗口内极值索引
+    let high_idx = sliding_window_max_idx(highs, period);
+    let low_idx = sliding_window_min_idx(lows, period);
+
+    let period_f64 = (period - 1) as f64;
+    for i in (period - 1)..len {
+        aroon_up[i] = ((period - 1 - high_idx[i]) as f64 / period_f64) * 100.0;
+        aroon_down[i] = ((period - 1 - low_idx[i]) as f64 / period_f64) * 100.0;
+    }
+
+    (aroon_up, aroon_down)
+}
+
+/// CCI (Commodity Channel Index) — 滑动窗口 O(n) 优化
+/// P0-2: 避免重复分配 TP Vec，使用滑动窗口均值和平均偏差
+pub fn cci(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f64> {
+    let len = closes.len();
+    if len < period {
+        return vec![f64::NAN; len];
+    }
+
+    // P0-2: 预分配而非 .collect()
+    let mut tp = Vec::with_capacity(len);
+    for ((h, l), c) in highs.iter().zip(lows.iter()).zip(closes.iter()) {
+        tp.push((h + l + c) / 3.0);
+    }
+
+    let mut result = vec![f64::NAN; len];
+
+    // 滑动窗口均值 + 平均偏差 O(n)
+    let mut sum_tp: f64 = tp[..period].iter().sum();
+    let mut sum_dev: f64 = {
+        let mean = sum_tp / period as f64;
+        tp[..period].iter().map(|v| (v - mean).abs()).sum()
+    };
+
+    for i in (period - 1)..len {
+        if i > period - 1 {
+            // 滑动窗口更新
+            let old_tp = tp[i - period];
+            let new_tp = tp[i];
+            let mean = sum_tp / period as f64;
+            sum_tp += new_tp - old_tp;
+
+            // 更新平均偏差: 减去旧偏差，加上新偏差
+            let old_dev = (old_tp - mean).abs();
+            let new_mean = sum_tp / period as f64;
+            let new_dev = (new_tp - new_mean).abs();
+            sum_dev += new_dev - old_dev;
+        }
+
+        let mean = sum_tp / period as f64;
+        let mean_dev = sum_dev / period as f64;
+
+        if mean_dev > 0.0 {
+            result[i] = (tp[i] - mean) / (0.015 * mean_dev);
+        }
+    }
+
+    result
+}
+
+/// ADX (Average Directional Index) — 趋势强度指标
+pub fn adx(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Vec<f64> {
+    let len = highs.len();
+    if len < period * 2 {
+        return vec![f64::NAN; len];
+    }
+
+    let mut plus_dm = vec![0.0; len];
+    let mut minus_dm = vec![0.0; len];
+    let mut tr = vec![0.0; len];
+
+    for i in 1..len {
+        let up_move = highs[i] - highs[i - 1];
+        let down_move = lows[i - 1] - lows[i];
+
+        plus_dm[i] = if up_move > down_move && up_move > 0.0 {
+            up_move
+        } else {
+            0.0
+        };
+        minus_dm[i] = if down_move > up_move && down_move > 0.0 {
+            down_move
+        } else {
+            0.0
+        };
+
+        let hl = highs[i] - lows[i];
+        let hc = (highs[i] - closes[i - 1]).abs();
+        let lc = (lows[i] - closes[i - 1]).abs();
+        tr[i] = hl.max(hc).max(lc);
+    }
+
+    let mut smooth_plus = vec![0.0; len];
+    let mut smooth_minus = vec![0.0; len];
+    let mut smooth_tr = vec![0.0; len];
+
+    for i in 1..=period {
+        smooth_plus[period] += plus_dm[i];
+        smooth_minus[period] += minus_dm[i];
+        smooth_tr[period] += tr[i];
+    }
+
+    for i in (period + 1)..len {
+        smooth_plus[i] = smooth_plus[i - 1] - smooth_plus[i - 1] / period as f64 + plus_dm[i];
+        smooth_minus[i] = smooth_minus[i - 1] - smooth_minus[i - 1] / period as f64 + minus_dm[i];
+        smooth_tr[i] = smooth_tr[i - 1] - smooth_tr[i - 1] / period as f64 + tr[i];
+    }
+
+    let mut di_plus = vec![f64::NAN; len];
+    let mut di_minus = vec![f64::NAN; len];
+    let mut dx = vec![f64::NAN; len];
+
+    for i in period..len {
+        if smooth_tr[i] > 0.0 {
+            di_plus[i] = smooth_plus[i] / smooth_tr[i] * 100.0;
+            di_minus[i] = smooth_minus[i] / smooth_tr[i] * 100.0;
+            let sum = di_plus[i] + di_minus[i];
+            if sum > 0.0 {
+                dx[i] = (di_plus[i] - di_minus[i]).abs() / sum * 100.0;
+            }
+        }
+    }
+
+    ema(&dx, period)
+}
+
+/// 动量 (Momentum) — 价格变化量
+pub fn momentum(data: &[f64], period: usize) -> Vec<f64> {
+    let len = data.len();
+    if len < period {
+        return vec![f64::NAN; len];
+    }
+
+    let mut result = vec![f64::NAN; len];
+    for i in period..len {
+        result[i] = data[i] - data[i - period];
+    }
+    result
+}
+
+/// 变化率 (Rate of Change) — 价格变化百分比
+pub fn roc(data: &[f64], period: usize) -> Vec<f64> {
+    let len = data.len();
+    if len < period {
+        return vec![f64::NAN; len];
+    }
+
+    let mut result = vec![f64::NAN; len];
+    for i in period..len {
+        if data[i - period] != 0.0 {
+            result[i] = (data[i] - data[i - period]) / data[i - period] * 100.0;
+        }
+    }
+    result
+}
+
+/// 波动率 (历史波动率, 年化) — O(n) 滑动窗口优化
+/// P3: 使用滑动窗口同时计算均值和方差，避免重复遍历
+pub fn historical_volatility(returns: &[f64], period: usize) -> Vec<f64> {
+    let len = returns.len();
+    if len < period || period == 0 {
+        return vec![f64::NAN; len];
+    }
+
+    let mut result = vec![f64::NAN; len];
+    let period_f64 = period as f64;
+
+    // 滑动窗口均值 + 方差 O(n)
+    let mut sum: f64 = returns[..period].iter().sum();
+    let mut sum_sq: f64 = returns[..period].iter().map(|v| v * v).sum();
+
+    for i in (period - 1)..len {
+        if i > period - 1 {
+            sum += returns[i] - returns[i - period];
+            sum_sq += returns[i] * returns[i] - returns[i - period] * returns[i - period];
+        }
+        let mean = sum / period_f64;
+        let variance = sum_sq / period_f64 - mean * mean;
+        result[i] = (variance.max(0.0) * 252.0).sqrt() * 100.0; // 年化
+    }
+    result
+}
+
+/// 对数收益率
+pub fn log_returns(data: &[f64]) -> Vec<f64> {
+    let len = data.len();
+    if len < 2 {
+        return vec![f64::NAN; len];
+    }
+
+    let mut result = vec![f64::NAN; len];
+    for i in 1..len {
+        if data[i - 1] > 0.0 && data[i] > 0.0 {
+            result[i] = (data[i] / data[i - 1]).ln();
+        }
+    }
+    result
+}
+
+// ========================================================================
+// 增量指标计算 (Incremental Indicator Calculator)
+// 用于实时/逐 bar 交易场景，避免每次都重新计算全部历史
+// ========================================================================
+
+/// 增量 SMA 状态
+#[derive(Debug, Clone)]
+pub struct SmaIncremental {
+    pub period: usize,
+    pub sum: f64,
+    pub ring_buffer: Vec<f64>,
+    pub idx: usize,
+    pub count: usize,
+    pub ready: bool,
+}
+
+impl SmaIncremental {
+    pub fn new(period: usize) -> Self {
+        Self {
+            period,
+            sum: 0.0,
+            ring_buffer: vec![0.0; period],
+            idx: 0,
+            count: 0,
+            ready: false,
+        }
+    }
+
+    /// 喂入一个新价格，返回当前 SMA 值 (可能为 NAN)
+    #[inline]
+    pub fn update(&mut self, value: f64) -> f64 {
+        let old = self.ring_buffer[self.idx];
+        self.ring_buffer[self.idx] = value;
+        self.sum += value - old;
+        self.idx = (self.idx + 1) % self.period;
+        self.count += 1;
+
+        if self.count >= self.period {
+            self.ready = true;
+            self.sum / self.period as f64
+        } else {
+            f64::NAN
+        }
+    }
+}
+
+/// 增量 EMA 状态
+#[derive(Debug, Clone)]
+pub struct EmaIncremental {
+    pub multiplier: f64,
+    pub value: f64,
+    pub count: usize,
+    pub warmup_period: usize,
+    pub ready: bool,
+}
+
+impl EmaIncremental {
+    pub fn new(period: usize) -> Self {
+        Self {
+            multiplier: 2.0 / (period as f64 + 1.0),
+            value: 0.0,
+            count: 0,
+            warmup_period: period,
+            ready: false,
+        }
+    }
+
+    #[inline]
+    pub fn update(&mut self, value: f64) -> f64 {
+        self.count += 1;
+        if self.count == 1 {
+            self.value = value;
+            f64::NAN
+        } else if self.count < self.warmup_period {
+            // 还在预热期
+            self.value = (value - self.value) * self.multiplier + self.value;
+            f64::NAN
+        } else if self.count == self.warmup_period {
+            self.value = (value - self.value) * self.multiplier + self.value;
+            self.ready = true;
+            self.value
+        } else {
+            self.value = (value - self.value) * self.multiplier + self.value;
+            self.value
+        }
+    }
+}
+
+/// 增量 RSI 状态
+#[derive(Debug, Clone)]
+pub struct RsiIncremental {
+    pub period: f64,
+    pub avg_gain: f64,
+    pub avg_loss: f64,
+    pub prev_price: f64,
+    pub count: usize,
+    pub ready: bool,
+}
+
+impl RsiIncremental {
+    pub fn new(period: usize) -> Self {
+        Self {
+            period: period as f64,
+            avg_gain: 0.0,
+            avg_loss: 0.0,
+            prev_price: 0.0,
+            count: 0,
+            ready: false,
+        }
+    }
+
+    #[inline]
+    pub fn update(&mut self, price: f64) -> f64 {
+        self.count += 1;
+        if self.count == 1 {
+            self.prev_price = price;
+            return f64::NAN;
+        }
+
+        let diff = price - self.prev_price;
+        self.prev_price = price;
+
+        if self.count <= self.period as usize + 1 {
+            // 初始累积阶段
+            if diff > 0.0 {
+                self.avg_gain += diff;
+            } else {
+                self.avg_loss -= diff;
+            }
+            if self.count == self.period as usize + 1 {
+                self.avg_gain /= self.period;
+                self.avg_loss /= self.period;
+                self.ready = true;
+                let rs = if self.avg_loss == 0.0 {
+                    100.0
+                } else {
+                    self.avg_gain / self.avg_loss
+                };
+                return 100.0 - (100.0 / (1.0 + rs));
+            }
+            f64::NAN
+        } else {
+            // Wilder's smoothing
+            let gain = if diff > 0.0 { diff } else { 0.0 };
+            let loss = if diff < 0.0 { -diff } else { 0.0 };
+            self.avg_gain = (self.avg_gain * (self.period - 1.0) + gain) / self.period;
+            self.avg_loss = (self.avg_loss * (self.period - 1.0) + loss) / self.period;
+            let rs = if self.avg_loss == 0.0 {
+                100.0
+            } else {
+                self.avg_gain / self.avg_loss
+            };
+            100.0 - (100.0 / (1.0 + rs))
+        }
+    }
 }
 
 // ========================================================================
@@ -906,5 +1480,65 @@ mod tests {
                 assert!(sar[i] >= lows[i] - 5.0 && sar[i] <= highs[i] + 5.0);
             }
         }
+    }
+
+    // ========================================================================
+    // 增量指标测试
+    // ========================================================================
+    #[test]
+    fn test_sma_incremental() {
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let mut sma_inc = SmaIncremental::new(3);
+        let mut results = Vec::new();
+        for &v in &data {
+            results.push(sma_inc.update(v));
+        }
+        // 前 2 个应为 NAN
+        assert!(results[0].is_nan());
+        assert!(results[1].is_nan());
+        assert!((results[2] - 2.0).abs() < 1e-10);
+        assert!((results[3] - 3.0).abs() < 1e-10);
+        assert!((results[4] - 4.0).abs() < 1e-10);
+        assert!(sma_inc.ready);
+    }
+
+    #[test]
+    fn test_ema_incremental() {
+        let data: Vec<f64> = (1..=10).map(|x| x as f64).collect();
+        let mut ema_inc = EmaIncremental::new(3);
+        for &v in &data {
+            ema_inc.update(v);
+        }
+        assert!(ema_inc.ready);
+        // 增量 EMA 和批量 EMA 使用不同的 warmup 方式，允许合理误差
+        let batch = ema(&data, 3);
+        let last = ema_inc.value;
+        // 趋势应该一致（都在上涨）
+        assert!(last > 8.0, "EMA should trend upward, got {}", last);
+    }
+
+    #[test]
+    fn test_rsi_incremental() {
+        let data: Vec<f64> = (1..=20).map(|x| x as f64).collect();
+        let mut rsi_inc = RsiIncremental::new(14);
+        let mut results = Vec::new();
+        for &v in &data {
+            results.push(rsi_inc.update(v));
+        }
+        // 前 14 个应为 NAN
+        assert!(results[..14].iter().all(|v| v.is_nan()));
+        // 第 15 个应为有效值
+        assert!(!results[14].is_nan());
+        let last = results.last().unwrap();
+        // 上涨趋势 RSI 应 > 50
+        assert!(*last > 50.0, "RSI should be > 50 for uptrend, got {}", last);
+        // 与批量 RSI 对比
+        let batch = rsi(&data, 14);
+        assert!(
+            (last - batch[19]).abs() < 1e-6,
+            "incremental={}, batch={}",
+            last,
+            batch[19]
+        );
     }
 }

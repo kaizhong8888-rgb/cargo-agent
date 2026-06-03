@@ -788,3 +788,584 @@ fn analyze_summary(files: &[String]) -> Result<Value, String> {
 pub fn register_all(registry: &mut ToolRegistry) {
     registry.register(Box::new(CodeAnalyzerTool));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::Tool;
+    use std::io::Write;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "code_analyzer_test_{}_{}",
+            std::process::id(),
+            name
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    fn create_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        path
+    }
+
+    const SAMPLE_RUST: &str = r#"
+use serde::Serialize;
+use std::collections::HashMap;
+
+/// A sample struct
+#[derive(Debug, Clone, Serialize)]
+pub struct MyStruct {
+    pub name: String,
+    pub value: i32,
+}
+
+pub enum MyEnum {
+    VariantA,
+    VariantB(i32),
+}
+
+pub trait MyTrait {
+    fn process(&self) -> Result<(), String>;
+}
+
+impl MyTrait for MyStruct {
+    fn process(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+pub fn hello_world() -> String {
+    "hello".to_string()
+}
+
+pub async fn async_process(data: &[u8]) -> HashMap<String, i32> {
+    let mut map = HashMap::new();
+    if data.len() > 0 {
+        for b in data {
+            map.insert(format!("{}", b), *b as i32);
+        }
+    }
+    map
+}
+
+mod tests {
+    #[test]
+    fn test_hello() {
+        assert_eq!(hello_world(), "hello");
+    }
+
+    #[test]
+    fn test_unwrap_example() {
+        let x = Some(42).unwrap();
+        let y = x.expect("should exist");
+        // TODO: add more tests
+    }
+}
+
+unsafe fn dangerous() {
+    let _x = std::ptr::null::<i32>();
+}
+
+#[allow(dead_code)]
+fn unused_fn() -> i32 {
+    dbg!(42);
+    todo!("implement this");
+}
+"#;
+
+    // ---- Tool metadata tests ----
+
+    #[tokio::test]
+    async fn test_tool_metadata() {
+        let tool = CodeAnalyzerTool;
+        assert_eq!(tool.name(), "code_analyze");
+        assert!(tool.description().contains("structure"));
+        assert_eq!(tool.parameters().len(), 5);
+    }
+
+    // ---- Structure analysis tests ----
+
+    #[tokio::test]
+    async fn test_analyze_structure_single_file() {
+        let tmp = temp_dir("structure_single");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("structure")),
+            ("detail".to_string(), serde_json::json!("full")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["mode"], "structure");
+        assert_eq!(result["total_files"], 1);
+
+        let total_counts = result["total_counts"].as_object().unwrap();
+        assert!(total_counts["functions"].as_u64().unwrap() >= 4);
+        assert!(total_counts["structs"].as_u64().unwrap() >= 1);
+        assert!(total_counts["enums"].as_u64().unwrap() >= 1);
+        assert!(total_counts["traits"].as_u64().unwrap() >= 1);
+        assert!(total_counts["impls"].as_u64().unwrap() >= 1);
+        assert!(total_counts["modules"].as_u64().unwrap() >= 1);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_analyze_structure_brief() {
+        let tmp = temp_dir("structure_brief");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("structure")),
+            ("detail".to_string(), serde_json::json!("brief")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        let counts = result["results"][0]["counts"].as_object().unwrap();
+        assert!(counts["functions"].as_u64().unwrap() >= 4);
+
+        cleanup(&tmp);
+    }
+
+    // ---- Dependencies analysis tests ----
+
+    #[tokio::test]
+    async fn test_analyze_dependencies() {
+        let tmp = temp_dir("deps");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("dependencies")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["mode"], "dependencies");
+        assert_eq!(result["total_files"], 1);
+
+        let use_stmts = result["use_statements"].as_object().unwrap();
+        assert!(!use_stmts.is_empty());
+        let crate_refs = result["crate_references"].as_array().unwrap();
+        assert!(!crate_refs.is_empty());
+
+        cleanup(&tmp);
+    }
+
+    // ---- Complexity analysis tests ----
+
+    #[tokio::test]
+    async fn test_analyze_complexity() {
+        let tmp = temp_dir("complexity");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("complexity")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["mode"], "complexity");
+        assert!(result["total_functions"].as_u64().unwrap() >= 4);
+        assert!(result["total_lines"].as_u64().unwrap() >= 40);
+        assert!(result["max_nesting"].as_u64().unwrap() >= 2);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_analyze_complexity_brief() {
+        let tmp = temp_dir("complexity_brief");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("complexity")),
+            ("detail".to_string(), serde_json::json!("brief")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        // Brief mode should still have function count
+        assert!(result["results"][0]["functions"].as_u64().unwrap() >= 4);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_long_functions_detection() {
+        let tmp = temp_dir("long_fn");
+        // Create a file with a very long function
+        let mut content = String::from("fn long_function() {\n");
+        for i in 0..60 {
+            content.push_str(&format!("    let x{i} = {i};\n"));
+        }
+        content.push_str("}\n");
+        content.push_str("fn short_fn() {}\n");
+        create_file(&tmp, "long.rs", &content);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("long.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("complexity")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert!(result["long_functions_count"].as_u64().unwrap() >= 1);
+        let long_fns = result["long_functions"].as_array().unwrap();
+        assert!(!long_fns.is_empty());
+        assert!(long_fns[0].as_str().unwrap().contains("long_function"));
+
+        cleanup(&tmp);
+    }
+
+    // ---- Patterns analysis tests ----
+
+    #[tokio::test]
+    async fn test_analyze_patterns() {
+        let tmp = temp_dir("patterns");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("patterns")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["mode"], "patterns");
+
+        let summary = result["pattern_summary"].as_array().unwrap();
+        assert!(!summary.is_empty());
+
+        let results = result["results"].as_array().unwrap();
+        assert!(!results.is_empty());
+
+        // Check for specific patterns
+        let patterns = &results[0]["patterns"];
+        assert!(patterns["unwrap_calls"].as_u64().unwrap() >= 1);
+        assert!(patterns["expect_calls"].as_u64().unwrap() >= 1);
+        assert!(patterns["todo_comments"].as_u64().unwrap() >= 1);
+        assert!(patterns["unsafe_blocks"].as_u64().unwrap() >= 1);
+        assert!(patterns["dbg_macros"].as_u64().unwrap() >= 1);
+        assert!(patterns["allow_attributes"].as_u64().unwrap() >= 1);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_analyze_patterns_no_matches() {
+        let tmp = temp_dir("patterns_clean");
+        create_file(&tmp, "clean.rs", "fn clean_fn() -> i32 { 42 }");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("clean.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("patterns")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        // No patterns should be found in clean code
+        let results = result["results"].as_array().unwrap();
+        assert!(results.is_empty());
+
+        cleanup(&tmp);
+    }
+
+    // ---- Summary analysis tests ----
+
+    #[tokio::test]
+    async fn test_analyze_summary() {
+        let tmp = temp_dir("summary");
+        create_file(&tmp, "sample.rs", SAMPLE_RUST);
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("summary")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["mode"], "summary");
+
+        let totals = result["totals"].as_object().unwrap();
+        assert!(totals["functions"].as_u64().unwrap() >= 4);
+        assert!(totals["structs"].as_u64().unwrap() >= 1);
+        assert!(totals["enums"].as_u64().unwrap() >= 1);
+        assert!(totals["tests"].as_u64().unwrap() >= 2);
+        assert!(totals["unsafe_blocks"].as_u64().unwrap() >= 1);
+        assert!(totals["lines"].as_u64().unwrap() >= 40);
+        assert!(totals["doc_lines"].as_u64().unwrap() >= 1);
+        assert!(totals["comment_lines"].as_u64().unwrap() >= 1);
+        assert!(totals["blank_lines"].as_u64().unwrap() >= 1);
+
+        cleanup(&tmp);
+    }
+
+    // ---- Directory / recursive tests ----
+
+    #[tokio::test]
+    async fn test_analyze_directory() {
+        let tmp = temp_dir("dir");
+        create_file(&tmp, "a.rs", "fn a() {}");
+        create_file(&tmp, "b.rs", "fn b() {} struct S {}");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("structure")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["total_files"], 2);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_analyze_directory_recursive() {
+        let tmp = temp_dir("recursive");
+        create_file(&tmp, "root.rs", "fn root() {}");
+        let sub = std::fs::create_dir_all(tmp.join("src")).unwrap_or(());
+        let _ = sub;
+        create_file(&tmp.join("src"), "child.rs", "fn child() {}");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("summary")),
+            ("recursive".to_string(), serde_json::json!(true)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "ok");
+        assert_eq!(result["total_files"], 2);
+
+        cleanup(&tmp);
+    }
+
+    // ---- Error handling tests ----
+
+    #[tokio::test]
+    async fn test_nonexistent_path() {
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!("/nonexistent_path_xyz.rs"),
+            ),
+            ("mode".to_string(), serde_json::json!("structure")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_not_a_rust_file() {
+        let tmp = temp_dir("not_rust");
+        create_file(&tmp, "readme.md", "# Hello");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("readme.md").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("structure")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Not a Rust file"));
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_empty_directory() {
+        let tmp = temp_dir("empty");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("structure")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("No Rust files found"));
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_mode() {
+        let tmp = temp_dir("unknown_mode");
+        create_file(&tmp, "sample.rs", "fn test() {}");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.join("sample.rs").to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("unknown")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["status"], "error");
+        assert!(result["message"].as_str().unwrap().contains("Unknown mode"));
+
+        cleanup(&tmp);
+    }
+
+    // ---- Edge cases ----
+
+    #[tokio::test]
+    async fn test_max_results_limit() {
+        let tmp = temp_dir("max_results");
+        for i in 0..10 {
+            create_file(&tmp, &format!("file{i}.rs"), &format!("fn f{i}() {{}}"));
+        }
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("summary")),
+            ("max_results".to_string(), serde_json::json!(3)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_files"], 3);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_files() {
+        let tmp = temp_dir("multi");
+        create_file(&tmp, "a.rs", "pub struct A {}");
+        create_file(&tmp, "b.rs", "pub enum B { X }");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("summary")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_files"], 2);
+        let totals = result["totals"].as_object().unwrap();
+        assert!(totals["structs"].as_u64().unwrap() >= 1);
+        assert!(totals["enums"].as_u64().unwrap() >= 1);
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_skips_target_dir() {
+        let tmp = temp_dir("skip_target");
+        create_file(&tmp, "main.rs", "fn main() {}");
+        let target_dir = tmp.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        create_file(&target_dir, "build.rs", "fn build() {}");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("summary")),
+            ("recursive".to_string(), serde_json::json!(true)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_files"], 1); // Only main.rs, not target/build.rs
+        let files = result["files"].as_array().unwrap();
+        assert!(files[0]["file"].as_str().unwrap().contains("main.rs"));
+
+        cleanup(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_skips_hidden_dirs() {
+        let tmp = temp_dir("skip_hidden");
+        create_file(&tmp, "main.rs", "fn main() {}");
+        let hidden = tmp.join(".git");
+        std::fs::create_dir_all(&hidden).unwrap();
+        create_file(&hidden, "config", "fn git() {}");
+
+        let tool = CodeAnalyzerTool;
+        let params = HashMap::from([
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            ("mode".to_string(), serde_json::json!("summary")),
+            ("recursive".to_string(), serde_json::json!(true)),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["total_files"], 1); // Only main.rs
+
+        cleanup(&tmp);
+    }
+}

@@ -151,22 +151,16 @@ impl Tool for CiCdTool {
                     .get("min_coverage")
                     .and_then(|v| v.as_f64())
                     .unwrap_or(80.0);
-                let tool_file = params
-                    .get("tool_file")
-                    .and_then(|v| v.as_str());
+                let tool_file = params.get("tool_file").and_then(|v| v.as_str());
                 check_coverage_threshold(project_path, min_coverage, tool_file)
             }
             "check_code_health" => {
-                let baseline = params
-                    .get("baseline")
-                    .and_then(|v| v.as_str());
+                let baseline = params.get("baseline").and_then(|v| v.as_str());
                 let max_unwrap_increase = params
                     .get("max_unwrap_increase")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                let path_filter = params
-                    .get("path")
-                    .and_then(|v| v.as_str());
+                let path_filter = params.get("path").and_then(|v| v.as_str());
                 check_code_health(project_path, path_filter, baseline, max_unwrap_increase)
             }
             _ => Ok(json!({
@@ -317,7 +311,9 @@ security:
                 "description": "Save this content to .gitlab-ci.yml in your project root",
             }))
         }
-        _ => Err(format!("Unknown platform: {platform}. Supported: github, gitlab")),
+        _ => Err(format!(
+            "Unknown platform: {platform}. Supported: github, gitlab"
+        )),
     }
 }
 
@@ -347,8 +343,14 @@ fn run_tests(project_path: &str, test_pattern: &str, all_features: bool) -> Resu
 
     // Parse test results
     let passed = stdout.lines().filter(|l| l.contains("test ... ok")).count();
-    let failed = stdout.lines().filter(|l| l.contains("test ... FAILED")).count();
-    let ignored = stdout.lines().filter(|l| l.contains("test ... ignored")).count();
+    let failed = stdout
+        .lines()
+        .filter(|l| l.contains("test ... FAILED"))
+        .count();
+    let ignored = stdout
+        .lines()
+        .filter(|l| l.contains("test ... ignored"))
+        .count();
 
     Ok(json!({
         "status": if success { "ok" } else { "error" },
@@ -613,7 +615,10 @@ fn check_prerelease(project_path: &str) -> Result<Value, String> {
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
         {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                if content.contains("dbg!(") || content.contains("todo!()") || content.contains("unimplemented!()") {
+                if content.contains("dbg!(")
+                    || content.contains("todo!()")
+                    || content.contains("unimplemented!()")
+                {
                     debug_artifacts.push(entry.path().to_string_lossy().to_string());
                 }
             }
@@ -627,15 +632,22 @@ fn check_prerelease(project_path: &str) -> Result<Value, String> {
     }));
 
     // 6. Cargo.lock exists
-    let lock_exists = std::path::Path::new(project_path).join("Cargo.lock").exists();
+    let lock_exists = std::path::Path::new(project_path)
+        .join("Cargo.lock")
+        .exists();
     checklist.push(json!({
         "item": "Cargo.lock exists",
         "passed": lock_exists,
         "description": "Lock file committed for reproducible builds",
     }));
 
-    let all_passed = checklist.iter().all(|c| c["passed"].as_bool().unwrap_or(false));
-    let passed_count = checklist.iter().filter(|c| c["passed"].as_bool().unwrap_or(false)).count();
+    let all_passed = checklist
+        .iter()
+        .all(|c| c["passed"].as_bool().unwrap_or(false));
+    let passed_count = checklist
+        .iter()
+        .filter(|c| c["passed"].as_bool().unwrap_or(false))
+        .count();
 
     Ok(json!({
         "status": if all_passed { "ok" } else { "warning" },
@@ -767,7 +779,10 @@ fn check_coverage_threshold(
         .and_then(|l| l.get("percent"))
         .and_then(|p| p.as_f64());
 
-    let files_passing = file_results.iter().filter(|f| f["passes"].as_bool().unwrap_or(false)).count();
+    let files_passing = file_results
+        .iter()
+        .filter(|f| f["passes"].as_bool().unwrap_or(false))
+        .count();
     let files_failing = file_results.len() - files_passing;
 
     Ok(json!({
@@ -805,14 +820,16 @@ fn check_code_health(
     }
 
     // Patterns to detect (anti-patterns in production code)
-    let patterns = [("unwrap", r"\.unwrap\(\)"),
+    let patterns = [
+        ("unwrap", r"\.unwrap\(\)"),
         ("expect", r"\.expect\("),
         ("dbg_macro", r"dbg!\("),
         ("todo_macro", r"todo!\("),
         ("unimplemented_macro", r"unimplemented!\("),
         ("clone", r"\.clone\(\)"),
         ("unsafe", r"\bunsafe\s*\{"),
-        ("panic", r"\bpanic!\(")];
+        ("panic", r"\bpanic!\("),
+    ];
 
     // Compile all regexes once
     let compiled_patterns: Vec<(String, regex::Regex)> = patterns
@@ -825,15 +842,14 @@ fn check_code_health(
         .collect();
 
     // Count occurrences per file
-    let mut total_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut total_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     let mut file_results = Vec::new();
 
     for entry in walkdir::WalkDir::new(&scan_path)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path().extension().is_some_and(|ext| ext == "rs")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
     {
         let content = match std::fs::read_to_string(entry.path()) {
             Ok(c) => c,
@@ -859,9 +875,10 @@ fn check_code_health(
 
         // Distinguish test vs production code
         let is_test_file = relative_path.contains("/tests/")
-            || entry.path().file_name().is_some_and(|n| {
-                n.to_string_lossy().starts_with("test_")
-            });
+            || entry
+                .path()
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("test_"));
 
         // For production code, separate unwrap/expect in #[cfg(test)] blocks
         let mut prod_counts = file_patterns.clone();
@@ -902,17 +919,25 @@ fn check_code_health(
             let baseline_path = std::path::Path::new(baseline_str);
             let content = std::fs::read_to_string(baseline_path)
                 .map_err(|e| format!("Cannot read baseline file: {e}"))?;
-            serde_json::from_str(&content).map_err(|e| format!("Invalid baseline JSON in file: {e}"))?
+            serde_json::from_str(&content)
+                .map_err(|e| format!("Invalid baseline JSON in file: {e}"))?
         };
 
-        if let Some(baseline_counts) = baseline_data.get("total_counts").and_then(|v| v.as_object()) {
+        if let Some(baseline_counts) = baseline_data
+            .get("total_counts")
+            .and_then(|v| v.as_object())
+        {
             for (key, current_val) in &total_counts {
-                let baseline_val = baseline_counts.get(key).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let baseline_val = baseline_counts
+                    .get(key)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
                 let increase = current_val.saturating_sub(baseline_val);
 
                 if increase > 0 {
                     // Check if this is unwrap/expect and exceeds threshold
-                    if (key == "unwrap" || key == "expect") && increase as u64 > max_unwrap_increase {
+                    if (key == "unwrap" || key == "expect") && increase as u64 > max_unwrap_increase
+                    {
                         regression_detected = true;
                         regression_details.push(json!({
                             "pattern": key,
@@ -941,7 +966,10 @@ fn check_code_health(
     let critical_expects = total_counts.get("expect").copied().unwrap_or(0);
     let critical_dbg = total_counts.get("dbg_macro").copied().unwrap_or(0);
     let critical_todo = total_counts.get("todo_macro").copied().unwrap_or(0);
-    let critical_unimplemented = total_counts.get("unimplemented_macro").copied().unwrap_or(0);
+    let critical_unimplemented = total_counts
+        .get("unimplemented_macro")
+        .copied()
+        .unwrap_or(0);
 
     let health_score = calculate_health_score(&total_counts);
 
@@ -1034,7 +1062,9 @@ fn calculate_health_score(counts: &std::collections::HashMap<String, usize>) -> 
 }
 
 /// Generate recommendations based on anti-pattern counts
-fn generate_health_recommendations(counts: &std::collections::HashMap<String, usize>) -> Vec<String> {
+fn generate_health_recommendations(
+    counts: &std::collections::HashMap<String, usize>,
+) -> Vec<String> {
     let mut recs = Vec::new();
 
     if let Some(&count) = counts.get("unwrap") {
@@ -1152,7 +1182,9 @@ mod tests {
         let params = HashMap::new();
         let result = tool.execute(&params).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required parameter: action"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required parameter: action"));
     }
 
     #[tokio::test]
@@ -1164,7 +1196,10 @@ mod tests {
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown action"));
     }
 
     #[tokio::test]
@@ -1176,8 +1211,14 @@ mod tests {
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
-        assert!(result["instructions"].as_str().unwrap().contains("cargo-llvm-cov"));
-        assert!(result["recommendation"].as_str().unwrap().contains("cargo-llvm-cov"));
+        assert!(result["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("cargo-llvm-cov"));
+        assert!(result["recommendation"]
+            .as_str()
+            .unwrap()
+            .contains("cargo-llvm-cov"));
     }
 
     #[tokio::test]
@@ -1247,8 +1288,16 @@ mod tests {
         // At least some tests should have run
         let total = results["total"].as_u64().unwrap_or(0);
         let passed = results["passed"].as_u64().unwrap_or(0);
-        assert!(total > 0, "Expected at least some tests to run, got total={}", total);
-        assert!(passed > 0, "Expected at least some tests to pass, got passed={}", passed);
+        assert!(
+            total > 0,
+            "Expected at least some tests to run, got total={}",
+            total
+        );
+        assert!(
+            passed > 0,
+            "Expected at least some tests to pass, got passed={}",
+            passed
+        );
     }
 
     #[tokio::test]
@@ -1317,7 +1366,11 @@ mod tests {
         assert_eq!(result["action"], "check_code_health");
         // Should have scanned files
         let files_scanned = result["files_scanned"].as_u64().unwrap_or(0);
-        assert!(files_scanned > 0, "Should have scanned some files, got {}", files_scanned);
+        assert!(
+            files_scanned > 0,
+            "Should have scanned some files, got {}",
+            files_scanned
+        );
         // Should have total_counts
         assert!(result["total_counts"].is_object());
         // Should have a health_score
@@ -1349,7 +1402,13 @@ mod tests {
         // With empty baseline, all patterns should show as increased
         let details = result["regression_details"].as_array().unwrap();
         // Should have regression details since current > baseline (0)
-        assert!(!details.is_empty() || result["total_counts"].as_object().map(|o| o.is_empty()).unwrap_or(true));
+        assert!(
+            !details.is_empty()
+                || result["total_counts"]
+                    .as_object()
+                    .map(|o| o.is_empty())
+                    .unwrap_or(true)
+        );
     }
 
     #[tokio::test]
@@ -1359,7 +1418,8 @@ mod tests {
         params.insert("action".to_string(), json!("check_code_health"));
         params.insert("project_path".to_string(), json!("."));
         // Use a baseline with very high counts (higher than current) to test no regression
-        let baseline = r#"{"total_counts": {"unwrap": 99999, "expect": 99999, "dbg_macro": 99999}}"#;
+        let baseline =
+            r#"{"total_counts": {"unwrap": 99999, "expect": 99999, "dbg_macro": 99999}}"#;
         params.insert("baseline".to_string(), json!(baseline));
 
         let result = tool.execute(&params).await.unwrap();

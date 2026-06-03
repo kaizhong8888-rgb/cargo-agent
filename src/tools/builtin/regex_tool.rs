@@ -154,13 +154,20 @@ impl RegexTool {
         }
     }
 
-    fn action_find_all(&self, pattern: &str, params: &HashMap<String, Value>) -> Result<Value, String> {
+    fn action_find_all(
+        &self,
+        pattern: &str,
+        params: &HashMap<String, Value>,
+    ) -> Result<Value, String> {
         let text = params
             .get("text")
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: text")?;
 
-        let max_matches = params.get("max_matches").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+        let max_matches = params
+            .get("max_matches")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(100) as usize;
 
         let re = build_regex(pattern, params)?;
 
@@ -192,7 +199,11 @@ impl RegexTool {
         }))
     }
 
-    fn action_replace(&self, pattern: &str, params: &HashMap<String, Value>) -> Result<Value, String> {
+    fn action_replace(
+        &self,
+        pattern: &str,
+        params: &HashMap<String, Value>,
+    ) -> Result<Value, String> {
         let text = params
             .get("text")
             .and_then(|v| v.as_str())
@@ -221,22 +232,33 @@ impl RegexTool {
         }))
     }
 
-    fn action_generate_rust(&self, pattern: &str, params: &HashMap<String, Value>) -> Result<Value, String> {
+    fn action_generate_rust(
+        &self,
+        pattern: &str,
+        params: &HashMap<String, Value>,
+    ) -> Result<Value, String> {
         let function_name = params
             .get("function_name")
             .and_then(|v| v.as_str())
             .unwrap_or("match_pattern");
 
-        let case_insensitive = params.get("case_insensitive").and_then(|v| v.as_bool()).unwrap_or(false);
-        let multiline = params.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false);
-        let dot_matches_newline = params.get("dot_matches_newline").and_then(|v| v.as_bool()).unwrap_or(false);
+        let case_insensitive = params
+            .get("case_insensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let multiline = params
+            .get("multiline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let dot_matches_newline = params
+            .get("dot_matches_newline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let text = params.get("text").and_then(|v| v.as_str());
 
         // Escape the pattern for inclusion in a Rust string literal
-        let escaped_pattern = pattern
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"");
+        let escaped_pattern = pattern.replace('\\', "\\\\").replace('"', "\\\"");
 
         let mut code = String::new();
 
@@ -255,9 +277,13 @@ impl RegexTool {
         };
 
         code.push_str("use regex::Regex;\n\n");
-        code.push_str(&format!("/// Match text against the pattern: `{pattern}`\n"));
+        code.push_str(&format!(
+            "/// Match text against the pattern: `{pattern}`\n"
+        ));
         code.push_str("#[allow(dead_code)]\n");
-        code.push_str(&format!("pub fn {function_name}(text: &str) -> {return_type} {{\n"));
+        code.push_str(&format!(
+            "pub fn {function_name}(text: &str) -> {return_type} {{\n"
+        ));
 
         // Build regex
         if case_insensitive || multiline || dot_matches_newline {
@@ -289,7 +315,9 @@ impl RegexTool {
             code.push_str("        let mut groups = Vec::new();\n");
             code.push_str("        for name in re.capture_names().flatten() {\n");
             code.push_str("            if let Some(m) = cap.name(name) {\n");
-            code.push_str("                groups.push((name.to_string(), m.as_str().to_string()));\n");
+            code.push_str(
+                "                groups.push((name.to_string(), m.as_str().to_string()));\n",
+            );
             code.push_str("            }\n");
             code.push_str("        }\n");
             code.push_str("        if !groups.is_empty() {\n");
@@ -310,9 +338,7 @@ impl RegexTool {
 
         // Generate test if text provided
         if let Some(sample_text) = text {
-            let escaped_text = sample_text
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"");
+            let escaped_text = sample_text.replace('\\', "\\\\").replace('"', "\\\"");
             code.push_str("#[cfg(test)]\n");
             code.push_str("mod tests {\n");
             code.push_str("    use super::*;\n\n");
@@ -338,7 +364,11 @@ impl RegexTool {
         }))
     }
 
-    fn action_validate(&self, pattern: &str, params: &HashMap<String, Value>) -> Result<Value, String> {
+    fn action_validate(
+        &self,
+        pattern: &str,
+        params: &HashMap<String, Value>,
+    ) -> Result<Value, String> {
         match build_regex(pattern, params) {
             Ok(_) => {
                 let info = analyze_pattern(pattern);
@@ -376,9 +406,18 @@ impl RegexTool {
 // ============================================================================
 
 fn build_regex(pattern: &str, params: &HashMap<String, Value>) -> Result<Regex, String> {
-    let case_insensitive = params.get("case_insensitive").and_then(|v| v.as_bool()).unwrap_or(false);
-    let multiline = params.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false);
-    let dot_matches_newline = params.get("dot_matches_newline").and_then(|v| v.as_bool()).unwrap_or(false);
+    let case_insensitive = params
+        .get("case_insensitive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let multiline = params
+        .get("multiline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let dot_matches_newline = params
+        .get("dot_matches_newline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let mut builder = RegexBuilder::new(pattern);
     builder.case_insensitive(case_insensitive);
@@ -395,10 +434,15 @@ fn analyze_pattern(pattern: &str) -> Value {
     let has_lookahead = pattern.contains("(?=") || pattern.contains("(?!");
     let has_lookbehind = pattern.contains("(?<=") || pattern.contains("(?<!");
     let has_character_class = pattern.contains('[') && pattern.contains(']');
-    let has_quantifiers = pattern.contains('*') || pattern.contains('+') || pattern.contains('?') || pattern.contains('{');
+    let has_quantifiers = pattern.contains('*')
+        || pattern.contains('+')
+        || pattern.contains('?')
+        || pattern.contains('{');
     let has_alternation = pattern.contains('|');
     let has_backreference = pattern.contains("\\1") || pattern.contains("\\2");
-    let is_greedy = (pattern.contains('*') || pattern.contains('+')) && !pattern.contains("*?") && !pattern.contains("+?");
+    let is_greedy = (pattern.contains('*') || pattern.contains('+'))
+        && !pattern.contains("*?")
+        && !pattern.contains("+?");
 
     json!({
         "has_anchors": has_anchors,
@@ -693,7 +737,10 @@ mod tests {
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("find_all".to_string()));
         params.insert("pattern".to_string(), Value::String(r"\d+".to_string()));
-        params.insert("text".to_string(), Value::String("123 abc 456 def 789".to_string()));
+        params.insert(
+            "text".to_string(),
+            Value::String("123 abc 456 def 789".to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -713,10 +760,7 @@ mod tests {
             "pattern".to_string(),
             Value::String(r"(\w+)=(\d+)".to_string()),
         );
-        params.insert(
-            "text".to_string(),
-            Value::String("a=1 b=2 c=3".to_string()),
-        );
+        params.insert("text".to_string(), Value::String("a=1 b=2 c=3".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["total_matches"], 3);
@@ -749,7 +793,10 @@ mod tests {
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("replace".to_string()));
         params.insert("pattern".to_string(), Value::String(r"\s+".to_string()));
-        params.insert("text".to_string(), Value::String("hello   world  test".to_string()));
+        params.insert(
+            "text".to_string(),
+            Value::String("hello   world  test".to_string()),
+        );
         params.insert("replacement".to_string(), Value::String("-".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
@@ -767,11 +814,11 @@ mod tests {
             "pattern".to_string(),
             Value::String(r"(\w+)\s+(\w+)".to_string()),
         );
+        params.insert("text".to_string(), Value::String("John Doe".to_string()));
         params.insert(
-            "text".to_string(),
-            Value::String("John Doe".to_string()),
+            "replacement".to_string(),
+            Value::String("$2, $1".to_string()),
         );
-        params.insert("replacement".to_string(), Value::String("$2, $1".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["result"], "Doe, John");
@@ -793,7 +840,10 @@ mod tests {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("validate".to_string()));
-        params.insert("pattern".to_string(), Value::String(r"^\d{3}-\d{4}$".to_string()));
+        params.insert(
+            "pattern".to_string(),
+            Value::String(r"^\d{3}-\d{4}$".to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["valid"], true);
@@ -806,7 +856,10 @@ mod tests {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("validate".to_string()));
-        params.insert("pattern".to_string(), Value::String(r"[invalid".to_string()));
+        params.insert(
+            "pattern".to_string(),
+            Value::String(r"[invalid".to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["valid"], false);
@@ -818,7 +871,10 @@ mod tests {
         let tool = make_tool();
         let mut params = HashMap::new();
         params.insert("action".to_string(), Value::String("explain".to_string()));
-        params.insert("pattern".to_string(), Value::String(r"^\d{3}-\d{4}$".to_string()));
+        params.insert(
+            "pattern".to_string(),
+            Value::String(r"^\d{3}-\d{4}$".to_string()),
+        );
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -842,10 +898,7 @@ mod tests {
             "pattern".to_string(),
             Value::String(r"(?P<name>\w+)=(?P<value>\d+)".to_string()),
         );
-        params.insert(
-            "text".to_string(),
-            Value::String("a=1 b=2".to_string()),
-        );
+        params.insert("text".to_string(), Value::String("a=1 b=2".to_string()));
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "ok");
@@ -902,7 +955,10 @@ mod tests {
 
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["status"], "error");
-        assert!(result["message"].as_str().unwrap().contains("Unknown action"));
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown action"));
     }
 
     #[tokio::test]
@@ -990,7 +1046,10 @@ mod tests {
     #[test]
     fn test_explain_pattern_escapes() {
         let components = explain_pattern(r"\d\w\s");
-        let escapes: Vec<_> = components.iter().filter(|c| c["type"] == "escape").collect();
+        let escapes: Vec<_> = components
+            .iter()
+            .filter(|c| c["type"] == "escape")
+            .collect();
         assert_eq!(escapes.len(), 3);
     }
 
