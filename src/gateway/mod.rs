@@ -130,6 +130,9 @@ impl Gateway {
         // Date/Time: timezone conversions, date arithmetic, calendar operations, duration formatting
         crate::tools::builtin::date_time_tool::register_all(&mut tool_registry);
 
+        // Fortune: Rust programming wisdom and quotes (random, search, category, list)
+        crate::tools::builtin::fortune_tool::register_all(&mut tool_registry);
+
         // GitHub API: list PRs, issues, check CI status, get repo info
         crate::tools::builtin::github_tool::register_all(&mut tool_registry);
 
