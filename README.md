@@ -154,6 +154,19 @@ src/
 └── mcp/                 # MCP server
 ```
 
+## 💼 Need a Custom AI Agent?
+
+I build enterprise-grade AI agents. cargo-agent is my portfolio — 48K+ lines of Rust, 60+ tools, MCP server.
+
+| Service | Starting From |
+|---------|--------------|
+| Technical Consulting (2hr) | ¥1,500 |
+| Agent Architecture Design | ¥8,000+ |
+| Custom Agent Development | ¥30,000+ |
+| Enterprise Integration | ¥50,000+ |
+
+**Free 30-min consultation.** [Open an issue](https://github.com/kaizhong8888-rgb/cargo-agent/issues/new?template=consulting.md) or see [SERVICES.md](SERVICES.md).
+
 ## License
 
 Dual-licensed:
@@ -170,6 +183,9 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for our test co
 
 ## Links
 
+- **Live Demo**: https://kaizhong8888-rgb.github.io/cargo-agent/
+- **Services**: [SERVICES.md](SERVICES.md) — AI Agent consulting
+- **Pricing**: [PRICING.md](PRICING.md) — Commercial licensing + Skill Packs
 - **Documentation**: [docs.rs/cargo-agent](https://docs.rs/cargo-agent) (coming soon)
 - **Crates.io**: [crates.io/crates/cargo-agent](https://crates.io/crates/cargo-agent) (coming soon)
 - **Issues**: [GitHub Issues](https://github.com/kaizhong8888-rgb/cargo-agent/issues)
