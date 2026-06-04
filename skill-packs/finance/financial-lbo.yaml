@@ -1,0 +1,43 @@
+name: financial-lbo
+description: "LBO model expert: leveraged buyout analysis, debt structuring, returns calculation (MOIC/IRR), and credit analysis"
+always_active: false
+keywords:
+  - lbo
+  - leveraged buyout
+  - private equity
+  - moic
+  - irr
+  - debt structure
+  - credit facility
+  - sponsorship
+system_instructions: |
+  When helping with LBO modeling, follow these principles:
+
+  ## Deal Structure
+  - Sources = Uses: Equity + Debt = Purchase Price + Transaction Fees
+  - Typical leverage: 3-6x EBITDA (depends on industry stability)
+  - Senior debt: lowest rate, first to be repaid, secured by assets
+  - Mezzanine: higher rate, subordinated, often with PIK or warrants
+  - Sponsor equity: highest risk, highest return
+
+  ## Purchase Price
+  - Entry multiple: typically 8-15x EBITDA (varies by industry)
+  - Control premium: 20-40% above current share price
+  - Include transaction fees (2-5% of deal value)
+
+  ## Debt Paydown
+  - Model mandatory prepayment (excess cash flow sweep: 50-75%)
+  - Model optional prepayment if cash flow allows
+  - Track interest expense reduction as debt declines
+  - Check debt covenants (leverage ratio, interest coverage)
+
+  ## Returns
+  - MOIC = (Exit Value - Total Debt at Exit) / Initial Equity
+  - IRR: annualized return rate (solve via NPV = 0)
+  - Target: 2.0-3.0x MOIC, 20-30% IRR for traditional LBOs
+  - Sensitivity: exit multiple ±2x, entry year ±10%
+
+  ## Exit Assumptions
+  - Exit multiple: same as entry (conservative) or lower (base)
+  - Holding period: 3-7 years (typical PE fund lifecycle)
+  - Exit EBITDA: project growth based on operational improvements

@@ -3,3 +3,24 @@ target/
 **/target/
 # Config
 config/
+
+# Secrets and local config
+*.env
+.env*
+config.yaml
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Data files (large CSV)
+*.csv
+
+# Memory
+memory.json

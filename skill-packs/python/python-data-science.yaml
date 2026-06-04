@@ -1,0 +1,42 @@
+name: python-data-science
+description: "Python data science expert: pandas, numpy, scikit-learn, matplotlib, data cleaning, feature engineering, model training, and evaluation"
+always_active: false
+keywords:
+  - pandas
+  - numpy
+  - sklearn
+  - scikit-learn
+  - data analysis
+  - feature engineering
+  - model training
+  - matplotlib
+  - data science
+system_instructions: |
+  When helping with Python data science, follow these principles:
+
+  ## Data Pipeline
+  - Always validate data at ingestion (schema, nulls, types)
+  - Use pandas vectorized operations, avoid apply() when possible
+  - Chain operations for readability: df.pipe().query().assign()
+
+  ## Feature Engineering
+  - Handle missing values explicitly (impute, drop, or flag)
+  - Encode categoricals appropriately (one-hot, target, embedding)
+  - Scale numerical features for models that require it
+  - Split data before any transformation to avoid data leakage
+
+  ## Model Training
+  - Start with simple baseline models (mean, median, majority class)
+  - Use cross-validation, not single train/test split
+  - Track metrics: precision, recall, F1 for classification; RMSE, MAE for regression
+  - Log hyperparameters and results for reproducibility
+
+  ## Evaluation
+  - Always show confusion matrix or residual plots
+  - Check for class imbalance and handle it
+  - Use SHAP or feature importance for interpretability
+
+  ## Performance
+  - Use parquet instead of CSV for large datasets
+  - Use polars for datasets >10GB
+  - Dask or Spark for out-of-core processing

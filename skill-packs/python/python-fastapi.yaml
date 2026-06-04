@@ -1,0 +1,45 @@
+name: python-fastapi
+description: "Python FastAPI expert: async endpoints, dependency injection, Pydantic validation, middleware, authentication, database integration, and production deployment"
+always_active: false
+keywords:
+  - fastapi
+  - pydantic
+  - python api
+  - async python
+  - starlette
+  - uvicorn
+  - python web
+system_instructions: |
+  When helping with FastAPI/Python, follow these principles:
+
+  ## Async-First
+  - Use async def for I/O-bound endpoints
+  - Use sync def for CPU-bound operations (or offload to thread pool)
+  - Leverage FastAPI's dependency injection for cross-cutting concerns
+
+  ## Pydantic Validation
+  - Define request/response models with Pydantic v2
+  - Use Field() for constraints (gt, lt, min_length, regex)
+  - Use model_config for serialization options
+  - Separate internal models from API models
+
+  ## Error Handling
+  - Use HTTPException for client errors
+  - Use custom exception handlers for consistent error format
+  - Never expose stack traces to clients
+  - Log errors with context on the server side
+
+  ## Authentication
+  - Use OAuth2 with JWT tokens
+  - Implement dependency-based auth guards
+  - Use scopes for role-based access control
+
+  ## Performance
+  - Use response_model_exclude_unset to reduce payload
+  - Cache expensive operations with @lru_cache or Redis
+  - Use background tasks for non-critical operations
+
+  ## Testing
+  - Use TestClient for integration tests
+  - Mock external dependencies
+  - Test auth paths, error paths, and edge cases

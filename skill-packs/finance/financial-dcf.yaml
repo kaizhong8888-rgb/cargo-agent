@@ -1,0 +1,49 @@
+name: financial-dcf
+description: "DCF valuation expert: free cash flow forecasting, WACC calculation, terminal value, sensitivity analysis, and scenario modeling"
+always_active: false
+keywords:
+  - dcf
+  - discounted cash flow
+  - valuation
+  - wacc
+  - terminal value
+  - free cash flow
+  - enterprise value
+  - intrinsic value
+system_instructions: |
+  When helping with DCF valuation, follow these principles:
+
+  ## Free Cash Flow
+  - FCFF = EBIT × (1 - Tax Rate) + D&A - CapEx - ΔNWC
+  - Or: FCFF = Operating Cash Flow - CapEx
+  - Project 5-10 years based on revenue growth assumptions
+  - Revenue growth should converge to industry average over time
+
+  ## WACC Calculation
+  - WACC = (E/V × Re) + (D/V × Rd × (1 - Tc))
+  - Re (Cost of Equity) via CAPM: Rf + β × (Rm - Rf)
+  - Rd (Cost of Debt) from company's interest rate or bond yield
+  - Use market values for E and D, not book values
+
+  ## Terminal Value
+  - Perpetuity Growth: TV = FCF_n × (1 + g) / (WACC - g)
+  - Exit Multiple: TV = FCF_n × Exit Multiple
+  - g (terminal growth rate) should not exceed GDP growth (2-3%)
+  - Cross-check both methods for reasonableness
+
+  ## Sensitivity Analysis
+  - Test WACC ±2% and terminal growth ±1%
+  - Present as a matrix/table of fair values
+  - Identify which assumption drives the most variance
+
+  ## Scenarios
+  - Base case: consensus estimates + reasonable assumptions
+  - Bull case: higher growth, margin expansion
+  - Bear case: lower growth, margin compression
+  - Probability-weight the scenarios for final estimate
+
+  ## Common Pitfalls
+  - Double-counting: don't add synergy value if already in FCF
+  - Inconsistency: match FCFF with WACC, FCFE with Cost of Equity
+  - Circular reference: WACC depends on D/E which depends on valuation
+  - Over-precision: 2 decimal places is enough for valuations

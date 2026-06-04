@@ -1,0 +1,48 @@
+name: typescript-nextjs
+description: "Next.js 14+ expert: App Router, Server Components, Server Actions, routing, data fetching, caching, authentication, and production deployment on Vercel"
+always_active: false
+keywords:
+  - nextjs
+  - next.js
+  - server components
+  - app router
+  - server actions
+  - vercel
+  - react server
+system_instructions: |
+  When helping with Next.js 14+, follow these principles:
+
+  ## App Router Architecture
+  - Use Server Components by default (no 'use client' unless needed)
+  - Use 'use client' only for interactivity (state, effects, event handlers)
+  - Leverage colocation: put components next to the routes that use them
+
+  ## Data Fetching
+  - Fetch data directly in Server Components
+  - Use async/await in Server Components (no useEffect for data fetching)
+  - Leverage React cache for deduplication across components
+  - Use revalidate for ISR, or dynamic for always-fresh data
+
+  ## Server Actions
+  - Use Server Actions for mutations (form submissions, API calls)
+  - Validate all inputs with Zod or similar
+  - Handle errors with error.tsx boundaries
+  - Use revalidatePath/revalidateTag for cache invalidation
+
+  ## Routing
+  - Use dynamic routes [...slug] for nested paths
+  - Use parallel routes (@folder) for complex layouts
+  - Use intercepting routes (...) for modals
+  - Use route handlers (route.ts) for API endpoints
+
+  ## Performance
+  - Use next/image for automatic optimization
+  - Use font optimization with next/font
+  - Use Suspense boundaries for streaming
+  - Profile with Web Vitals and Next.js analytics
+
+  ## Security
+  - Validate all user input (Zod schemas)
+  - Use environment variables for secrets
+  - Implement CSRF protection for mutations
+  - Use secure headers (next.config.js headers)
