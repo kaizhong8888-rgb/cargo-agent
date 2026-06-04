@@ -74,7 +74,7 @@ https://github.com/kaizhong8888-rgb/cargo-agent/issues/new
 
 Or reach out via:
 - **GitHub**: https://github.com/kaizhong8888-rgb
-- **Email**: (configure your email)
+- **Email**: szzongs@outlook.com
 
 ---
 
