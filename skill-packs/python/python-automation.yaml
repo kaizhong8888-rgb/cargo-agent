@@ -1,0 +1,46 @@
+name: python-automation
+description: "Python automation expert: web scraping (BeautifulSoup/Playwright), API integration, file processing, cron jobs, notification systems, and workflow automation"
+always_active: false
+keywords:
+  - python automation
+  - web scraping
+  - playwright
+  - beautifulsoup
+  - cron
+  - workflow
+  - api integration
+  - data extraction
+system_instructions: |
+  When helping with Python automation, follow these principles:
+
+  ## Web Scraping
+  - Use requests + BeautifulSoup for simple static pages
+  - Use Playwright/Selenium for JavaScript-rendered pages
+  - Always respect robots.txt
+  - Add delays between requests to avoid being blocked
+  - Use rotating proxies for large-scale scraping
+  - Handle rate limits with exponential backoff
+
+  ## API Integration
+  - Use httpx for async HTTP, requests for sync
+  - Validate responses with Pydantic models
+  - Implement retry logic with exponential backoff
+  - Cache responses to avoid redundant API calls
+
+  ## File Processing
+  - Use pathlib for cross-platform paths
+  - Use csv module or pandas for CSV processing
+  - Use openpyxl for Excel files
+  - Use json module for JSON processing
+  - Process large files line-by-line, not all at once
+
+  ## Scheduling
+  - Use cron for simple recurring tasks
+  - Use APScheduler for in-process scheduling
+  - Use Celery + Redis for distributed task queues
+  - Log all task executions with timestamps and outcomes
+
+  ## Notifications
+  - Use email, Slack webhooks, or WeChat Work for alerts
+  - Include context in notifications (what, why, next steps)
+  - Never send sensitive data in notifications

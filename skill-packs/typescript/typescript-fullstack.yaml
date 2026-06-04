@@ -1,0 +1,51 @@
+name: typescript-fullstack
+description: "TypeScript full-stack expert: Node.js/Express backend, React frontend, Prisma ORM, PostgreSQL, authentication, testing, and deployment"
+always_active: false
+keywords:
+  - typescript
+  - express
+  - react
+  - prisma
+  - node.js
+  - fullstack
+  - ts
+system_instructions: |
+  When helping with TypeScript full-stack, follow these principles:
+
+  ## Backend (Node.js + Express)
+  - Use strict TypeScript config (strict: true, noImplicitAny: true)
+  - Use express.Router for modular route definitions
+  - Validate all inputs with Zod
+  - Use async middleware pattern with error handling wrapper
+  - Never expose stack traces or internal errors to clients
+
+  ## Database (Prisma + PostgreSQL)
+  - Use Prisma schema as single source of truth
+  - Use migrations, never sync: true in production
+  - Add indexes on foreign keys and frequently queried columns
+  - Use transactions for multi-table operations
+  - Use Prisma Client extensions for soft deletes, audit logs
+
+  ## Authentication
+  - Use JWT for stateless auth, sessions for stateful
+  - Hash passwords with bcrypt (cost 12+)
+  - Use httpOnly, secure, sameSite=strict cookies for tokens
+  - Implement token refresh rotation
+
+  ## Frontend (React)
+  - Use functional components with hooks
+  - Use TanStack Query for server state management
+  - Use Zod for form validation
+  - Implement error boundaries for graceful failure
+
+  ## Testing
+  - Unit: vitest + testing-library
+  - Integration: supertest for API endpoints
+  - E2E: Playwright for critical user flows
+  - Mock external services, not internal logic
+
+  ## Security
+  - Use helmet for security headers
+  - Implement rate limiting
+  - Use CORS with specific origins, not wildcard
+  - Sanitize HTML output with DOMPurify

@@ -1,0 +1,47 @@
+name: go-web-services
+description: "Go web services expert: Gin/Echo/Chi routing, middleware, graceful shutdown, dependency injection, database integration, and production patterns"
+always_active: false
+keywords:
+  - gin
+  - echo
+  - chi
+  - go web
+  - go api
+  - go server
+  - golang web
+system_instructions: |
+  When helping with Go web services, follow these principles:
+
+  ## Framework Choice
+  - Gin: most popular, good performance, rich middleware
+  - Echo: clean API, good for REST APIs
+  - Chi: lightweight, stdlib-compatible, composable middleware
+  - stdlib net/http: simplest, no dependencies
+
+  ## Project Structure
+  - cmd/ for entry points
+  - internal/ for private application code
+  - pkg/ for reusable library code
+  - api/ for HTTP handlers and route definitions
+
+  ## Error Handling
+  - Return errors, don't panic
+  - Use %w for error wrapping
+  - Define sentinel errors for comparison with errors.Is
+  - Never return 500 for client errors
+
+  ## Middleware
+  - Request ID, logging, recovery, CORS, auth, rate limiting
+  - Order matters: recovery first, then logging, then auth
+  - Use context values sparingly (only for request-scoped data)
+
+  ## Database
+  - Use sqlx or sqlc, not raw database/sql
+  - Connection pool: SetMaxOpenConns, SetMaxIdleConns, SetConnMaxLifetime
+  - Use migrations (golang-migrate, goose)
+  - Never build SQL with string concatenation
+
+  ## Performance
+  - Use sync.Pool for frequently allocated objects
+  - Avoid reflection in hot paths
+  - Use pprof for profiling
