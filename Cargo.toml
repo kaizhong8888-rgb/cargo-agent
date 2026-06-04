@@ -2,6 +2,14 @@
 name = "cargo-agent"
 version = "0.1.0"
 edition = "2021"
+description = "Self-evolving AI Agent CLI with 60+ tools for coding, testing, refactoring, and quantitative trading"
+license = "MIT"
+repository = "https://github.com/kaizhong8888-rgb/cargo-agent"
+homepage = "https://kaizhong8888-rgb.github.io/cargo-agent/"
+documentation = "https://github.com/kaizhong8888-rgb/cargo-agent/blob/master/README.md"
+readme = "README.md"
+keywords = ["ai", "agent", "cli", "rust", "llm", "coding", "mcp"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 once_cell = "1.19"
