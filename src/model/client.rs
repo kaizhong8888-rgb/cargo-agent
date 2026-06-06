@@ -28,6 +28,21 @@ impl ModelClient {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent("cargo-agent/0.1.0")
+            // Connection timeout: fail fast if we can't reach the API
+            .connect_timeout(std::time::Duration::from_secs(15))
+            // Overall timeout for the full request/response cycle
+            .timeout(std::time::Duration::from_secs(120))
+            // TCP keepalive to detect dead connections
+            .tcp_keepalive(std::time::Duration::from_secs(30))
+            // Force HTTP/1.1 — the DashScope Anthropic endpoint only supports HTTP/1.1.
+            // reqwest defaults to trying HTTP/2 first, which can cause hanging connections.
+            .http1_only()
+            // Disable connection pool — prevents stale connection reuse which can
+            // cause intermittent timeouts on long-running API endpoints.
+            .pool_max_idle_per_host(0)
+            // Bypass macOS system proxy detection — reqwest calls the SystemConfiguration
+            // framework on every request, which can hang for seconds. We don't need a proxy.
+            .no_proxy()
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
@@ -42,6 +57,11 @@ impl ModelClient {
     /// Return the configured model name.
     pub fn model_name(&self) -> &str {
         &self.model
+    }
+
+    /// Switch the model used for subsequent requests.
+    pub fn set_model(&mut self, model: impl Into<String>) {
+        self.model = model.into();
     }
 
     /// Send a chat completion request with automatic retry.
@@ -287,17 +307,21 @@ impl ModelClient {
         }
 
         let url = Self::build_anthropic_url(&self.base_url);
+        tracing::debug!("Anthropic request: POST {}", url);
+        tracing::debug!("Request body model: {}", self.model);
         let response = self
             .client
             .post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "output-128k-2025-02-19")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .await?;
 
         let status = response.status();
+        tracing::debug!("Anthropic response status: {}", status);
         let text = response.text().await?;
 
         if !status.is_success() {

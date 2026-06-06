@@ -67,6 +67,7 @@ src/
 │   ├── data.rs            # Market data handling
 │   ├── indicators.rs      # Technical indicators
 │   ├── strategy.rs        # Trading strategies
+│   ├── strategy_comparison.rs  # Multi-strategy ranking
 │   └── report.rs          # Report generation
 └── constants.rs           # Path constants (~/.cargo-agent/)
 ```
@@ -82,7 +83,7 @@ src/
 ### Key Constants
 
 - `MAX_MESSAGES = 200` — conversation window size before truncation
-- `TRUNCATE_KEEP = 5` — messages kept after truncation
+- `TRUNCATE_KEEP_MESSAGES = 40` — non-system messages kept after truncation
 - `MAX_TURNS = 200` — max tool-call turns per chat request
 
 ### Memory System
@@ -97,7 +98,7 @@ Skills are YAML files in `~/.cargo-agent/skills/` that provide domain-specific i
 
 1. Create a file in `src/tools/builtin/` implementing the `Tool` trait
 2. Add `pub mod your_tool;` to `src/tools/builtin/mod.rs`
-3. Add `crate::tools::builtin::your_tool::register_all(&mut tool_registry);` in `Gateway::new()` (gateway/mod.rs)
+3. Add `crate::tools::builtin::your_tool::register_all(&mut tool_registry);` in `gateway/tools.rs` (`register_builtin_tools`)
 4. Add tool to the tools list in `cli_commands.rs:tools_text()` for `/tools` command
 5. Update the system prompt in `Gateway::new()` to mention the new tool
 
@@ -107,4 +108,4 @@ Config lives at `~/.cargo-agent/config.yaml`. Supports environment variable expa
 
 ## Testing
 
-Tests use standard `#[cfg(test)]` modules with `#[test]` attributes. The codebase has unit tests in `tools/registry.rs` and `skills/mod.rs`. Run `cargo test` for the full suite.
+Tests use standard `#[cfg(test)]` modules with `#[test]` attributes across `tools/`, `trading/`, `skills/`, and `gateway/tools.rs` (prompt/registry consistency). Run `cargo test` for the full suite.

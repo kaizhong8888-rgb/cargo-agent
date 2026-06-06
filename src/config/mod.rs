@@ -2,6 +2,7 @@ pub mod env;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CargoConfig {
@@ -11,6 +12,9 @@ pub struct CargoConfig {
     pub model: ModelConfig,
     #[serde(default)]
     pub api_key: Option<String>,
+    /// MCP server configurations keyed by display name.
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, McpServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,11 +40,52 @@ pub struct AgentConfig {
     pub system_prompt: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configuration for connecting to an external MCP server.
+///
+/// # Example (config.yaml)
+///
+/// ```yaml
+/// mcp_servers:
+///   filesystem:
+///     enabled: true
+///     command: npx
+///     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+///     timeout: 10000
+///   my-api:
+///     enabled: true
+///     transport: http
+///     url: http://localhost:3000/mcp
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpServerConfig {
-    pub name: String,
-    pub command: String,
+    /// Whether to auto-connect this server on startup.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Command to execute (for stdio transport).
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Arguments to pass to the command.
+    #[serde(default)]
     pub args: Vec<String>,
+    /// Environment variables to set.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// HTTP endpoint URL (for HTTP/SSE transport).
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Transport type: "stdio" (default), "http", "sse".
+    #[serde(default)]
+    pub transport: Option<String>,
+    /// Request timeout in milliseconds.
+    #[serde(default)]
+    pub timeout: Option<u64>,
+    /// Allowed filesystem paths (for filesystem MCP servers).
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AgentConfig {
@@ -60,6 +105,7 @@ impl Default for CargoConfig {
             version: "0.1.0".to_string(),
             model: ModelConfig::default(),
             api_key: None,
+            mcp_servers: HashMap::new(),
         }
     }
 }
@@ -112,6 +158,7 @@ impl CargoConfig {
                 },
             },
             api_key: Some(api_key),
+            mcp_servers: HashMap::new(),
         })
     }
 
@@ -143,6 +190,7 @@ impl CargoConfig {
                 base_url: Some(base_url),
             },
             api_key: Some(hermes.model.api_key.clone()),
+            mcp_servers: HashMap::new(),
         })
     }
 

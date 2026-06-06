@@ -1,18 +1,20 @@
+mod tools;
+
 use crate::agent::core::AIAgent;
 use crate::config::CargoConfig;
+use crate::mcp::bridge::McpBridge;
 use crate::model::client::ModelClient;
 use crate::model::router::ModelRouter;
 use crate::skills::SkillRegistry;
-use crate::tools::builtin::env_secret::SecretStore;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
 use colored::Colorize;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct Gateway {
     agent: AIAgent,
     model_router: ModelRouter,
+    mcp_bridge: Option<McpBridge>,
 }
 
 impl Gateway {
@@ -32,156 +34,7 @@ impl Gateway {
         let memory_store = AIAgent::create_memory_store();
 
         let mut tool_registry = ToolRegistry::new();
-        crate::tools::builtin::hello_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::file_tools::register_all(&mut tool_registry);
-
-        // Memory and evolution tools share the same SQLite-backed store
-        if let Some(store) = &memory_store {
-            crate::tools::builtin::memory_tool::register_all(&mut tool_registry, store.clone());
-            crate::tools::builtin::evolution_tools::register_all(&mut tool_registry, store.clone());
-            crate::tools::builtin::task_planner::register(&mut tool_registry, store.clone());
-        }
-
-        crate::tools::builtin::task_pool::register_all(&mut tool_registry);
-        crate::tools::builtin::fs_tools::register_all(&mut tool_registry);
-        crate::tools::builtin::net_tools::register_all(&mut tool_registry);
-        crate::tools::builtin::code_analyzer_tool::register_all(&mut tool_registry);
-
-        // Code Quality: quality scoring, duplicate detection, dependency visualization
-        crate::tools::builtin::code_quality_tool::register_all(&mut tool_registry);
-
-        // CI/CD Integration: generate CI configs, run tests/builds, coverage, audit, pre-release checks
-        crate::tools::builtin::ci_cd_tool::register_all(&mut tool_registry);
-
-        // Security Scanner: code security patterns, dependency audit, hardcoded secrets detection
-        crate::tools::builtin::security_scanner::register_all(&mut tool_registry);
-
-        // Git Workflow: branch management, changelog, release automation, merge, PR description
-        crate::tools::builtin::git_workflow_tool::register_all(&mut tool_registry);
-
-        // Documentation Generator: API docs, README, architecture docs, module documentation
-        crate::tools::builtin::doc_generator::register_all(&mut tool_registry);
-
-        // Smart Refactor: detect code smells and suggest idiomatic Rust improvements
-        crate::tools::builtin::smart_refactor::register_all(&mut tool_registry);
-
-        // Tier 1: Git integration, code execution, full HTTP client
-        crate::tools::builtin::git_tools::register_all(&mut tool_registry);
-        crate::tools::builtin::code_executor::register_all(&mut tool_registry);
-        // (http_client already registered via net_tools)
-
-        // Tier 2: Scaffold, dependency manager, code transform
-        crate::tools::builtin::scaffold::register_all(&mut tool_registry);
-        crate::tools::builtin::dep_manager::register_all(&mut tool_registry);
-        crate::tools::builtin::code_transform::register_all(&mut tool_registry);
-
-        // Tier 3: Doc search, diagrams, config persistence, scheduler
-        crate::tools::builtin::doc_search::register_all(&mut tool_registry);
-        crate::tools::builtin::diagram::register_all(&mut tool_registry);
-        crate::tools::builtin::config_store::register_all(&mut tool_registry);
-        crate::tools::builtin::scheduler::register_all(&mut tool_registry);
-
-        // LLM Integration: call OpenAI/Anthropic/Ollama for code gen, review, Q&A
-        crate::tools::builtin::llm_tool::register_all(&mut tool_registry);
-
-        // Database: SQL queries, table management, CSV import/export, backup
-        crate::tools::builtin::database_tool::register_all(&mut tool_registry);
-
-        // Database Migration: SQLx/Diesel/SeaORM migration generation, schema diff, mock data
-        crate::tools::builtin::db_migration::register_all(&mut tool_registry);
-
-        // Cryptography: encrypt/decrypt, hash, sign/verify, JWT, password hashing
-        crate::tools::builtin::crypto_tool::register_all(&mut tool_registry);
-
-        // Environment/Secret Management: manage API keys, tokens securely
-        let agent_dir = PathBuf::from(&*crate::constants::AGENT_DIR);
-        let secret_store = SecretStore::new(agent_dir);
-        crate::tools::builtin::env_secret::register_all(&mut tool_registry, secret_store);
-
-        // Notifications: send alerts via webhooks (Slack, DingTalk, custom)
-        crate::tools::builtin::notify::register_all(&mut tool_registry);
-
-        // License Audit: scan dependency licenses, compliance reports, NOTICE generation
-        crate::tools::builtin::license_audit::register_all(&mut tool_registry);
-
-        // Image: analyze and manipulate images (info, resize, thumbnail, convert)
-        crate::tools::builtin::image_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::container_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::mail_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::archive_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::pdf_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::template_tool::register_all(&mut tool_registry);
-        crate::tools::builtin::sysmonitor_tool::register_all(&mut tool_registry);
-
-        // Data Processing: parse, filter, sort, aggregate, stats, merge, convert CSV/JSON
-        crate::tools::builtin::data_processor::register_all(&mut tool_registry);
-
-        // Chart Generation: visualize data with pie, bar, line, table, histogram charts
-        crate::tools::builtin::chart_generator::register_all(&mut tool_registry);
-
-        // Text Processing: case conversion, counting, base64/url/html encoding,
-        // UUID generation, regex, string padding/truncation, word wrapping, and more
-        crate::tools::builtin::text_processor::register_all(&mut tool_registry);
-
-        // Todo Manager: personal todo list with priorities, categories, tags,
-        // due dates, search/filter, and statistics
-        crate::tools::builtin::todo_manager::register_all(&mut tool_registry);
-
-        // Date/Time: timezone conversions, date arithmetic, calendar operations, duration formatting
-        crate::tools::builtin::date_time_tool::register_all(&mut tool_registry);
-
-        // Fortune: Rust programming wisdom and quotes (random, search, category, list)
-        crate::tools::builtin::fortune_tool::register_all(&mut tool_registry);
-
-        // GitHub API: list PRs, issues, check CI status, get repo info
-        crate::tools::builtin::github_tool::register_all(&mut tool_registry);
-
-        // Plugin Marketplace: browse, search, install, uninstall community plugins
-        let plugins_dir = PathBuf::from(&*crate::constants::AGENT_DIR).join("plugins");
-        std::fs::create_dir_all(&plugins_dir).ok();
-        crate::tools::builtin::plugin_tool::register_all(&mut tool_registry, plugins_dir);
-
-        // Test Generator: analyze Rust source and generate unit/integration/property tests
-        crate::tools::builtin::test_generator::register_all(&mut tool_registry);
-
-        // AST Analyzer: AST-level code analysis using syn (analyze, unused_imports, public_api, dependencies, complexity)
-        crate::tools::builtin::ast_analyzer::register_all(&mut tool_registry);
-
-        // Async Profiler: detect blocking I/O in async contexts, analyze tokio::spawn patterns, runtime config
-        crate::tools::builtin::async_profiler::register_all(&mut tool_registry);
-
-        // Cross Compile: target management, cross-build config, Wasm analysis, embedded device config
-        crate::tools::builtin::cross_compile::register_all(&mut tool_registry);
-
-        // Fuzz Driver: cargo-fuzz target generation, corpus management, crash analysis, strategies
-        crate::tools::builtin::fuzz_driver::register_all(&mut tool_registry);
-
-        // Benchmark: performance analysis, micro-benchmarks, criterion code generation, hotspot detection
-        crate::tools::builtin::benchmark_tool::register_all(&mut tool_registry);
-
-        // Clippy Lint: run clippy, categorize lints, suggest fixes, quality scoring, auto-fix
-        crate::tools::builtin::clippy_lint_tool::register_all(&mut tool_registry);
-
-        // Regex: advanced regex testing, validation, replacement, and Rust code generation
-        crate::tools::builtin::regex_tool::register_all(&mut tool_registry);
-
-        // Diff: compare text/code, unified diff, side-by-side view, patch generation/application
-        crate::tools::builtin::diff_tool::register_all(&mut tool_registry);
-
-        // Log Analyzer: parse, filter, analyze, and visualize log files
-        crate::tools::builtin::log_analyzer::register_all(&mut tool_registry);
-
-        // Markdown Processor: convert to HTML/text, generate TOC, lint, stats, transform, validate links
-        crate::tools::builtin::markdown_tool::register_all(&mut tool_registry);
-
-        // OpenAPI/Swagger: generate, validate, and analyze OpenAPI specs from Rust web projects
-        crate::tools::builtin::openapi_tool::register_all(&mut tool_registry);
-
-        // Hash Tool: compute file and string checksums (MD5, SHA-1, SHA-256, SHA-512, BLAKE3)
-        crate::tools::builtin::hash_tool::register_all(&mut tool_registry);
-
-        // EnvFile Tool: parse, validate, generate, merge .env files
-        crate::tools::builtin::env_file_tool::register_all(&mut tool_registry);
+        tools::register_builtin_tools(&mut tool_registry, memory_store.clone());
 
         // Load skills from ~/.cargo-agent/skills/
         let skills_dir = crate::constants::skills_dir();
@@ -273,7 +126,50 @@ impl Gateway {
         Self {
             agent,
             model_router,
+            mcp_bridge: None, // Initialized asynchronously in new_async
         }
+    }
+
+    /// Create a new Gateway and asynchronously connect MCP servers.
+    ///
+    /// This is the preferred constructor when MCP server integration is needed.
+    /// It connects to configured MCP servers and registers their tools.
+    pub async fn new_async(config: CargoConfig) -> Self {
+        let mut gateway = Self::new(config.clone());
+
+        // Connect to configured MCP servers
+        if !config.mcp_servers.is_empty() {
+            let mut bridge = McpBridge::new();
+            for (name, server_config) in &config.mcp_servers {
+                tracing::info!("Configuring MCP server: {name}");
+                bridge.add_config(name, server_config.clone());
+            }
+
+            // Register tools directly into the agent's tool registry
+            let registry = &mut gateway.agent.tool_registry;
+            bridge.start_all(registry).await;
+
+            tracing::info!(
+                "MCP bridge: {} server(s) configured, {} connected, {} MCP tool(s) registered",
+                config.mcp_servers.len(),
+                bridge.connected_count(),
+                bridge.total_mcp_tools(),
+            );
+
+            gateway.mcp_bridge = Some(bridge);
+        }
+
+        gateway
+    }
+
+    /// Access the MCP bridge (if configured).
+    pub fn mcp_bridge(&self) -> Option<&McpBridge> {
+        self.mcp_bridge.as_ref()
+    }
+
+    /// Mutable access to the MCP bridge.
+    pub fn mcp_bridge_mut(&mut self) -> Option<&mut McpBridge> {
+        self.mcp_bridge.as_mut()
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -282,6 +178,15 @@ impl Gateway {
     }
 
     pub async fn handle_message(&mut self, text: &str) -> Result<String> {
+        let selected = self.model_router.select(text);
+        if selected != self.agent.model_name() {
+            tracing::debug!(
+                from = %self.agent.model_name(),
+                to = %selected,
+                "Model router switched model for this message"
+            );
+            self.agent.set_model(selected);
+        }
         self.agent.chat(text).await
     }
 
@@ -316,23 +221,66 @@ impl Gateway {
         self.model_router.select(message)
     }
 
-    /// Handle a dynamic slash command that needs access to runtime state.
+    /// Unified slash command dispatcher.
     ///
-    /// These are commands that cannot be handled statically in `cli_commands::handle()`
-    /// because they need the tool registry, memory store, or other runtime data.
-    ///
-    /// Returns `None` if the command was not recognized (should pass through to LLM).
-    pub async fn handle_slash(&self, cmd: &str, args: &str) -> Option<String> {
+    /// Takes the raw input (starting with `/`), parses it, and returns
+    /// a `SlashAction` that drives the REPL loop in `main.rs`.
+    pub async fn handle_slash_command(&mut self, input: &str) -> crate::cli_commands::SlashAction {
+        use crate::cli_commands::SlashAction;
+
+        let (cmd, args) = crate::cli_commands::parse(input);
+
         match cmd {
-            "tools" => Some(self.slash_tools(args)),
-            "tool" => Some(self.slash_tool_detail(args)),
-            "mem" | "memory" => Some(self.slash_memory(args).await),
-            "git" => Some(self.slash_git(args)),
-            "tasks" | "task" => Some(self.slash_tasks(args)),
-            "skills" | "skill" => Some(self.slash_skills(args)),
-            "export" => Some(self.slash_export(args)),
-            "stats" => Some(self.slash_stats()),
-            _ => None,
+            // ── Lifecycle ────────────────────────────────────
+            "quit" | "exit" => SlashAction::Exit,
+            "clear" | "cls" => {
+                print!("\x1b[2J\x1b[H");
+                self.clear_conversation();
+                SlashAction::Clear
+            }
+
+            // ── Dashboard ────────────────────────────────────
+            "dashboard" | "dash" => SlashAction::Dashboard,
+
+            // ── Static info (pure text builders) ─────────────
+            "help" | "h" => {
+                let text = if args.is_empty() {
+                    crate::cli_commands::help_general()
+                } else {
+                    crate::cli_commands::help_topic(args)
+                };
+                SlashAction::Output(text)
+            }
+            "version" | "v" => SlashAction::Output(crate::cli_commands::version_text()),
+            "status" => SlashAction::Output(crate::cli_commands::status_text()),
+            "config" => SlashAction::Output(crate::cli_commands::config_text()),
+            "usage" => {
+                SlashAction::Output(
+                    "Token usage is tracked per conversation.\nAsk the agent: 'show token usage'."
+                        .into(),
+                )
+            }
+            "model" => {
+                SlashAction::Output(
+                    "Model routing is automatic based on task complexity.\n\
+                     Ask the agent: 'what model complexity is this task?'"
+                        .into(),
+                )
+            }
+
+            // ── Dynamic (needs runtime state) ────────────────
+            "tools" => SlashAction::Output(self.slash_tools(args)),
+            "tool" => SlashAction::Output(self.slash_tool_detail(args)),
+            "mem" | "memory" => SlashAction::Output(self.slash_memory(args).await),
+            "git" => SlashAction::Output(self.slash_git(args)),
+            "tasks" | "task" => SlashAction::Output(self.slash_tasks(args)),
+            "skills" | "skill" => SlashAction::Output(self.slash_skills(args)),
+            "export" => SlashAction::Output(self.slash_export(args)),
+            "stats" => SlashAction::Output(self.slash_stats()),
+            "mcp" => SlashAction::Output(self.slash_mcp(args).await),
+
+            // ── Unknown — let LLM try ────────────────────────
+            _ => SlashAction::PassThrough,
         }
     }
 
@@ -993,7 +941,9 @@ impl Gateway {
         out.push_str(&format!("    Messages:       {}\n", msg_count));
         out.push_str(&format!(
             "    User messages:  {}\n",
-            metrics.user_messages.load(std::sync::atomic::Ordering::Relaxed)
+            metrics
+                .user_messages
+                .load(std::sync::atomic::Ordering::Relaxed)
         ));
 
         // Token usage
@@ -1018,8 +968,12 @@ impl Gateway {
 
         // Tool metrics
         out.push_str(&format!("\n  {}  {}\n", "Tool Calls".bold(), ""));
-        let tool_calls = metrics.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
-        let tool_errors = metrics.tool_errors.load(std::sync::atomic::Ordering::Relaxed);
+        let tool_calls = metrics
+            .tool_calls
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let tool_errors = metrics
+            .tool_errors
+            .load(std::sync::atomic::Ordering::Relaxed);
         out.push_str(&format!("    Total:          {}\n", tool_calls));
         out.push_str(&format!(
             "    Success rate:   {:.1}%\n",
@@ -1060,6 +1014,171 @@ impl Gateway {
         }
 
         out
+    }
+
+    // ─── MCP commands ─────────────────────────────────────────
+
+    async fn slash_mcp(&mut self, args: &str) -> String {
+        let (subcmd, subargs) = if let Some(pos) = args.find(' ') {
+            (&args[..pos], args[pos + 1..].trim())
+        } else {
+            (args, "")
+        };
+
+        match subcmd {
+            "list" | "ls" | "" => self.slash_mcp_list(),
+            "status" => self.slash_mcp_status(),
+            "restart" | "restart_server" => {
+                if subargs.is_empty() {
+                    return "  Usage: `/mcp:restart <server-name>`".to_string();
+                }
+                self.slash_mcp_restart(subargs).await
+            }
+            "stop" | "disconnect" => {
+                if subargs.is_empty() {
+                    return "  Usage: `/mcp:stop <server-name>`".to_string();
+                }
+                self.slash_mcp_stop(subargs).await
+            }
+            "start" | "connect" => {
+                if subargs.is_empty() {
+                    return "  Usage: `/mcp:start <server-name>`".to_string();
+                }
+                self.slash_mcp_start(subargs).await
+            }
+            _ => format!(
+                "  ❌ Unknown MCP subcommand: `{subcmd}`\n  Use: list, status, start, stop, restart"
+            ),
+        }
+    }
+
+    fn slash_mcp_list(&self) -> String {
+        let mut out = String::with_capacity(512);
+        out.push_str(&format!(
+            "  {}  {}\n\n",
+            "🔌".bold(),
+            "MCP Servers".cyan().bold()
+        ));
+
+        if let Some(bridge) = &self.mcp_bridge {
+            let status = bridge.status();
+            if status.is_empty() {
+                out.push_str("  📭 No MCP servers configured.\n");
+                out.push_str(&format!(
+                    "  {}  Add servers to ~/.cargo-agent/config.yaml under `mcp_servers:`.\n",
+                    "💡".dimmed()
+                ));
+                return out;
+            }
+
+            for s in &status {
+                let icon = if s.connected { "🟢" } else { "🔴" };
+                out.push_str(&format!(
+                    "    {}  {}  ({} tool(s))\n",
+                    icon,
+                    s.name.bold(),
+                    s.tool_count
+                ));
+                if let Some(ref err) = s.error {
+                    out.push_str(&format!("        {} {err}\n", "⚠".dimmed()));
+                }
+            }
+
+            out.push_str(&format!(
+                "\n  {} {} connected, {} tool(s) total\n",
+                "📊".dimmed(),
+                bridge.connected_count(),
+                bridge.total_mcp_tools()
+            ));
+        } else {
+            out.push_str("  📭 MCP bridge not initialized.\n");
+        }
+
+        out
+    }
+
+    fn slash_mcp_status(&self) -> String {
+        if let Some(bridge) = &self.mcp_bridge {
+            let status = bridge.status();
+            let mut out = String::with_capacity(1024);
+            out.push_str(&format!(
+                "  {}  {}\n\n",
+                "📊".bold(),
+                "MCP Bridge Status".cyan().bold()
+            ));
+
+            out.push_str(&format!(
+                "  {} {} server(s)\n",
+                "Configured:".dimmed(),
+                status.len()
+            ));
+            out.push_str(&format!(
+                "  {} {} server(s) connected\n",
+                "Connected:".dimmed(),
+                bridge.connected_count()
+            ));
+            out.push_str(&format!(
+                "  {} {} tool(s) registered\n",
+                "Tools:".dimmed(),
+                bridge.total_mcp_tools()
+            ));
+
+            out.push_str(&format!(
+                "\n  {} Use `/mcp:list` for server details, `/mcp:restart <name>` to reconnect.\n",
+                "💡".dimmed()
+            ));
+            out
+        } else {
+            "  🔌 MCP bridge not initialized.\n  No MCP servers configured in config.yaml."
+                .to_string()
+        }
+    }
+
+    async fn slash_mcp_restart(&mut self, name: &str) -> String {
+        if let Some(bridge) = &mut self.mcp_bridge {
+            match bridge
+                .restart_server(name, &mut self.agent.tool_registry)
+                .await
+            {
+                Ok(()) => format!("  ✅ MCP server '{name}' restarted successfully."),
+                Err(e) => format!("  ❌ Failed to restart '{name}': {e}"),
+            }
+        } else {
+            "  ❌ MCP bridge not initialized.".to_string()
+        }
+    }
+
+    async fn slash_mcp_stop(&mut self, name: &str) -> String {
+        if let Some(bridge) = &mut self.mcp_bridge {
+            match bridge.stop_server(name).await {
+                Ok(()) => format!("  ✅ MCP server '{name}' stopped."),
+                Err(e) => format!("  ❌ Failed to stop '{name}': {e}"),
+            }
+        } else {
+            "  ❌ MCP bridge not initialized.".to_string()
+        }
+    }
+
+    async fn slash_mcp_start(&mut self, name: &str) -> String {
+        if let Some(bridge) = &mut self.mcp_bridge {
+            match bridge
+                .start_server(name, &mut self.agent.tool_registry)
+                .await
+            {
+                Ok(()) => format!(
+                    "  ✅ MCP server '{name}' started. {} tool(s) registered.",
+                    bridge
+                        .status()
+                        .iter()
+                        .find(|s| s.name == name)
+                        .map(|s| s.tool_count)
+                        .unwrap_or(0)
+                ),
+                Err(e) => format!("  ❌ Failed to start '{name}': {e}"),
+            }
+        } else {
+            "  ❌ MCP bridge not initialized.".to_string()
+        }
     }
 
     /// Return a reference to the agent for dashboard display.

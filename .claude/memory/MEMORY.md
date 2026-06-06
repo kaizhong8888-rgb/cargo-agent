@@ -1,0 +1,8 @@
+- [cargo-agent-project-overview](cargo-agent-project-overview.md) — 项目概览、核心概念、关键命令
+- [cargo-agent-architecture](cargo-agent-architecture.md) — 完整架构映射、数据流、核心常量
+- [cargo-agent-tool-system](cargo-agent-tool-system.md) — 工具 trait、64 个内置工具、添加工具流程
+- [cargo-agent-memory-and-skills](cargo-agent-memory-and-skills.md) — SQLite 记忆系统 + YAML 技能系统
+- [cargo-agent-model-client](cargo-agent-model-client.md) — LLM 客户端（OpenAI + Anthropic 适配）、重试、模型路由
+- [cargo-agent-hooks-metrics-health](cargo-agent-hooks-metrics-health.md) — 钩子系统、会话指标、健康端点
+- [cargo-agent-trading-module](cargo-agent-trading-module.md) — 量化交易模块（26 个子模块）
+- [cargo-agent-config-and-conventions](cargo-agent-config-and-conventions.md) — 配置加载、路径约定、UI 模式

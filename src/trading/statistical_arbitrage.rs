@@ -80,7 +80,11 @@ fn compute_zscore(spread: &[f64], lookback: usize) -> Vec<f64> {
     }
 
     for i in (lookback - 1)..n {
-        let start = if i >= lookback - 1 { i.saturating_sub(lookback - 1) } else { 0 };
+        let start = if i >= lookback - 1 {
+            i.saturating_sub(lookback - 1)
+        } else {
+            0
+        };
         let end = i;
         if start > end {
             continue;
@@ -325,9 +329,7 @@ impl Strategy for BasketSpreadStrategy {
         let bench_returns = Self::compute_returns(&bench_prices[..n]);
 
         // Compute spread returns
-        let spread_returns: Vec<f64> = (0..n)
-            .map(|i| port_returns[i] - bench_returns[i])
-            .collect();
+        let spread_returns: Vec<f64> = (0..n).map(|i| port_returns[i] - bench_returns[i]).collect();
 
         // Cumulative spread
         let mut cum_spread = vec![0.0; n];
@@ -388,8 +390,8 @@ pub struct KalmanPairsStrategy {
     lookback_zscore: usize,
     asset_b_candles: Vec<Candle>,
     // Kalman filter parameters
-    delta_kalman: f64,  // state noise covariance
-    vepsilon: f64,      // observation noise variance
+    delta_kalman: f64, // state noise covariance
+    vepsilon: f64,     // observation noise variance
 }
 
 impl KalmanPairsStrategy {
@@ -424,14 +426,14 @@ impl Strategy for KalmanPairsStrategy {
         // State: [alpha, beta] — intercept and slope
         let mut state = vec![0.0, 1.0];
         // Covariance matrix (2x2 stored flat)
-        let mut cov = vec![1.0, 0.0, 0.0, 1.0];
+        let mut cov = [1.0, 0.0, 0.0, 1.0];
 
         let mut spread = vec![0.0; n];
         let mut signals = vec![Signal::Hold; n];
         let mut position: i8 = 0;
 
         for i in 1..n {
-            let y = candles[i].close;       // observation (asset A price)
+            let y = candles[i].close; // observation (asset A price)
             let x = self.asset_b_candles[i].close; // observation matrix
 
             // Prediction step
@@ -450,10 +452,7 @@ impl Strategy for KalmanPairsStrategy {
             let innovation = y - y_pred;
 
             // Innovation variance
-            let s = prior_cov[0]
-                + 2.0 * prior_cov[1] * x
-                + prior_cov[3] * x * x
-                + self.vepsilon;
+            let s = prior_cov[0] + 2.0 * prior_cov[1] * x + prior_cov[3] * x * x + self.vepsilon;
 
             // Kalman gain
             let k0 = (prior_cov[0] + prior_cov[1] * x) / s;
@@ -476,9 +475,8 @@ impl Strategy for KalmanPairsStrategy {
             if i >= self.lookback_zscore {
                 let window = &spread[i - self.lookback_zscore..i];
                 let mean: f64 = window.iter().sum::<f64>() / self.lookback_zscore as f64;
-                let var: f64 =
-                    window.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / self.lookback_zscore
-                        as f64;
+                let var: f64 = window.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                    / self.lookback_zscore as f64;
                 let std = var.sqrt();
 
                 if std > f64::EPSILON {
@@ -576,7 +574,11 @@ mod tests {
         }
 
         let half_life = estimate_half_life(&spread);
-        assert!(half_life > 0.0, "Half-life should be positive for mean-reverting series, got {}", half_life);
+        assert!(
+            half_life > 0.0,
+            "Half-life should be positive for mean-reverting series, got {}",
+            half_life
+        );
     }
 
     #[test]

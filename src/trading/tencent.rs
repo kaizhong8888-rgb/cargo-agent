@@ -137,10 +137,29 @@ pub fn fetch_klines(
     let mut candles = Vec::new();
 
     if let Some((_, market_data)) = json_resp.data.iter().next() {
+        // 优先使用前复权数据，如果为空则 fallback 到普通日线
         let kline_data = match interval {
-            TencentInterval::Day => &market_data.qfqday,
-            TencentInterval::Week => &market_data.qfqweek,
-            TencentInterval::Month => &market_data.qfqmonth,
+            TencentInterval::Day => {
+                if market_data.qfqday.is_empty() {
+                    &market_data.day
+                } else {
+                    &market_data.qfqday
+                }
+            }
+            TencentInterval::Week => {
+                if market_data.qfqweek.is_empty() {
+                    &market_data.day
+                } else {
+                    &market_data.qfqweek
+                }
+            }
+            TencentInterval::Month => {
+                if market_data.qfqmonth.is_empty() {
+                    &market_data.day
+                } else {
+                    &market_data.qfqmonth
+                }
+            }
             _ => &market_data.day,
         };
 

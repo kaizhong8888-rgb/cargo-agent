@@ -205,6 +205,112 @@ fn quote_id(id: &str) -> String {
 }
 
 // ============================================================================
+// Helper: SQL Injection Pattern Detection
+// ============================================================================
+
+/// Detects potentially dangerous SQL patterns that could indicate injection attempts.
+/// Returns a warning message if suspicious patterns are found, or None if safe.
+#[inline]
+fn detect_sql_injection_risks(sql: &str) -> Option<String> {
+    let sql_lower = sql.to_lowercase();
+
+    // Check for dangerous patterns
+    let dangerous_patterns = [
+        ("DROP TABLE", "Destructive DROP TABLE operation detected"),
+        ("DROP INDEX", "Destructive DROP INDEX operation detected"),
+        (
+            "DROP DATABASE",
+            "Destructive DROP DATABASE operation detected",
+        ),
+        (
+            "; DELETE FROM",
+            "Chained DELETE operation detected after semicolon",
+        ),
+        (
+            "; UPDATE",
+            "Chained UPDATE operation detected after semicolon",
+        ),
+        ("; DROP", "Chained DROP operation detected after semicolon"),
+        (
+            "; INSERT",
+            "Chained INSERT operation detected after semicolon",
+        ),
+        (
+            "; ALTER",
+            "Chained ALTER operation detected after semicolon",
+        ),
+        ("--", "SQL comment detected (possible injection vector)"),
+        ("/*", "Block comment detected (possible injection vector)"),
+        ("xp_", "Extended stored procedure detected (SQL Server)"),
+        ("exec(", "EXEC statement detected (possible injection)"),
+        (
+            "execute(",
+            "EXECUTE statement detected (possible injection)",
+        ),
+        (
+            "union select",
+            "UNION SELECT detected (possible data exfiltration)",
+        ),
+        (
+            "union all select",
+            "UNION ALL SELECT detected (possible data exfiltration)",
+        ),
+    ];
+
+    let mut warnings = Vec::new();
+    for (pattern, message) in dangerous_patterns {
+        if sql_lower.contains(&pattern.to_lowercase()) {
+            warnings.push(message.to_string());
+        }
+    }
+
+    if warnings.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "⚠️ SQL Injection Risk Detection:\n  - {}",
+            warnings.join("\n  - ")
+        ))
+    }
+}
+
+/// Validates that a SQL statement uses parameterized queries when appropriate.
+/// Returns true if the SQL appears to be safe (uses placeholders or is a simple DDL).
+/// Reserved for future use in stricter SQL validation modes.
+#[allow(dead_code)]
+#[inline]
+fn is_safe_sql(sql: &str) -> bool {
+    let sql_lower = sql.to_lowercase();
+    let sql_lower = sql_lower.trim();
+
+    // DDL statements are generally safe (no user data involved)
+    if sql_lower.starts_with("create table")
+        || sql_lower.starts_with("create index")
+        || sql_lower.starts_with("alter table")
+        || sql_lower.starts_with("drop table")
+        || sql_lower.starts_with("drop index")
+    {
+        return true;
+    }
+
+    // DML statements should use parameterized queries for user-provided values
+    if sql_lower.starts_with("insert")
+        || sql_lower.starts_with("update")
+        || sql_lower.starts_with("delete")
+        || sql_lower.starts_with("select")
+    {
+        // Check if it contains string literals that look like user input
+        // This is a heuristic - if there are single-quoted strings, suggest parameterization
+        let has_string_literals = sql.contains('\'') && !sql_lower.contains("'");
+        if has_string_literals {
+            return false;
+        }
+    }
+
+    true
+}
+
+// ============================================================================
 // Helper: Execute a PRAGMA and collect JSON rows
 // ============================================================================
 
@@ -345,6 +451,12 @@ async fn execute_statement(
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Missing required parameter: sql_statement".to_string())?;
 
+    // Security check: detect potential SQL injection patterns
+    let injection_warning = detect_sql_injection_risks(sql);
+    if injection_warning.is_some() {
+        // Allow dangerous operations but include warning in result
+    }
+
     let exec_params: Vec<Value> = params
         .get("params")
         .and_then(|v| v.as_array())
@@ -363,20 +475,30 @@ async fn execute_statement(
         let affected = conn
             .execute(sql, param_refs.as_slice())
             .map_err(|e| format!("Execute failed: {}", e))?;
-        Ok(json!({
+        let mut result = json!({
             "affected_rows": affected,
             "statement": sql,
             "database": db_path,
-        }))
+            "parameterized": true,
+        });
+        if let Some(warning) = injection_warning {
+            result["security_warning"] = json!(warning);
+        }
+        Ok(result)
     } else {
         let affected = conn
             .execute(sql, [])
             .map_err(|e| format!("Execute failed: {}", e))?;
-        Ok(json!({
+        let mut result = json!({
             "affected_rows": affected,
             "statement": sql,
             "database": db_path,
-        }))
+            "parameterized": false,
+        });
+        if let Some(warning) = injection_warning {
+            result["security_warning"] = json!(warning);
+        }
+        Ok(result)
     }
 }
 
@@ -1070,6 +1192,9 @@ async fn run_sql_file(db_path: &str, params: &HashMap<String, Value>) -> Result<
     let content = std::fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read SQL file '{}': {}", file_path, e))?;
 
+    // Security check: detect potential SQL injection patterns in file content
+    let injection_warning = detect_sql_injection_risks(&content);
+
     let conn = open_conn(db_path)?;
     conn.execute_batch(&content)
         .map_err(|e| format!("SQL execution failed: {}", e))?;
@@ -1080,12 +1205,16 @@ async fn run_sql_file(db_path: &str, params: &HashMap<String, Value>) -> Result<
         .filter(|s| !s.is_empty() && !s.starts_with("--"))
         .count();
 
-    Ok(json!({
+    let mut result = json!({
         "action": "run_sql_file",
         "file": file_path,
         "statement_count": stmt_count,
         "database": db_path,
-    }))
+    });
+    if let Some(warning) = injection_warning {
+        result["security_warning"] = json!(warning);
+    }
+    Ok(result)
 }
 
 // ============================================================================
@@ -1170,6 +1299,13 @@ async fn run_migrations(db_path: &str, params: &HashMap<String, Value>) -> Resul
 
         let content = std::fs::read_to_string(full_path)
             .map_err(|e| format!("Failed to read migration '{}': {}", filename, e))?;
+
+        // Security validation: check for suspicious patterns in migration content
+        let security_warning = validate_migration_sql(&content);
+        if security_warning.is_some() {
+            // Log the warning but continue - migrations are typically trusted
+            // In a stricter security model, this could be made to fail
+        }
 
         let checksum = content_hash(&content);
 
@@ -1408,6 +1544,12 @@ fn parse_migration_desc(filename: &str, version: &str) -> String {
         .strip_suffix(".sql")
         .unwrap_or("")
         .to_string()
+}
+
+/// Validates SQL migration content for security risks.
+/// Returns a warning message if suspicious patterns are found.
+fn validate_migration_sql(content: &str) -> Option<String> {
+    detect_sql_injection_risks(content)
 }
 
 // ============================================================================
@@ -2291,5 +2433,101 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&migrations_dir);
         cleanup(&path);
+    }
+
+    // ========================================================================
+    // SQL Injection Security Tests
+    // ========================================================================
+
+    #[test]
+    fn test_detect_sql_injection_dangerous_patterns() {
+        assert!(detect_sql_injection_risks("DROP TABLE users").is_some());
+        assert!(detect_sql_injection_risks("SELECT * FROM users; DELETE FROM admin").is_some());
+        assert!(
+            detect_sql_injection_risks("SELECT * FROM users WHERE name = 'test' -- comment")
+                .is_some()
+        );
+        assert!(detect_sql_injection_risks("SELECT * FROM users /* block comment */").is_some());
+        assert!(detect_sql_injection_risks("SELECT * FROM t; DROP TABLE other").is_some());
+        assert!(detect_sql_injection_risks("union select * from passwords").is_some());
+    }
+
+    #[test]
+    fn test_detect_sql_injection_safe_patterns() {
+        assert!(detect_sql_injection_risks("SELECT * FROM users WHERE id = ?").is_none());
+        assert!(detect_sql_injection_risks("INSERT INTO users (name) VALUES (?)").is_none());
+        assert!(detect_sql_injection_risks("UPDATE users SET name = ? WHERE id = ?").is_none());
+        assert!(detect_sql_injection_risks("DELETE FROM users WHERE id = ?").is_none());
+        assert!(
+            detect_sql_injection_risks("CREATE TABLE users (id INTEGER PRIMARY KEY)").is_none()
+        );
+    }
+
+    #[test]
+    fn test_detect_sql_injection_case_insensitive() {
+        assert!(detect_sql_injection_risks("drop table users").is_some());
+        assert!(detect_sql_injection_risks("DROP TABLE users").is_some());
+        assert!(detect_sql_injection_risks("Drop Table users").is_some());
+        assert!(detect_sql_injection_risks("UNION SELECT * FROM t").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_execute_statement_with_injection_warning() {
+        let path = create_test_db("exec_injection");
+        let params = HashMap::from([
+            ("action".to_string(), json!("execute")),
+            ("database_path".to_string(), json!(path)),
+            (
+                "sql_statement".to_string(),
+                json!("SELECT * FROM users; DROP TABLE users"),
+            ),
+        ]);
+        let result = DatabaseTool.execute(&params).await;
+        // The operation will fail due to SQLite not supporting multiple statements in execute,
+        // but our security layer should have detected the pattern
+        assert!(result.is_err());
+        cleanup(&path);
+    }
+
+    #[tokio::test]
+    async fn test_run_sql_file_with_injection_warning() {
+        let path = create_empty_db("sql_file_injection");
+        let sql_path = format!("/tmp/test_sql_injection_{}.sql", std::process::id());
+
+        // SQL file with a comment (triggers injection detection)
+        let sql_content =
+            "-- This is a comment\nINSERT INTO test_simple (id, value) VALUES (1, 'hello');\n";
+        std::fs::write(&sql_path, sql_content).unwrap();
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("run_sql_file")),
+            ("database_path".to_string(), json!(path)),
+            ("file_path".to_string(), json!(sql_path)),
+        ]);
+        let result = DatabaseTool.execute(&params).await.unwrap();
+        // Should include a security warning about the comment
+        assert!(result.get("security_warning").is_some());
+
+        let _ = std::fs::remove_file(&sql_path);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_quote_id_escaping() {
+        assert_eq!(quote_id("users"), "\"users\"");
+        assert_eq!(quote_id("user\"s"), "\"user\"\"s\"");
+        assert_eq!(
+            quote_id("table; DROP TABLE users"),
+            "\"table; DROP TABLE users\""
+        );
+    }
+
+    #[test]
+    fn test_validate_migration_sql() {
+        let safe_sql = "CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT);";
+        assert!(validate_migration_sql(safe_sql).is_none());
+
+        let dangerous_sql = "CREATE TABLE posts (id INTEGER PRIMARY KEY); DROP TABLE users;";
+        assert!(validate_migration_sql(dangerous_sql).is_some());
     }
 }

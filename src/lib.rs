@@ -3,7 +3,6 @@ pub mod cli_commands;
 pub mod config;
 pub mod constants;
 pub mod gateway;
-pub mod health;
 pub mod hooks;
 pub mod mcp;
 pub mod memory;
@@ -12,6 +11,7 @@ pub mod model;
 pub mod plugin;
 pub mod skills;
 pub mod tools;
+#[cfg(feature = "trading")]
 pub mod trading;
 pub mod tui;
 pub mod ui;

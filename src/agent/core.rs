@@ -1,11 +1,12 @@
-use crate::hooks::{ChatEndContext, ChatStartContext, HookEvent, HookManager, ToolCallContext, ToolCallResult};
+use crate::hooks::{
+    ChatEndContext, ChatStartContext, HookEvent, HookManager, ToolCallContext, ToolCallResult,
+};
 use crate::memory::SqliteMemoryStore;
 use crate::metrics::SessionMetrics;
 use crate::model::client::{ModelClient, ModelResponse};
 use crate::skills::SkillRegistry;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use std::time::Instant;
@@ -13,8 +14,8 @@ use std::time::Instant;
 /// Maximum number of conversation messages before truncation.
 const MAX_MESSAGES: usize = 200;
 
-/// Number of messages to keep after truncation (system + recent).
-const TRUNCATE_KEEP: usize = 5;
+/// Non-system messages to keep after truncation (~20 user/assistant turns).
+const TRUNCATE_KEEP_MESSAGES: usize = 40;
 
 /// Maximum LLM tool-call turns per chat request.
 const MAX_TURNS: usize = 200;
@@ -74,6 +75,8 @@ pub struct AIAgent {
     hook_manager: HookManager,
     /// Session-level metrics tracker.
     session_metrics: Arc<SessionMetrics>,
+    /// Cached OpenAI tool schemas (built once at agent construction).
+    tool_schemas: Vec<serde_json::Value>,
 }
 
 /// Tracks token consumption for cost monitoring and smart truncation.
@@ -95,14 +98,14 @@ impl AIAgent {
 
         // Set up default hooks: audit log + metrics
         let mut hook_manager = HookManager::new();
-        let metrics_for_hook = Arc::new(parking_lot::Mutex::new(
-            crate::metrics::ToolCallMetrics::default(),
-        ));
         hook_manager.register("audit_log", crate::hooks::create_audit_log_hook());
         hook_manager.register(
             "metrics",
-            crate::hooks::create_metrics_hook(metrics_for_hook.clone()),
+            crate::hooks::create_metrics_hook(session_metrics.clone()),
         );
+
+        let tool_schemas = tool_registry.build_tool_schemas();
+        let model_name = client.model_name().to_string();
 
         Self {
             tool_registry,
@@ -114,9 +117,19 @@ impl AIAgent {
             token_usage: TokenUsage::default(),
             current_status: Arc::new(AtomicU8::new(AgentStatus::Idle as u8)),
             current_tool: Arc::new(std::sync::Mutex::new(String::new())),
-            current_model: Arc::new(std::sync::Mutex::new(String::new())),
+            current_model: Arc::new(std::sync::Mutex::new(model_name)),
             hook_manager,
             session_metrics,
+            tool_schemas,
+        }
+    }
+
+    /// Update the LLM model for subsequent API calls.
+    pub fn set_model(&mut self, model: impl Into<String>) {
+        let name = model.into();
+        self.client.set_model(&name);
+        if let Ok(mut guard) = self.current_model.lock() {
+            *guard = name;
         }
     }
 
@@ -133,6 +146,10 @@ impl AIAgent {
     /// Get a reference to the memory store, if available.
     pub fn memory_store(&self) -> Option<&Arc<SqliteMemoryStore>> {
         self.memory_store.as_ref()
+    }
+
+    pub fn model_name(&self) -> &str {
+        self.client.model_name()
     }
 
     pub fn set_system_prompt(&mut self, prompt: &str) {
@@ -214,7 +231,7 @@ impl AIAgent {
     }
 
     fn try_init_memory_store() -> Option<Arc<SqliteMemoryStore>> {
-        let db_path = PathBuf::from(&*crate::constants::AGENT_DIR).join("memories.db");
+        let db_path = crate::constants::ensure_memories_db();
         SqliteMemoryStore::open(db_path).ok().map(Arc::new)
     }
 
@@ -285,7 +302,7 @@ impl AIAgent {
     }
 
     async fn run_turns(&mut self) -> Result<String> {
-        let tool_schemas = self.build_tool_schemas();
+        let tool_schemas = self.tool_schemas.clone();
 
         for _ in 0..self.max_turns {
             self.truncate_if_needed();
@@ -298,7 +315,7 @@ impl AIAgent {
                     if tool_schemas.is_empty() {
                         None
                     } else {
-                        Some(&tool_schemas)
+                        Some(tool_schemas.as_slice())
                     },
                 )
                 .await?;
@@ -328,19 +345,22 @@ impl AIAgent {
 
             let calls = response.tool_calls.unwrap_or_default();
 
-            // Execute independent tool calls in parallel for speedup.
-            // Results are collected and appended to messages in call order.
-            let futures: Vec<_> = calls
-                .iter()
-                .map(|call| {
-                    self.set_status(AgentStatus::ExecutingTool);
-                    if let Ok(mut guard) = self.current_tool.lock() {
-                        *guard = call.name.clone();
-                    }
-                    self.execute_tool(&call.name, &call.arguments)
-                })
-                .collect();
-            let results = futures::future::join_all(futures).await;
+            // Execute tool calls in parallel batches (max 4 concurrent).
+            const MAX_CONCURRENT_TOOLS: usize = 4;
+            self.set_status(AgentStatus::ExecutingTool);
+            if let Some(first) = calls.first() {
+                if let Ok(mut guard) = self.current_tool.lock() {
+                    *guard = first.name.clone();
+                }
+            }
+            let mut results = Vec::with_capacity(calls.len());
+            for chunk in calls.chunks(MAX_CONCURRENT_TOOLS) {
+                let batch: Vec<_> = chunk
+                    .iter()
+                    .map(|call| self.execute_tool(&call.name, &call.arguments))
+                    .collect();
+                results.extend(futures::future::join_all(batch).await);
+            }
 
             for (call, result) in calls.iter().zip(results) {
                 self.messages.push(serde_json::json!({
@@ -387,7 +407,9 @@ impl AIAgent {
             .cloned()
             .collect();
 
-        // Keep the last TRUNCATE_KEEP non-system messages
+        self.set_status(AgentStatus::TruncatingContext);
+
+        // Keep the last TRUNCATE_KEEP_MESSAGES non-system messages
         let non_system: Vec<_> = self
             .messages
             .iter()
@@ -398,7 +420,7 @@ impl AIAgent {
         let mut recent = non_system
             .iter()
             .rev()
-            .take(TRUNCATE_KEEP)
+            .take(TRUNCATE_KEEP_MESSAGES)
             .rev()
             .cloned()
             .collect::<Vec<_>>();
@@ -451,48 +473,7 @@ impl AIAgent {
         self.messages.clear();
         self.messages.extend(system_msgs);
         self.messages.extend(recent);
-    }
-
-    fn build_tool_schemas(&self) -> Vec<serde_json::Value> {
-        self.tool_registry
-            .list_tools()
-            .iter()
-            .map(|tool| {
-                let properties: serde_json::Map<String, serde_json::Value> = tool
-                    .parameters()
-                    .iter()
-                    .map(|p| {
-                        (
-                            p.name.clone(),
-                            serde_json::json!({
-                                "type": p.parameter_type,
-                                "description": p.description,
-                            }),
-                        )
-                    })
-                    .collect();
-
-                let required: Vec<String> = tool
-                    .parameters()
-                    .iter()
-                    .filter(|p| p.required)
-                    .map(|p| p.name.clone())
-                    .collect();
-
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name(),
-                        "description": tool.description(),
-                        "parameters": {
-                            "type": "object",
-                            "properties": properties,
-                            "required": required,
-                        },
-                    },
-                })
-            })
-            .collect()
+        self.set_status(AgentStatus::Idle);
     }
 
     async fn execute_tool(&self, name: &str, arguments: &str) -> String {
@@ -526,12 +507,9 @@ impl AIAgent {
 
         let duration_ms = exec_start.elapsed().as_millis() as u64;
 
-        // Record tool metrics
-        if success {
-            self.session_metrics.record_tool_success(duration_ms);
-        } else {
-            self.session_metrics.record_tool_error(duration_ms);
-        }
+        // Record tool metrics (aggregate + per-tool breakdown)
+        self.session_metrics
+            .record_tool_call(name, duration_ms, success);
 
         // Fire after_tool hook
         let after_ctx = HookEvent::AfterTool(ToolCallResult {

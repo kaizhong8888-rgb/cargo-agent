@@ -790,3 +790,237 @@ impl TargetInfo {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_metadata() {
+        let tool = CrossCompileTool;
+        assert_eq!(tool.name(), "cross_compile");
+        assert!(tool.description().contains("Cross-compilation"));
+        assert!(tool.description().contains("wasm"));
+        let params = tool.parameters();
+        assert!(params.iter().any(|p| p.name == "action"));
+        assert!(params.iter().any(|p| p.name == "target"));
+        assert!(params.iter().any(|p| p.name == "platform"));
+    }
+
+    #[test]
+    fn test_categorize_target_linux() {
+        assert_eq!(CrossCompileTool::categorize_target("x86_64-unknown-linux-gnu"), "linux");
+        assert_eq!(CrossCompileTool::categorize_target("aarch64-unknown-linux-musl"), "linux");
+    }
+
+    #[test]
+    fn test_categorize_target_macos() {
+        assert_eq!(CrossCompileTool::categorize_target("x86_64-apple-darwin"), "macos/ios");
+        assert_eq!(CrossCompileTool::categorize_target("aarch64-apple-ios"), "macos/ios");
+    }
+
+    #[test]
+    fn test_categorize_target_windows() {
+        assert_eq!(CrossCompileTool::categorize_target("x86_64-pc-windows-msvc"), "windows");
+    }
+
+    #[test]
+    fn test_categorize_target_wasm() {
+        assert_eq!(CrossCompileTool::categorize_target("wasm32-unknown-unknown"), "wasm");
+    }
+
+    #[test]
+    fn test_categorize_target_embedded() {
+        assert_eq!(CrossCompileTool::categorize_target("thumbv7em-none-eabihf"), "embedded");
+        assert_eq!(CrossCompileTool::categorize_target("riscv32imc-unknown-none-elf"), "embedded");
+    }
+
+    #[test]
+    fn test_get_targets_for_platform_all() {
+        let targets = CrossCompileTool::get_targets_for_platform("all");
+        // Verify at least one target per category exists
+        assert!(targets.contains_key("x86_64-unknown-linux-gnu"));
+        assert!(targets.contains_key("x86_64-apple-darwin"));
+        assert!(targets.contains_key("x86_64-pc-windows-msvc"));
+        assert!(targets.contains_key("wasm32-unknown-unknown"));
+        assert!(targets.contains_key("thumbv7em-none-eabihf"));
+        assert!(targets.len() > 15);
+    }
+
+    #[test]
+    fn test_get_targets_for_platform_linux_only() {
+        let targets = CrossCompileTool::get_targets_for_platform("linux");
+        assert!(targets.contains_key("x86_64-unknown-linux-gnu"));
+        assert!(!targets.contains_key("x86_64-apple-darwin"));
+        assert!(!targets.contains_key("wasm32-unknown-unknown"));
+    }
+
+    #[test]
+    fn test_get_targets_for_platform_wasm_only() {
+        let targets = CrossCompileTool::get_targets_for_platform("wasm");
+        assert!(targets.contains_key("wasm32-unknown-unknown"));
+        assert!(targets.contains_key("wasm32-wasi"));
+        assert!(!targets.contains_key("x86_64-unknown-linux-gnu"));
+    }
+
+    #[test]
+    fn test_get_linker_for_target() {
+        assert_eq!(
+            CrossCompileTool::get_linker_for_target("armv7-unknown-linux-gnueabihf"),
+            Some("arm-linux-gnueabihf-gcc")
+        );
+        assert_eq!(
+            CrossCompileTool::get_linker_for_target("aarch64-unknown-linux-gnu"),
+            Some("aarch64-linux-gnu-gcc")
+        );
+        assert_eq!(
+            CrossCompileTool::get_linker_for_target("x86_64-unknown-linux-musl"),
+            Some("musl-gcc")
+        );
+        assert_eq!(
+            CrossCompileTool::get_linker_for_target("x86_64-pc-windows-gnu"),
+            Some("x86_64-w64-mingw32-gcc")
+        );
+        assert_eq!(CrossCompileTool::get_linker_for_target("wasm32-unknown-unknown"), None);
+    }
+
+    #[test]
+    fn test_get_rustflags_for_musl() {
+        let flags = CrossCompileTool::get_rustflags_for_target("x86_64-unknown-linux-musl");
+        assert!(!flags.is_empty());
+        assert!(flags.iter().any(|f| f.contains("crt-static")));
+    }
+
+    #[test]
+    fn test_get_rustflags_for_wasm() {
+        let flags = CrossCompileTool::get_rustflags_for_target("wasm32-unknown-unknown");
+        assert!(!flags.is_empty());
+        assert!(flags.iter().any(|f| f.contains("opt-level")));
+    }
+
+    #[test]
+    fn test_get_rustflags_for_other() {
+        let flags = CrossCompileTool::get_rustflags_for_target("x86_64-unknown-linux-gnu");
+        assert!(flags.is_empty());
+    }
+
+    #[test]
+    fn test_generate_cargo_config_musl() {
+        let tool = CrossCompileTool;
+        let config = tool.generate_cargo_config("x86_64-unknown-linux-musl").unwrap();
+        assert!(config.contains("x86_64-unknown-linux-musl"));
+        assert!(config.contains("[build]"));
+        assert!(config.contains("MUSL static linking"));
+        assert!(config.contains("crt-static"));
+    }
+
+    #[test]
+    fn test_generate_cargo_config_wasm() {
+        let tool = CrossCompileTool;
+        let config = tool.generate_cargo_config("wasm32-unknown-unknown").unwrap();
+        assert!(config.contains("wasm32-unknown-unknown"));
+        assert!(config.contains("Wasm optimization"));
+        assert!(config.contains("opt-level = \"z\""));
+        assert!(config.contains("lto = true"));
+        assert!(config.contains("codegen-units = 1"));
+        assert!(config.contains("strip = true"));
+    }
+
+    #[test]
+    fn test_generate_cargo_config_generic() {
+        let tool = CrossCompileTool;
+        let config = tool.generate_cargo_config("aarch64-apple-darwin").unwrap();
+        assert!(config.contains("aarch64-apple-darwin"));
+        assert!(config.contains("[build]"));
+        // Generic targets should not have musl/wasm specific sections
+        assert!(!config.contains("MUSL static linking"));
+        assert!(!config.contains("Wasm optimization"));
+    }
+
+    #[test]
+    fn test_wasm_opt_suggestions_large() {
+        let tool = CrossCompileTool;
+        let suggestions = tool.generate_wasm_opt_suggestions(600_000);
+        assert!(!suggestions.is_empty());
+        assert!(suggestions.iter().any(|s| s.contains("LTO")));
+        assert!(suggestions.iter().any(|s| s.contains("wasm-opt")));
+        assert!(suggestions.iter().any(|s| s.contains("codegen-units")));
+    }
+
+    #[test]
+    fn test_wasm_opt_suggestions_medium() {
+        let tool = CrossCompileTool;
+        let suggestions = tool.generate_wasm_opt_suggestions(300_000);
+        assert!(!suggestions.is_empty());
+        assert!(suggestions.iter().any(|s| s.contains("codegen-units")));
+        assert!(suggestions.iter().any(|s| s.contains("panic")));
+    }
+
+    #[test]
+    fn test_wasm_opt_suggestions_small() {
+        let tool = CrossCompileTool;
+        let suggestions = tool.generate_wasm_opt_suggestions(50_000);
+        assert!(!suggestions.is_empty());
+        // Small binaries get default suggestions (wasm-pack, trunk) plus the "looks good" hint
+        assert!(suggestions.iter().any(|s| s.contains("wasm-pack") || s.contains("trunk") || s.contains("looks good")));
+    }
+
+    #[test]
+    fn test_target_info_to_json() {
+        let info = TargetInfo {
+            target: "wasm32-unknown-unknown".to_string(),
+            description: "Wasm".to_string(),
+            is_installed: true,
+            category: "wasm".to_string(),
+        };
+        let json = info.to_json();
+        assert_eq!(json["target"], "wasm32-unknown-unknown");
+        assert_eq!(json["description"], "Wasm");
+        assert_eq!(json["installed"], true);
+        assert_eq!(json["category"], "wasm");
+    }
+
+    #[test]
+    fn test_estimate_sections() {
+        let tool = CrossCompileTool;
+        let sections = tool.estimate_sections_from_size();
+        assert_eq!(sections.len(), 4);
+        let total_percent: u32 = sections.iter().map(|s| s["estimated_percent"].as_u64().unwrap() as u32).sum();
+        assert_eq!(total_percent, 100);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = CrossCompileTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("unknown")),
+        ]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_list_targets_action() {
+        let tool = CrossCompileTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("list_targets")),
+            ("platform".to_string(), serde_json::json!("wasm")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["action"], "list_targets");
+        assert_eq!(result["platform"], "wasm");
+        assert!(result["total_count"].as_u64().unwrap() >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_config_missing_target() {
+        let tool = CrossCompileTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("config")),
+        ]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("target parameter is required"));
+    }
+}

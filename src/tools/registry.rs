@@ -146,6 +146,13 @@ impl ToolRegistry {
         self.tools.insert(name, tool);
     }
 
+    /// Remove a tool from the registry by name.
+    ///
+    /// Returns `true` if the tool was found and removed, `false` otherwise.
+    pub fn remove(&mut self, name: &str) -> bool {
+        self.tools.remove(name).is_some()
+    }
+
     /// Get a registered tool by name.
     ///
     /// Returns `None` if no tool with the given name is registered.
@@ -153,9 +160,53 @@ impl ToolRegistry {
         self.tools.get(name).map(|t| t.as_ref())
     }
 
-    /// List all registered tools.
+    /// List all registered tools, sorted by name for stable output.
     pub fn list_tools(&self) -> Vec<&dyn Tool> {
-        self.tools.values().map(|t| t.as_ref()).collect()
+        let mut tools: Vec<&dyn Tool> = self.tools.values().map(|t| t.as_ref()).collect();
+        tools.sort_by_key(|t| t.name());
+        tools
+    }
+
+    /// Build OpenAI-compatible tool schemas for chat completions.
+    pub fn build_tool_schemas(&self) -> Vec<serde_json::Value> {
+        self.list_tools()
+            .iter()
+            .map(|tool| {
+                let properties: serde_json::Map<String, serde_json::Value> = tool
+                    .parameters()
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.name.clone(),
+                            serde_json::json!({
+                                "type": p.parameter_type,
+                                "description": p.description,
+                            }),
+                        )
+                    })
+                    .collect();
+
+                let required: Vec<String> = tool
+                    .parameters()
+                    .iter()
+                    .filter(|p| p.required)
+                    .map(|p| p.name.clone())
+                    .collect();
+
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name(),
+                        "description": tool.description(),
+                        "parameters": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                        },
+                    },
+                })
+            })
+            .collect()
     }
 }
 

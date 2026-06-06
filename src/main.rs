@@ -1,7 +1,6 @@
-use std::io::{self, BufRead};
 use std::time::Instant;
 
-use cargo_agent::cli_commands::{handle as handle_slash, parse as parse_slash, SlashResult};
+use cargo_agent::cli_commands::SlashAction;
 use cargo_agent::config::CargoConfig;
 use cargo_agent::gateway::Gateway;
 use cargo_agent::ui;
@@ -10,9 +9,10 @@ use cargo_agent::ui;
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let is_run_mode = args.len() > 1 && args[1] == "run";
+    let is_mcp_server = args.iter().any(|a| a == "--mcp-server");
 
-    // In run mode, suppress tracing output for clean UI
-    if is_run_mode {
+    // In run mode or MCP server mode, suppress tracing output for clean UI
+    if is_run_mode || is_mcp_server {
         // No-op subscriber: write to /dev/null, level OFF
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::new("off"))
@@ -21,15 +21,25 @@ async fn main() -> anyhow::Result<()> {
             .with_writer(std::io::sink)
             .init();
     } else {
+        // Write tracing to stderr so it doesn't interleave with the colored banner on stdout
         tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::from_default_env()
                     .add_directive("cargo_agent=info".parse()?),
             )
+            .with_writer(std::io::stderr)
             .init();
     }
 
     let config = CargoConfig::load()?;
+
+    // ── MCP Server mode ─────────────────────────────────────
+    if is_mcp_server {
+        let gateway = Gateway::new(config);
+        let registry = &gateway.agent().tool_registry;
+        eprintln!("🚀 Starting cargo-agent MCP server on stdio...");
+        return cargo_agent::mcp::server::run_stdio_server(registry).await;
+    }
 
     if is_run_mode {
         let prompt = args[2..].join(" ");
@@ -75,64 +85,69 @@ async fn main() -> anyhow::Result<()> {
     // Interactive mode
     ui::show_banner();
 
-    // Start health endpoint on port 8787 (non-blocking)
-    if let Err(e) = cargo_agent::health::start_status_server(8787).await {
-        tracing::warn!("Could not start health server on port 8787: {e}");
+    let mut gateway = Gateway::new_async(config).await;
+
+    // Report MCP server connections
+    if let Some(bridge) = gateway.mcp_bridge() {
+        if bridge.connected_count() > 0 {
+            tracing::info!(
+                "MCP bridge: {} server(s) connected, {} tool(s) registered",
+                bridge.connected_count(),
+                bridge.total_mcp_tools()
+            );
+        }
     }
 
-    let mut gateway = Gateway::new(config);
+    // ── REPL loop with multi-line input support ─────────
+    loop {
+        let input = match ui::read_multiline_input() {
+            Some(s) => s,
+            None => {
+                // Ctrl+C or Ctrl+D — exit gracefully
+                println!();
+                ui::print_info("Goodbye!");
+                println!();
+                break;
+            }
+        };
 
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let input = line?;
         let input = input.trim();
         if input.is_empty() {
             continue;
         }
 
         // ── Slash command handling ──────────────────────────
-        // Three-tier: static commands → dynamic commands → pass through to LLM
         if input.starts_with('/') {
-            // Tier 1: Static commands (help, clear, quit, version, status, config, etc.)
-            match handle_slash(input) {
-                SlashResult::Handled(output) => {
-                    if output.is_empty() {
-                        // /quit or /exit — handle exit separately
-                        if input == "/quit" || input == "/exit" {
-                            println!();
-                            ui::print_info("Goodbye!");
-                            println!();
-                            break;
-                        }
-                        // /clear or /cls — already printed escape sequences
-                        if input == "/clear" || input == "/cls" {
-                            gateway.clear_conversation();
-                        }
-                        continue;
+            match gateway.handle_slash_command(input).await {
+                SlashAction::Output(text) => {
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::Exit => {
+                    println!();
+                    ui::print_info("Goodbye!");
+                    println!();
+                    break;
+                }
+                SlashAction::Clear => {
+                    continue;
+                }
+                SlashAction::Dashboard => {
+                    #[cfg(feature = "tui")] {
+                        show_dashboard(&gateway);
                     }
-                    println!("\n{output}\n");
-                    ui::thin_separator();
+                    #[cfg(not(feature = "tui"))] {
+                        println!(
+                            "\n  Dashboard requires the `tui` feature.\n  Rebuild with default features or `--features tui`.\n"
+                        );
+                    }
                     continue;
                 }
-                SlashResult::PassThrough => {}
-            }
-
-            // Tier 2: Dynamic commands (tools, mem, git, tasks, skills, export, stats, dashboard)
-            let (cmd, args) = parse_slash(input);
-            if cmd == "dashboard" || cmd == "dash" {
-                show_dashboard(&gateway);
-                continue;
-            }
-            if !cmd.is_empty() {
-                if let Some(output) = gateway.handle_slash(cmd, args).await {
-                    println!("\n{output}\n");
-                    ui::thin_separator();
-                    continue;
+                SlashAction::PassThrough => {
+                    // Unknown /command — LLM might understand it
                 }
             }
-
-            // Tier 3: Unknown /command — pass through to LLM
-            // The LLM might understand it
         }
 
         // Pass through to the agent
@@ -189,10 +204,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "tui")]
 fn show_dashboard(gateway: &Gateway) {
     let agent = gateway.agent();
     let usage = agent.token_usage();
-    let health = cargo_agent::health::current_health();
 
     let memory_store = agent.memory_store();
     let total_memories = memory_store
@@ -213,20 +228,43 @@ fn show_dashboard(gateway: &Gateway) {
     let state = cargo_agent::tui::dashboard::DashboardState {
         version: env!("CARGO_PKG_VERSION").to_string(),
         model_name: gateway.model_name().to_string(),
-        uptime_secs: health.uptime_seconds,
+        uptime_secs: gateway.session_metrics().session_duration_secs() as u64,
         total_api_calls: usage.api_calls,
         total_tokens: usage.total_tokens,
         prompt_tokens: usage.prompt_tokens,
         completion_tokens: usage.completion_tokens,
         total_memories,
         total_tools,
-        health_status: health.status.to_string(),
+        health_status: "ok".to_string(),
         conversation_messages: agent.messages().len(),
         context_max: 200,
         skills_loaded,
         skills_active,
         memory_by_namespace,
-        memory_bytes: health.memory_bytes,
+        memory_bytes: memory_usage_bytes(),
     };
     state.render_loop();
+}
+
+/// Get current process memory usage in bytes (macOS only, returns 0 otherwise).
+#[cfg(feature = "tui")]
+fn memory_usage_bytes() -> u64 {
+    #[cfg(target_os = "macos")]
+    #[allow(deprecated)] // mach_task_self is deprecated in favor of mach2, but pulling mach2 just for this is overkill
+    {
+        let mut info = unsafe { std::mem::zeroed::<libc::mach_task_basic_info_data_t>() };
+        let mut count = libc::MACH_TASK_BASIC_INFO_COUNT;
+        let ret = unsafe {
+            libc::task_info(
+                libc::mach_task_self(),
+                libc::MACH_TASK_BASIC_INFO,
+                &mut info as *mut _ as libc::task_info_t,
+                &mut count,
+            )
+        };
+        if ret == libc::KERN_SUCCESS {
+            return info.resident_size as u64;
+        }
+    }
+    0
 }

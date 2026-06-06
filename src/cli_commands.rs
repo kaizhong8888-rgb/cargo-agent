@@ -1,5 +1,12 @@
 //! Slash commands: local CLI shortcuts that bypass the LLM.
 //!
+//! This module provides:
+//! - `SlashAction` enum — the result of handling a slash command
+//! - `parse()` — split `/cmd:args` or `/cmd args` into components
+//! - Help text builders — rich formatted strings for `/help` topics
+//!
+//! Dispatch is owned by `Gateway::handle_slash_command()`.
+//!
 //! # Quick Reference
 //!
 //! | Command | Shortcut | Description |
@@ -29,16 +36,31 @@
 
 use colored::Colorize;
 
-/// Result of attempting to handle a slash command.
-pub enum SlashResult {
-    /// Command was handled — here's the output to show.
-    Handled(String),
+// ── SlashAction — result of handling a slash command ──────
+
+/// The outcome of handling a slash command.
+///
+/// `Gateway::handle_slash_command()` returns this to `main.rs`,
+/// which then drives the REPL loop accordingly.
+pub enum SlashAction {
+    /// Display this text and continue the REPL.
+    Output(String),
+    /// Exit the REPL loop (`/quit`, `/exit`).
+    Exit,
+    /// Clear the screen and reset conversation state (`/clear`, `/cls`).
+    Clear,
+    /// Start the TUI dashboard (hands over terminal control).
+    Dashboard,
     /// Not a slash command — pass through to the LLM.
     PassThrough,
 }
 
-/// Parse a slash command into (command, args).
-/// Supports both `/cmd args` and `/cmd:args` syntax.
+// ── Command parsing ───────────────────────────────────────
+
+/// Parse a slash command into `(command, args)`.
+///
+/// Supports both `/cmd:args` and `/cmd args` syntax.
+/// Returns `("", "")` if the input doesn't start with `/`.
 pub fn parse(input: &str) -> (&str, &str) {
     if !input.starts_with('/') {
         return ("", "");
@@ -60,71 +82,12 @@ pub fn parse(input: &str) -> (&str, &str) {
     }
 }
 
-/// Handle a slash command if the input starts with `/`.
-///
-/// Returns `SlashResult::Handled(output)` for recognized commands,
-/// or `SlashResult::PassThrough` if it's not a slash command.
-/// Commands that need dynamic data (like tool registry, memory store)
-/// should return `SlashResult::PassThrough` to be handled by `Gateway::handle_slash()`.
-pub fn handle(input: &str) -> SlashResult {
-    if !input.starts_with('/') {
-        return SlashResult::PassThrough;
-    }
-
-    let (cmd, args) = parse(input);
-
-    match cmd {
-        // ── Navigation / Meta ──────────────────────────────
-        "help" | "h" => {
-            if args.is_empty() {
-                SlashResult::Handled(help_general())
-            } else {
-                SlashResult::Handled(help_topic(args))
-            }
-        }
-
-        "version" | "v" => SlashResult::Handled(version_text()),
-
-        "status" => SlashResult::Handled(status_text()),
-
-        "clear" | "cls" => {
-            print!("\x1b[2J\x1b[H");
-            SlashResult::Handled(String::new())
-        }
-
-        "quit" | "exit" => SlashResult::Handled(String::new()),
-
-        // ── Session / Usage ───────────────────────────────
-        "usage" => SlashResult::Handled(
-            "Token usage is tracked per conversation.\nAsk the agent: 'show token usage'.".into(),
-        ),
-
-        "model" => SlashResult::Handled(
-            "Model routing is automatic based on task complexity.\n\
-                 Ask the agent: 'what model complexity is this task?'"
-                .into(),
-        ),
-
-        "config" => SlashResult::Handled(config_text()),
-
-        // ── Dynamic commands (handled by Gateway) ─────────
-        // These pass through because they need access to the tool registry,
-        // memory store, git, or other runtime state.
-        "tools" | "tool" | "mem" | "memory" | "git" | "tasks" | "task" | "skills" | "skill"
-        | "export" | "stats" => SlashResult::PassThrough,
-
-        // ── Unknown ───────────────────────────────────────
-        other => SlashResult::Handled(format!(
-            "❌ Unknown command: `/{other}`\n  Type `/help` for available commands."
-        )),
-    }
-}
-
 // ============================================================================
 // Help system
 // ============================================================================
 
-fn help_general() -> String {
+/// Build the general help overview.
+pub fn help_general() -> String {
     let mut out = String::new();
 
     // Header
@@ -170,6 +133,20 @@ fn help_general() -> String {
         ],
     );
 
+    // MCP
+    section(
+        &mut out,
+        "MCP Servers",
+        &[
+            ("/mcp", "List MCP server connections"),
+            ("/mcp:list", "Show all MCP servers and status"),
+            ("/mcp:status", "MCP bridge statistics"),
+            ("/mcp:start <name>", "Start an MCP server"),
+            ("/mcp:stop <name>", "Stop an MCP server"),
+            ("/mcp:restart <name>", "Restart an MCP server"),
+        ],
+    );
+
     // Memory
     section(
         &mut out,
@@ -209,7 +186,8 @@ fn help_general() -> String {
     out
 }
 
-fn help_topic(topic: &str) -> String {
+/// Build help text for a specific topic.
+pub fn help_topic(topic: &str) -> String {
     match topic {
         "tools" | "tool" => help_tools_detail(),
         "mem" | "memory" => help_memory_detail(),
@@ -304,7 +282,7 @@ fn help_skills_detail() -> String {
 }
 
 // ============================================================================
-// Info text helpers
+// Info text builders
 // ============================================================================
 
 fn section(out: &mut String, title: &str, items: &[(&str, &str)]) {
@@ -319,86 +297,63 @@ fn section(out: &mut String, title: &str, items: &[(&str, &str)]) {
     out.push('\n');
 }
 
-fn version_text() -> String {
-    let mut out = String::new();
+/// Build version info text.
+pub fn version_text() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let name = env!("CARGO_PKG_NAME");
     let desc = env!("CARGO_PKG_DESCRIPTION");
-    out.push_str(&format!(
-        "  {}  {} v{}\n",
+    format!(
+        "  {} {} v{}\n  {}\n\n  {} https://github.com/cargo-agent/cargo-agent\n",
         "🚀".bold(),
         name.cyan().bold(),
-        version.bold()
-    ));
-    out.push_str(&format!("  {}\n", desc.dimmed()));
-    out.push_str(&format!(
-        "\n  {} https://github.com/cargo-agent/cargo-agent\n",
-        "🔗".dimmed()
-    ));
-    out
+        version.bold(),
+        desc.dimmed(),
+        "🔗".dimmed(),
+    )
 }
 
-fn status_text() -> String {
-    let mut out = String::new();
+/// Build agent status text.
+pub fn status_text() -> String {
     let version = env!("CARGO_PKG_VERSION");
-    out.push_str(&format!(
-        "  {}  {}\n\n",
-        "📊".bold(),
-        "Agent Status".cyan().bold()
-    ));
-    out.push_str(&format!("  {} v{}\n", "Version".dimmed(), version.bold()));
-
-    // OS info
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    out.push_str(&format!("  {} {}/{}\n", "Platform".dimmed(), os, arch));
 
-    // Home dir
+    let mut out = format!(
+        "  {}  {}\n\n  {} v{}\n  {} {}/{}\n",
+        "📊".bold(),
+        "Agent Status".cyan().bold(),
+        "Version".dimmed(),
+        version.bold(),
+        "Platform".dimmed(),
+        os,
+        arch,
+    );
+
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        out.push_str(&format!(
-            "  {} {}/.cargo-agent\n",
-            "Data Dir".dimmed(),
-            home
-        ));
+        out.push_str(&format!("  {} {}/.cargo-agent\n", "Data Dir".dimmed(), home));
     }
 
     out.push_str(&format!(
-        "  {} {}\n",
+        "  {} {}\n  {} {}\n  {} {}\n\n  {} Use `/help` for all available commands.\n",
         "Config".dimmed(),
-        "~/.cargo-agent/config.yaml".dimmed()
-    ));
-    out.push_str(&format!(
-        "  {} {}\n",
+        "~/.cargo-agent/config.yaml".dimmed(),
         "Memories".dimmed(),
-        "~/.cargo-agent/memories.db".dimmed()
-    ));
-    out.push_str(&format!(
-        "  {} {}\n",
+        "~/.cargo-agent/memories/memories.db".dimmed(),
         "Skills".dimmed(),
-        "~/.cargo-agent/skills/".dimmed()
-    ));
-
-    out.push_str(&format!(
-        "\n  {} Use `/help` for all available commands.\n",
-        "💡".dimmed()
+        "~/.cargo-agent/skills/".dimmed(),
+        "💡".dimmed(),
     ));
     out
 }
 
-fn config_text() -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "  {}  {}\n\n",
+/// Build config paths text.
+pub fn config_text() -> String {
+    format!(
+        "  {}  {}\n\n  Config file:   ~/.cargo-agent/config.yaml\n  Skills dir:    ~/.cargo-agent/skills/\n  Memories DB:   ~/.cargo-agent/memories/memories.db\n  Secrets:       ~/.cargo-agent/secrets.json\n  Preferences:   ~/.cargo-agent/preferences.json\n\n  {}\n",
         "⚙".bold(),
-        "Configuration Paths".cyan().bold()
-    ));
-    out.push_str("  Config file:   ~/.cargo-agent/config.yaml\n");
-    out.push_str("  Skills dir:    ~/.cargo-agent/skills/\n");
-    out.push_str("  Memories DB:   ~/.cargo-agent/memories.db\n");
-    out.push_str("  Secrets:       ~/.cargo-agent/secrets.json\n");
-    out.push_str("  Preferences:   ~/.cargo-agent/preferences.json\n");
-    out.push_str(&format!("\n  {}\n", "https://docs.rs/cargo_agent".dimmed()));
-    out
+        "Configuration Paths".cyan().bold(),
+        "https://docs.rs/cargo_agent".dimmed(),
+    )
 }
 
 #[cfg(test)]
@@ -434,113 +389,10 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_pass_through() {
-        let result = handle("hello world");
-        assert!(matches!(result, SlashResult::PassThrough));
-    }
-
-    #[test]
-    fn test_handle_help() {
-        let result = handle("/help");
-        if let SlashResult::Handled(output) = result {
-            assert!(output.contains("Slash Commands"));
-            assert!(output.contains("/version"));
-            assert!(output.contains("/tools"));
-        } else {
-            panic!("Expected Handled");
-        }
-    }
-
-    #[test]
-    fn test_handle_help_alias() {
-        let result = handle("/h");
-        assert!(matches!(result, SlashResult::Handled(_)));
-    }
-
-    #[test]
-    fn test_handle_help_topic() {
-        let result = handle("/help:memory");
-        if let SlashResult::Handled(output) = result {
-            assert!(output.contains("Memory"));
-            assert!(output.contains("/mem:ns"));
-        } else {
-            panic!("Expected Handled");
-        }
-    }
-
-    #[test]
-    fn test_handle_version() {
-        let result = handle("/version");
-        if let SlashResult::Handled(output) = result {
-            assert!(output.contains(env!("CARGO_PKG_VERSION")));
-        } else {
-            panic!("Expected Handled");
-        }
-    }
-
-    #[test]
-    fn test_handle_version_alias() {
-        let result = handle("/v");
-        assert!(matches!(result, SlashResult::Handled(_)));
-    }
-
-    #[test]
-    fn test_handle_status() {
-        let result = handle("/status");
-        if let SlashResult::Handled(output) = result {
-            assert!(output.contains("Agent Status"));
-        } else {
-            panic!("Expected Handled");
-        }
-    }
-
-    #[test]
-    fn test_handle_config() {
-        let result = handle("/config");
-        if let SlashResult::Handled(output) = result {
-            assert!(output.contains("config.yaml"));
-            assert!(output.contains("memories.db"));
-        } else {
-            panic!("Expected Handled");
-        }
-    }
-
-    #[test]
-    fn test_handle_unknown() {
-        let result = handle("/xyzzy");
-        if let SlashResult::Handled(output) = result {
-            assert!(output.contains("Unknown command"));
-            assert!(output.contains("/xyzzy"));
-        } else {
-            panic!("Expected Handled");
-        }
-    }
-
-    #[test]
-    fn test_handle_dynamic_commands_pass_through() {
-        // These need Gateway access, so they should pass through
-        for cmd in &[
-            "/tools", "/mem", "/git", "/tasks", "/skills", "/export", "/stats",
-        ] {
-            let result = handle(cmd);
-            assert!(
-                matches!(result, SlashResult::PassThrough),
-                "Expected PassThrough for `{cmd}`"
-            );
-        }
-    }
-
-    #[test]
     fn test_parse_colon_with_spaces() {
         let (cmd, args) = parse("/mem:search hello world");
         assert_eq!(cmd, "mem");
         assert_eq!(args, "search hello world");
-    }
-
-    #[test]
-    fn test_help_topic_invalid() {
-        let result = help_topic("nonexistent");
-        assert!(result.contains("No help available"));
     }
 
     #[test]
@@ -550,5 +402,47 @@ mod tests {
         assert!(out.contains("Test"));
         assert!(out.contains("/cmd"));
         assert!(out.contains("description"));
+    }
+
+    #[test]
+    fn test_help_general_contains_commands() {
+        let out = help_general();
+        assert!(out.contains("Slash Commands"));
+        assert!(out.contains("/version"));
+        assert!(out.contains("/tools"));
+    }
+
+    #[test]
+    fn test_help_topic_valid() {
+        let out = help_topic("memory");
+        assert!(out.contains("Memory"));
+        assert!(out.contains("/mem:ns"));
+    }
+
+    #[test]
+    fn test_help_topic_invalid() {
+        let result = help_topic("nonexistent");
+        assert!(result.contains("No help available"));
+    }
+
+    #[test]
+    fn test_version_text_contains_version() {
+        let out = version_text();
+        assert!(out.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn test_status_text_contains_sections() {
+        let out = status_text();
+        assert!(out.contains("Agent Status"));
+        assert!(out.contains("Version"));
+        assert!(out.contains("Platform"));
+    }
+
+    #[test]
+    fn test_config_text_contains_paths() {
+        let out = config_text();
+        assert!(out.contains("config.yaml"));
+        assert!(out.contains("memories/memories.db"));
     }
 }

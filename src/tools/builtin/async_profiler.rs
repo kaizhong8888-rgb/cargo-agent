@@ -436,15 +436,12 @@ impl AsyncProfilerTool {
                 brace_depth -= 1;
             }
 
-            if (trimmed.starts_with("async fn") || trimmed.contains("async fn"))
-                && brace_depth == 0
+            if (trimmed.starts_with("async fn") || trimmed.contains("async fn")) && brace_depth == 0
             {
                 return true;
             }
 
-            if trimmed.starts_with("fn ") && !trimmed.contains("async")
-                && brace_depth == 0
-            {
+            if trimmed.starts_with("fn ") && !trimmed.contains("async") && brace_depth == 0 {
                 return false;
             }
         }
@@ -940,7 +937,8 @@ mod tests {
     #[test]
     fn test_check_blocking_detects_std_net() {
         let tool = make_tool();
-        let result = tool.check_blocking_line("src/main.rs", 3, "    std::net::TcpListener::bind(addr);");
+        let result =
+            tool.check_blocking_line("src/main.rs", 3, "    std::net::TcpListener::bind(addr);");
         assert!(result.is_some());
         assert_eq!(result.unwrap().severity, IssueSeverity::Critical);
     }
@@ -948,7 +946,11 @@ mod tests {
     #[test]
     fn test_check_blocking_detects_std_sync_mutex() {
         let tool = make_tool();
-        let result = tool.check_blocking_line("src/main.rs", 7, "    let guard = std::sync::Mutex::new(x);");
+        let result = tool.check_blocking_line(
+            "src/main.rs",
+            7,
+            "    let guard = std::sync::Mutex::new(x);",
+        );
         assert!(result.is_some());
         assert_eq!(result.unwrap().severity, IssueSeverity::Warning);
     }
@@ -977,8 +979,11 @@ mod tests {
     #[test]
     fn test_check_blocking_detects_reqwest_blocking() {
         let tool = make_tool();
-        let result =
-            tool.check_blocking_line("src/main.rs", 20, "    let client = reqwest::blocking::Client::new();");
+        let result = tool.check_blocking_line(
+            "src/main.rs",
+            20,
+            "    let client = reqwest::blocking::Client::new();",
+        );
         assert!(result.is_some());
         assert_eq!(result.unwrap().severity, IssueSeverity::Warning);
     }
@@ -986,7 +991,8 @@ mod tests {
     #[test]
     fn test_check_blocking_detects_process_command() {
         let tool = make_tool();
-        let result = tool.check_blocking_line("src/main.rs", 15, "    std::process::Command::new(\"ls\");");
+        let result =
+            tool.check_blocking_line("src/main.rs", 15, "    std::process::Command::new(\"ls\");");
         assert!(result.is_some());
     }
 
@@ -1082,16 +1088,25 @@ mod tests {
         let tool = make_tool();
         let patterns = vec![
             SpawnPattern {
-                file: "a.rs".to_string(), line: 1, pattern_type: "async_block".to_string(),
-                code_snippet: "x".to_string(), has_join_handle: false,
+                file: "a.rs".to_string(),
+                line: 1,
+                pattern_type: "async_block".to_string(),
+                code_snippet: "x".to_string(),
+                has_join_handle: false,
             },
             SpawnPattern {
-                file: "b.rs".to_string(), line: 2, pattern_type: "async_block".to_string(),
-                code_snippet: "x".to_string(), has_join_handle: false,
+                file: "b.rs".to_string(),
+                line: 2,
+                pattern_type: "async_block".to_string(),
+                code_snippet: "x".to_string(),
+                has_join_handle: false,
             },
             SpawnPattern {
-                file: "c.rs".to_string(), line: 3, pattern_type: "function".to_string(),
-                code_snippet: "x".to_string(), has_join_handle: false,
+                file: "c.rs".to_string(),
+                line: 3,
+                pattern_type: "function".to_string(),
+                code_snippet: "x".to_string(),
+                has_join_handle: false,
             },
         ];
         let suggestions = tool.generate_spawn_suggestions(&patterns);
@@ -1113,10 +1128,42 @@ mod tests {
     fn test_count_severities_mixed() {
         let tool = make_tool();
         let issues = vec![
-            AsyncIssue { file: "a".to_string(), line: 1, severity: IssueSeverity::Critical, category: "x".to_string(), message: "a".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
-            AsyncIssue { file: "b".to_string(), line: 2, severity: IssueSeverity::Warning, category: "x".to_string(), message: "b".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
-            AsyncIssue { file: "c".to_string(), line: 3, severity: IssueSeverity::Info, category: "x".to_string(), message: "c".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
-            AsyncIssue { file: "d".to_string(), line: 4, severity: IssueSeverity::Critical, category: "x".to_string(), message: "d".to_string(), suggestion: "b".to_string(), code_snippet: "c".to_string() },
+            AsyncIssue {
+                file: "a".to_string(),
+                line: 1,
+                severity: IssueSeverity::Critical,
+                category: "x".to_string(),
+                message: "a".to_string(),
+                suggestion: "b".to_string(),
+                code_snippet: "c".to_string(),
+            },
+            AsyncIssue {
+                file: "b".to_string(),
+                line: 2,
+                severity: IssueSeverity::Warning,
+                category: "x".to_string(),
+                message: "b".to_string(),
+                suggestion: "b".to_string(),
+                code_snippet: "c".to_string(),
+            },
+            AsyncIssue {
+                file: "c".to_string(),
+                line: 3,
+                severity: IssueSeverity::Info,
+                category: "x".to_string(),
+                message: "c".to_string(),
+                suggestion: "b".to_string(),
+                code_snippet: "c".to_string(),
+            },
+            AsyncIssue {
+                file: "d".to_string(),
+                line: 4,
+                severity: IssueSeverity::Critical,
+                category: "x".to_string(),
+                message: "d".to_string(),
+                suggestion: "b".to_string(),
+                code_snippet: "c".to_string(),
+            },
         ];
         let counts = tool.count_severities(&issues);
         assert_eq!(counts.critical, 2);

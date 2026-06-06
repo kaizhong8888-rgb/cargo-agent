@@ -870,3 +870,418 @@ impl OrmFramework {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_metadata() {
+        let tool = DbMigrationTool;
+        assert_eq!(tool.name(), "db_migration");
+        assert!(tool.description().contains("migration"));
+        let params = tool.parameters();
+        assert!(params.iter().any(|p| p.name == "action"));
+        assert!(params.iter().any(|p| p.name == "orm"));
+        assert!(params.iter().any(|p| p.name == "table"));
+        assert!(params.iter().any(|p| p.name == "columns"));
+    }
+
+    #[test]
+    fn test_parse_columns_basic() {
+        let cols = parse_columns("id:uuid;name:varchar(255);email:varchar(255)");
+        assert_eq!(cols.len(), 3);
+        assert_eq!(cols[0].name, "id");
+        assert_eq!(cols[0].col_type, "uuid");
+        assert!(cols[0].is_pk);
+        assert_eq!(cols[1].name, "name");
+        assert_eq!(cols[1].col_type, "varchar(255)");
+        assert!(!cols[1].is_pk);
+    }
+
+    #[test]
+    fn test_parse_columns_with_index() {
+        let cols = parse_columns("id:uuid;email:varchar(255)index");
+        assert_eq!(cols.len(), 2);
+        assert!(!cols[0].is_index);
+        assert!(cols[1].is_index);
+    }
+
+    #[test]
+    fn test_parse_columns_with_nullable() {
+        let cols = parse_columns("id:uuid;bio:textnullable");
+        assert_eq!(cols.len(), 2);
+        assert!(!cols[0].is_nullable);
+        assert!(cols[1].is_nullable);
+    }
+
+    #[test]
+    fn test_parse_columns_empty_parts() {
+        let cols = parse_columns("");
+        assert!(cols.is_empty());
+    }
+
+    #[test]
+    fn test_parse_columns_single_field_no_type() {
+        let cols = parse_columns("name");
+        assert_eq!(cols.len(), 1);
+        assert_eq!(cols[0].name, "name");
+        assert_eq!(cols[0].col_type, "varchar(255)");
+        assert!(!cols[0].is_pk);
+    }
+
+    #[test]
+    fn test_parse_columns_trailing_semicolon() {
+        let cols = parse_columns("id:uuid;name:varchar(255);");
+        assert_eq!(cols.len(), 2);
+    }
+
+    #[test]
+    fn test_to_snake_case() {
+        assert_eq!(to_snake_case("User"), "user");
+        assert_eq!(to_snake_case("UserProfile"), "user_profile");
+        assert_eq!(to_snake_case("APIResponse"), "a_p_i_response");
+        assert_eq!(to_snake_case("HTTPServer"), "h_t_t_p_server");
+    }
+
+    #[test]
+    fn test_column_to_sql_pk() {
+        let col = Column {
+            name: "id".to_string(),
+            col_type: "uuid".to_string(),
+            is_pk: true,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("id"));
+        assert!(sql.contains("PRIMARY KEY"));
+    }
+
+    #[test]
+    fn test_column_to_sql_varchar() {
+        let col = Column {
+            name: "name".to_string(),
+            col_type: "varchar(255)".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("name"));
+        assert!(sql.contains("varchar(255)"));
+    }
+
+    #[test]
+    fn test_column_to_sql_text() {
+        let col = Column {
+            name: "body".to_string(),
+            col_type: "text".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("TEXT"));
+    }
+
+    #[test]
+    fn test_column_to_sql_boolean() {
+        let col = Column {
+            name: "active".to_string(),
+            col_type: "bool".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("BOOLEAN"));
+        assert!(sql.contains("DEFAULT false"));
+    }
+
+    #[test]
+    fn test_column_to_sql_timestamp() {
+        let col = Column {
+            name: "created_at".to_string(),
+            col_type: "timestamptz".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("TIMESTAMPTZ"));
+        assert!(sql.contains("DEFAULT NOW()"));
+    }
+
+    #[test]
+    fn test_column_to_sql_timestamp_non_auto() {
+        let col = Column {
+            name: "published_at".to_string(),
+            col_type: "timestamp".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("TIMESTAMPTZ"));
+        assert!(!sql.contains("DEFAULT NOW()"));
+    }
+
+    #[test]
+    fn test_column_to_sql_json() {
+        let col = Column {
+            name: "metadata".to_string(),
+            col_type: "json".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: false,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("JSONB"));
+    }
+
+    #[test]
+    fn test_column_to_sql_nullable() {
+        let col = Column {
+            name: "bio".to_string(),
+            col_type: "text".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: true,
+        };
+        let sql = col.to_sql();
+        assert!(sql.contains("NULL"));
+    }
+
+    #[test]
+    fn test_orm_framework_name() {
+        assert_eq!(OrmFramework::Sqlx.name(), "sqlx");
+        assert_eq!(OrmFramework::Diesel.name(), "diesel");
+        assert_eq!(OrmFramework::SeaOrm.name(), "sea_orm");
+    }
+
+    #[test]
+    fn test_generate_mock_value_uuid() {
+        let tool = DbMigrationTool;
+        let val = tool.generate_mock_value("uuid", 5);
+        assert_eq!(val.as_str().unwrap(), "00000005-0005-0005-0005-000000000005");
+    }
+
+    #[test]
+    fn test_generate_mock_value_email() {
+        let tool = DbMigrationTool;
+        // Since "varchar(255)" doesn't contain "email", it won't be an email
+        let _val = tool.generate_mock_value("varchar(255)", 3);
+        // Let's test with explicit email type:
+        let val = tool.generate_mock_value("email_varchar", 3);
+        assert_eq!(val.as_str().unwrap(), "user3@example.com");
+    }
+
+    #[test]
+    fn test_generate_mock_value_name() {
+        let tool = DbMigrationTool;
+        let val = tool.generate_mock_value("name_varchar", 0);
+        assert_eq!(val.as_str().unwrap(), "Alice");
+        let val2 = tool.generate_mock_value("name_text", 3);
+        assert_eq!(val2.as_str().unwrap(), "Diana");
+    }
+
+    #[test]
+    fn test_generate_mock_value_integer() {
+        let tool = DbMigrationTool;
+        let val = tool.generate_mock_value("int", 0);
+        assert_eq!(val.as_u64().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_generate_mock_value_bool() {
+        let tool = DbMigrationTool;
+        assert_eq!(tool.generate_mock_value("bool", 0).as_bool().unwrap(), true);
+        assert_eq!(tool.generate_mock_value("bool", 1).as_bool().unwrap(), false);
+    }
+
+    #[test]
+    fn test_generate_mock_value_float() {
+        let tool = DbMigrationTool;
+        let val = tool.generate_mock_value("float", 0);
+        assert_eq!(val.as_f64().unwrap(), 0.99);
+        let val2 = tool.generate_mock_value("decimal", 2);
+        assert_eq!(val2.as_f64().unwrap(), 3.99);
+    }
+
+    #[test]
+    fn test_generate_mock_value_unknown() {
+        let tool = DbMigrationTool;
+        let val = tool.generate_mock_value("unknown_type", 42);
+        assert_eq!(val.as_str().unwrap(), "mock_42");
+    }
+
+    #[test]
+    fn test_generate_mock_value_timestamp() {
+        let tool = DbMigrationTool;
+        let val = tool.generate_mock_value("timestamp", 0);
+        assert_eq!(val.as_str().unwrap(), "2024-01-01T00:00:00Z");
+        let val2 = tool.generate_mock_value("datetime", 15);
+        assert_eq!(val2.as_str().unwrap(), "2024-01-16T15:00:00Z");
+    }
+
+    #[test]
+    fn test_generate_insert_statements() {
+        let tool = DbMigrationTool;
+        let columns = vec![
+            Column {
+                name: "id".to_string(),
+                col_type: "uuid".to_string(),
+                is_pk: true,
+                is_index: false,
+                is_nullable: false,
+            },
+            Column {
+                name: "name".to_string(),
+                col_type: "varchar(255)".to_string(),
+                is_pk: false,
+                is_index: false,
+                is_nullable: false,
+            },
+        ];
+        let rows = vec![serde_json::json!({
+            "id": "uuid-1",
+            "name": "Test User"
+        })];
+        let sql = tool.generate_insert_statements("users", &columns, &rows);
+        assert!(sql.contains("INSERT INTO users"));
+        assert!(sql.contains("'uuid-1'"));
+        assert!(sql.contains("'Test User'"));
+    }
+
+    #[test]
+    fn test_generate_insert_with_null() {
+        let tool = DbMigrationTool;
+        let columns = vec![
+            Column {
+                name: "bio".to_string(),
+                col_type: "text".to_string(),
+                is_pk: false,
+                is_index: false,
+                is_nullable: true,
+            },
+        ];
+        let rows = vec![serde_json::json!({ "bio": null })];
+        let sql = tool.generate_insert_statements("users", &columns, &rows);
+        assert!(sql.contains("NULL"));
+    }
+
+    #[tokio::test]
+    async fn test_unknown_action() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("unknown")),
+        ]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown action"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_migration_sqlx_direct() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("generate_migration")),
+            ("orm".to_string(), serde_json::json!("sqlx")),
+            ("name".to_string(), serde_json::json!("create_users")),
+            ("table".to_string(), serde_json::json!("users")),
+            ("columns".to_string(), serde_json::json!("id:uuid;name:varchar(255);email:varchar(255)index")),
+            ("output_dir".to_string(), serde_json::json!("/tmp/test_migrations_29")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["orm"], "sqlx");
+        assert_eq!(result["table"], "users");
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all("/tmp/test_migrations_29");
+    }
+
+    #[tokio::test]
+    async fn test_generate_migration_diesel_direct() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("generate_migration")),
+            ("orm".to_string(), serde_json::json!("diesel")),
+            ("name".to_string(), serde_json::json!("create_posts")),
+            ("table".to_string(), serde_json::json!("posts")),
+            ("columns".to_string(), serde_json::json!("id:uuid;title:varchar(255);body:text")),
+            ("output_dir".to_string(), serde_json::json!("/tmp/test_migrations_29_diesel")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["orm"], "diesel");
+        assert_eq!(result["table"], "posts");
+
+        // Verify up.sql exists and contains expected content
+        let migration_dir = result["migration_dir"].as_str().unwrap();
+        let up_sql = std::fs::read_to_string(format!("{migration_dir}/up.sql")).unwrap();
+        assert!(up_sql.contains("CREATE TABLE posts"));
+        let down_sql = std::fs::read_to_string(format!("{migration_dir}/down.sql")).unwrap();
+        assert!(down_sql.contains("DROP TABLE posts"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all("/tmp/test_migrations_29_diesel");
+    }
+
+    #[tokio::test]
+    async fn test_generate_migration_seaorm_direct() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("generate_migration")),
+            ("orm".to_string(), serde_json::json!("sea_orm")),
+            ("name".to_string(), serde_json::json!("create_orders")),
+            ("table".to_string(), serde_json::json!("orders")),
+            ("columns".to_string(), serde_json::json!("id:uuid;total:decimal(10,2);status:varchar(50)")),
+            ("output_dir".to_string(), serde_json::json!("/tmp/test_migrations_29_seaorm")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["orm"], "sea_orm");
+
+        let migration_dir = result["migration_dir"].as_str().unwrap();
+        let up_sql = std::fs::read_to_string(format!("{migration_dir}/up.sql")).unwrap();
+        assert!(up_sql.contains("CREATE TABLE IF NOT EXISTS orders"));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all("/tmp/test_migrations_29_seaorm");
+    }
+
+    #[tokio::test]
+    async fn test_generate_migration_unknown_orm() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("generate_migration")),
+            ("orm".to_string(), serde_json::json!("unknown_orm")),
+        ]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown ORM"));
+    }
+
+    #[tokio::test]
+    async fn test_list_migrations_no_dir() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("list_migrations")),
+            ("path".to_string(), serde_json::json!("/tmp/nonexistent_migrations_29")),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert_eq!(result["action"], "list_migrations");
+        assert!(result["migrations"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_diff_schema_no_src() {
+        let tool = DbMigrationTool;
+        let params = HashMap::from([
+            ("action".to_string(), serde_json::json!("diff_schema")),
+            ("path".to_string(), serde_json::json!("/tmp/nonexistent_29")),
+            ("orm".to_string(), serde_json::json!("sqlx")),
+        ]);
+        let result = tool.execute(&params).await;
+        assert!(result.is_err());
+    }
+}

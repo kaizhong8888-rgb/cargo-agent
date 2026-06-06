@@ -20,6 +20,13 @@
 //!     system_instructions: "Help with Rust code.".into(),
 //!     reference: "Use `cargo check` to verify.".into(),
 //!     reference_files: vec![],
+//!     category: "lang".into(),
+//!     version: "1.0.0".into(),
+//!     author: "cargo-agent".into(),
+//!     created_at: String::new(),
+//!     updated_at: String::new(),
+//!     tags: vec!["rust".into()],
+//!     priority: 10,
 //! };
 //!
 //! let mut registry = SkillRegistry::new();
@@ -48,6 +55,13 @@ use std::path::{Path, PathBuf};
 ///     system_instructions: "Follow testing best practices.".into(),
 ///     reference: "Use Triple-A pattern.".into(),
 ///     reference_files: vec![],
+///     category: "testing".into(),
+///     version: "1.0.0".into(),
+///     author: "cargo-agent".into(),
+///     created_at: String::new(),
+///     updated_at: String::new(),
+///     tags: vec!["test".into()],
+///     priority: 5,
 /// };
 ///
 /// assert!(skill.matches_message("how to write unit tests?"));
@@ -75,6 +89,28 @@ pub struct Skill {
     /// Optional file paths (relative to skill dir) with additional reference.
     #[serde(default)]
     pub reference_files: Vec<String>,
+    // --- Structured metadata (frontmatter-style) ---
+    /// Category for grouping (e.g. "web-framework", "database", "testing").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub category: String,
+    /// Semantic version of the skill definition.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    /// Author/creator of the skill.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+    /// Creation timestamp (ISO 8601).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub created_at: String,
+    /// Last update timestamp (ISO 8601).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub updated_at: String,
+    /// Tags for fine-grained classification.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// Priority level for ordering (1-10, higher = more important).
+    #[serde(default)]
+    pub priority: u8,
 }
 
 impl Skill {
@@ -114,6 +150,13 @@ impl Skill {
     ///     system_instructions: "Be helpful.".into(),
     ///     reference: String::new(),
     ///     reference_files: vec![],
+    ///     category: String::new(),
+    ///     version: String::new(),
+    ///     author: String::new(),
+    ///     created_at: String::new(),
+    ///     updated_at: String::new(),
+    ///     tags: vec![],
+    ///     priority: 0,
     /// };
     ///
     /// let path = skill.save_to(Path::new("/tmp/skills")).unwrap();
@@ -175,6 +218,13 @@ impl Skill {
     ///     system_instructions: "Follow Rust idioms.".into(),
     ///     reference: "Use `Cow<str>`.".into(),
     ///     reference_files: vec![],
+    ///     category: String::new(),
+    ///     version: String::new(),
+    ///     author: String::new(),
+    ///     created_at: String::new(),
+    ///     updated_at: String::new(),
+    ///     tags: vec![],
+    ///     priority: 0,
     /// };
     ///
     /// let ctx = skill.build_context();
@@ -197,6 +247,113 @@ impl Skill {
         }
         parts.join("\n\n---\n\n")
     }
+
+    /// Generate a frontmatter-style header string for display/debugging.
+    ///
+    /// This produces a human-readable YAML-like block showing all metadata fields.
+    /// Fields with empty values are omitted for brevity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cargo_agent::skills::Skill;
+    ///
+    /// let skill = Skill {
+    ///     name: "web-dev".into(),
+    ///     description: "Web development helper".into(),
+    ///     always_active: false,
+    ///     keywords: vec!["axum".into()],
+    ///     system_instructions: "Use Axum patterns.".into(),
+    ///     reference: String::new(),
+    ///     reference_files: vec![],
+    ///     category: "web-framework".into(),
+    ///     version: "1.0.0".into(),
+    ///     author: "cargo-agent".into(),
+    ///     created_at: "2024-01-01T00:00:00Z".into(),
+    ///     updated_at: String::new(),
+    ///     tags: vec!["http".into(), "rest".into()],
+    ///     priority: 8,
+    /// };
+    ///
+    /// let header = skill.frontmatter();
+    /// assert!(header.contains("name: web-dev"));
+    /// assert!(header.contains("category: web-framework"));
+    /// assert!(header.contains("version: 1.0.0"));
+    /// ```
+    pub fn frontmatter(&self) -> String {
+        let mut lines: Vec<String> = Vec::new();
+        lines.push("---".into());
+        lines.push(format!("name: {}", self.name));
+        lines.push(format!("description: {}", escape_yaml_scalar(&self.description)));
+
+        if !self.category.is_empty() {
+            lines.push(format!("category: {}", self.category));
+        }
+        if !self.version.is_empty() {
+            lines.push(format!("version: {}", self.version));
+        }
+        if !self.author.is_empty() {
+            lines.push(format!("author: {}", self.author));
+        }
+        if !self.created_at.is_empty() {
+            lines.push(format!("created_at: {}", self.created_at));
+        }
+        if !self.updated_at.is_empty() {
+            lines.push(format!("updated_at: {}", self.updated_at));
+        }
+        if self.priority > 0 {
+            lines.push(format!("priority: {}", self.priority));
+        }
+        if self.always_active {
+            lines.push("always_active: true".into());
+        }
+        if !self.keywords.is_empty() {
+            lines.push(format!("keywords: [{}]", self.keywords.join(", ")));
+        }
+        if !self.tags.is_empty() {
+            lines.push(format!("tags: [{}]", self.tags.join(", ")));
+        }
+        lines.push("---".into());
+        lines.join("\n")
+    }
+
+    /// Create a new skill with metadata auto-populated (timestamps, default author).
+    pub fn new_with_metadata(
+        name: String,
+        description: String,
+        category: String,
+        keywords: Vec<String>,
+        system_instructions: String,
+        author: Option<String>,
+    ) -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            name: name.clone(),
+            description,
+            always_active: false,
+            keywords,
+            system_instructions,
+            reference: String::new(),
+            reference_files: vec![],
+            category,
+            version: "0.1.0".into(),
+            author: author.unwrap_or_else(|| "cargo-agent".into()),
+            created_at: now.clone(),
+            updated_at: now,
+            tags: vec![],
+            priority: 5,
+        }
+    }
+}
+
+/// Escape a YAML scalar value for safe inline display.
+fn escape_yaml_scalar(s: &str) -> String {
+    if s.contains(':') || s.contains('#') || s.contains('\n') || s.contains('"') {
+        // Wrap in double quotes and escape internal quotes
+        format!("\"{}\"", s.replace('"', "\\\""))
+    } else {
+        s.to_string()
+    }
 }
 
 /// Registry that holds and manages skills.
@@ -216,6 +373,13 @@ impl Skill {
 ///     system_instructions: "Use clap for argument parsing.".into(),
 ///     reference: String::new(),
 ///     reference_files: vec![],
+///     category: "cli".into(),
+///     version: "1.0.0".into(),
+///     author: "cargo-agent".into(),
+///     created_at: String::new(),
+///     updated_at: String::new(),
+///     tags: vec![],
+///     priority: 5,
 /// };
 ///
 /// registry.register(skill);
@@ -284,6 +448,9 @@ impl SkillRegistry {
     ///     description: String::new(), always_active: true,
     ///     keywords: vec![], system_instructions: String::new(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// registry.register(Skill {
@@ -291,6 +458,9 @@ impl SkillRegistry {
     ///     description: String::new(), always_active: false,
     ///     keywords: vec![], system_instructions: String::new(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// assert_eq!(registry.active_skills().len(), 1);
@@ -318,6 +488,9 @@ impl SkillRegistry {
     ///     keywords: vec!["rust".into()],
     ///     system_instructions: String::new(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// assert_eq!(registry.matching_skills("I need Rust help").len(), 1);
@@ -344,6 +517,9 @@ impl SkillRegistry {
     ///     always_active: false, keywords: vec![],
     ///     system_instructions: "Instr.".into(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// assert!(registry.get("my-skill").is_some());
@@ -375,6 +551,9 @@ impl SkillRegistry {
     ///     always_active: false, keywords: vec![],
     ///     system_instructions: String::new(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// assert!(registry.remove("temp"));
@@ -397,6 +576,9 @@ impl SkillRegistry {
     ///     always_active: true, keywords: vec![],
     ///     system_instructions: String::new(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// let list = registry.list();
@@ -409,6 +591,64 @@ impl SkillRegistry {
             .values()
             .map(|s| (s.name.clone(), s.description.clone(), s.always_active))
             .collect()
+    }
+
+    /// List all skills with full metadata for display.
+    pub fn list_with_metadata(&self) -> Vec<&Skill> {
+        let mut skills: Vec<&Skill> = self.skills.values().collect();
+        // Sort by priority (descending), then alphabetically
+        skills.sort_by(|a, b| {
+            b.priority.cmp(&a.priority).then_with(|| a.name.cmp(&b.name))
+        });
+        skills
+    }
+
+    /// Filter skills by category.
+    pub fn by_category(&self, category: &str) -> Vec<&Skill> {
+        self.skills
+            .values()
+            .filter(|s| s.category.eq_ignore_ascii_case(category))
+            .collect()
+    }
+
+    /// Filter skills by tag.
+    pub fn by_tag(&self, tag: &str) -> Vec<&Skill> {
+        self.skills
+            .values()
+            .filter(|s| s.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)))
+            .collect()
+    }
+
+    /// Get unique categories across all skills.
+    pub fn categories(&self) -> Vec<String> {
+        let mut cats: Vec<String> = self
+            .skills
+            .values()
+            .filter(|s| !s.category.is_empty())
+            .map(|s| s.category.clone())
+            .collect();
+        cats.sort();
+        cats.dedup();
+        cats
+    }
+
+    /// Get summary statistics about the skill collection.
+    pub fn stats(&self) -> SkillStats {
+        let total = self.skills.len();
+        let always_active = self.skills.values().filter(|s| s.always_active).count();
+        let with_metadata = self
+            .skills
+            .values()
+            .filter(|s| !s.category.is_empty() || !s.tags.is_empty())
+            .count();
+        let categories = self.categories();
+
+        SkillStats {
+            total,
+            always_active,
+            with_metadata,
+            categories,
+        }
     }
 
     /// Build the combined context string for active skills.
@@ -427,6 +667,9 @@ impl SkillRegistry {
     ///     name: "base".into(), description: String::new(), always_active: true,
     ///     keywords: vec![], system_instructions: "Be concise.".into(),
     ///     reference: String::new(), reference_files: vec![],
+    ///     category: String::new(), version: String::new(),
+    ///     author: String::new(), created_at: String::new(),
+    ///     updated_at: String::new(), tags: vec![], priority: 0,
     /// });
     ///
     /// let ctx = registry.build_context_for("hello");
@@ -468,6 +711,19 @@ impl Default for SkillRegistry {
     }
 }
 
+/// Statistics about a skill collection.
+#[derive(Debug, Clone)]
+pub struct SkillStats {
+    /// Total number of skills.
+    pub total: usize,
+    /// Number of always-active skills.
+    pub always_active: usize,
+    /// Number of skills with category or tags metadata.
+    pub with_metadata: usize,
+    /// Unique categories present in the collection.
+    pub categories: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +737,13 @@ mod tests {
             system_instructions: "Follow Rust idioms.".to_string(),
             reference: "Use `Cow<str>` for owned/borrowed.".to_string(),
             reference_files: vec![],
+            category: "testing".to_string(),
+            version: "1.0.0".to_string(),
+            author: "cargo-agent".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: String::new(),
+            tags: vec!["test".to_string(), "rust".to_string()],
+            priority: 5,
         }
     }
 
@@ -562,7 +825,217 @@ mod tests {
         assert_eq!(loaded.name, skill.name);
         assert_eq!(loaded.description, skill.description);
         assert_eq!(loaded.keywords, skill.keywords);
+        assert_eq!(loaded.category, skill.category);
+        assert_eq!(loaded.version, skill.version);
+        assert_eq!(loaded.tags, skill.tags);
+        assert_eq!(loaded.priority, skill.priority);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_new_with_metadata() {
+        let skill = Skill::new_with_metadata(
+            "web-dev".to_string(),
+            "Web development helper".to_string(),
+            "web-framework".to_string(),
+            vec!["axum".to_string()],
+            "Use Axum patterns.".to_string(),
+            None,
+        );
+
+        assert_eq!(skill.name, "web-dev");
+        assert_eq!(skill.category, "web-framework");
+        assert_eq!(skill.author, "cargo-agent");
+        assert_eq!(skill.version, "0.1.0");
+        assert!(!skill.created_at.is_empty());
+        assert!(!skill.updated_at.is_empty());
+        assert_eq!(skill.priority, 5);
+    }
+
+    #[test]
+    fn test_frontmatter_output() {
+        let skill = test_skill();
+        let fm = skill.frontmatter();
+        assert!(fm.starts_with("---\n"));
+        assert!(fm.contains("name: test-skill"));
+        assert!(fm.contains("category: testing"));
+        assert!(fm.contains("version: 1.0.0"));
+        assert!(fm.contains("priority: 5"));
+        assert!(fm.contains("tags: [test, rust]"));
+        assert!(fm.ends_with("---"));
+    }
+
+    #[test]
+    fn test_frontmatter_empty_fields() {
+        let skill = Skill {
+            name: "minimal".to_string(),
+            description: "Minimal skill".to_string(),
+            always_active: false,
+            keywords: vec![],
+            system_instructions: String::new(),
+            reference: String::new(),
+            reference_files: vec![],
+            category: String::new(),
+            version: String::new(),
+            author: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            tags: vec![],
+            priority: 0,
+        };
+        let fm = skill.frontmatter();
+        assert!(fm.contains("name: minimal"));
+        assert!(!fm.contains("category:"));
+        assert!(!fm.contains("version:"));
+        assert!(!fm.contains("tags:"));
+        assert!(!fm.contains("priority:"));
+    }
+
+    #[test]
+    fn test_registry_by_category() {
+        let mut reg = SkillRegistry::new();
+
+        let mut skill1 = test_skill();
+        skill1.name = "web1".to_string();
+        skill1.category = "web-framework".to_string();
+        reg.register(skill1);
+
+        let mut skill2 = test_skill();
+        skill2.name = "web2".to_string();
+        skill2.category = "web-framework".to_string();
+        reg.register(skill2);
+
+        let mut skill3 = test_skill();
+        skill3.name = "db1".to_string();
+        skill3.category = "database".to_string();
+        reg.register(skill3);
+
+        assert_eq!(reg.by_category("web-framework").len(), 2);
+        assert_eq!(reg.by_category("database").len(), 1);
+        assert!(reg.by_category("nonexistent").is_empty());
+    }
+
+    #[test]
+    fn test_registry_by_tag() {
+        let mut reg = SkillRegistry::new();
+
+        let mut skill1 = test_skill();
+        skill1.name = "skill1".to_string();
+        skill1.tags = vec!["http".to_string(), "rest".to_string()];
+        reg.register(skill1);
+
+        let mut skill2 = test_skill();
+        skill2.name = "skill2".to_string();
+        skill2.tags = vec!["http".to_string(), "graphql".to_string()];
+        reg.register(skill2);
+
+        let mut skill3 = test_skill();
+        skill3.name = "skill3".to_string();
+        skill3.tags = vec!["database".to_string()];
+        reg.register(skill3);
+
+        assert_eq!(reg.by_tag("http").len(), 2);
+        assert_eq!(reg.by_tag("graphql").len(), 1);
+        assert_eq!(reg.by_tag("database").len(), 1);
+    }
+
+    #[test]
+    fn test_registry_categories() {
+        let mut reg = SkillRegistry::new();
+
+        let mut s1 = test_skill();
+        s1.name = "s1".to_string();
+        s1.category = "web".to_string();
+        reg.register(s1);
+
+        let mut s2 = test_skill();
+        s2.name = "s2".to_string();
+        s2.category = "database".to_string();
+        reg.register(s2);
+
+        let mut s3 = test_skill();
+        s3.name = "s3".to_string();
+        s3.category = "web".to_string(); // duplicate
+        reg.register(s3);
+
+        let cats = reg.categories();
+        assert_eq!(cats, vec!["database", "web"]);
+    }
+
+    #[test]
+    fn test_registry_stats() {
+        let mut reg = SkillRegistry::new();
+
+        let mut always_skill = test_skill();
+        always_skill.name = "always".to_string();
+        always_skill.always_active = true;
+        always_skill.category = "core".to_string();
+        reg.register(always_skill);
+
+        let mut meta_skill = test_skill();
+        meta_skill.name = "meta".to_string();
+        meta_skill.tags = vec!["test".to_string()];
+        reg.register(meta_skill);
+
+        let mut bare_skill = test_skill();
+        bare_skill.name = "bare".to_string();
+        bare_skill.category = String::new();
+        bare_skill.tags = vec![];
+        reg.register(bare_skill);
+
+        let stats = reg.stats();
+        assert_eq!(stats.total, 3);
+        assert_eq!(stats.always_active, 1);
+        assert_eq!(stats.with_metadata, 2); // always (has category) + meta (has tags)
+        assert_eq!(stats.categories, vec!["core", "testing"]);
+    }
+
+    #[test]
+    fn test_registry_list_with_metadata_sorted_by_priority() {
+        let mut reg = SkillRegistry::new();
+
+        let mut low = test_skill();
+        low.name = "low".to_string();
+        low.priority = 2;
+        reg.register(low);
+
+        let mut high = test_skill();
+        high.name = "high".to_string();
+        high.priority = 9;
+        reg.register(high);
+
+        let mut mid = test_skill();
+        mid.name = "mid".to_string();
+        mid.priority = 5;
+        reg.register(mid);
+
+        let list = reg.list_with_metadata();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].name, "high");
+        assert_eq!(list[1].name, "mid");
+        assert_eq!(list[2].name, "low");
+    }
+
+    #[test]
+    fn test_backward_compat_load_old_yaml() {
+        // Simulate loading a YAML file without metadata fields (old format)
+        let old_yaml = r#"
+name: old-skill
+description: An old skill
+always_active: false
+keywords:
+  - old
+  - legacy
+system_instructions: "Legacy instructions"
+reference: ""
+reference_files: []
+"#;
+        let skill: Skill = serde_yaml::from_str(old_yaml).unwrap();
+        assert_eq!(skill.name, "old-skill");
+        assert_eq!(skill.category, "");
+        assert_eq!(skill.version, "");
+        assert_eq!(skill.priority, 0);
+        assert!(skill.tags.is_empty());
     }
 }

@@ -2,13 +2,22 @@
 //!
 //! Provides colored output, separators, headers, and loading spinners
 //! to make the cargo-agent CLI more visually polished.
+//!
+//! When the `tui` feature is disabled, falls back to simple text-only output.
 
 use colored::Colorize;
-use crossterm::cursor;
-use crossterm::terminal;
-use crossterm::QueueableCommand;
 use std::io::{self, Write};
 use std::sync::Arc;
+
+// crossterm imports — gated behind `tui` feature
+#[cfg(feature = "tui")]
+use crossterm::cursor;
+#[cfg(feature = "tui")]
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+#[cfg(feature = "tui")]
+use crossterm::terminal;
+#[cfg(feature = "tui")]
+use crossterm::QueueableCommand;
 
 // ============================================================================
 // Banner
@@ -169,8 +178,6 @@ fn render_markdown_lines(text: &str) {
 
 /// Render inline markdown: **bold** → bold text.
 fn render_inline_bold(text: &str) -> String {
-    // Simple: replace **text** with colored/bold text
-    // We use regex to find **...** patterns
     static BOLD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = BOLD_RE
         .get_or_init(|| regex::Regex::new(r"\*\*(.+?)\*\*").expect("invalid regex: bold markdown"));
@@ -202,53 +209,77 @@ fn render_inline_bold(text: &str) -> String {
 // ============================================================================
 
 /// Simple spinner for indicating the agent is thinking.
+#[cfg(feature = "tui")]
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// A spinner that shows progress on the terminal.
 pub struct Spinner {
-    stdout: io::Stdout,
-    frame: usize,
     message: String,
     running: bool,
+
+    #[cfg(feature = "tui")]
+    stdout: io::Stdout,
+    #[cfg(feature = "tui")]
+    frame: usize,
 }
 
 impl Spinner {
     /// Create a new spinner with the given message.
     pub fn new(message: &str) -> Self {
         Self {
-            stdout: io::stdout(),
-            frame: 0,
             message: message.to_string(),
             running: false,
+            #[cfg(feature = "tui")]
+            stdout: io::stdout(),
+            #[cfg(feature = "tui")]
+            frame: 0,
         }
     }
 
     /// Start the spinner.
     pub fn start(&mut self) {
         self.running = true;
-        let _ = terminal::enable_raw_mode();
-        let _ = self.stdout.queue(cursor::Hide);
-        self.render_frame();
+        #[cfg(feature = "tui")]
+        {
+            let _ = terminal::enable_raw_mode();
+            let _ = self.stdout.queue(cursor::Hide);
+            self.render_frame();
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            let _ = write!(io::stdout(), "  ⏳ {} ...", self.message);
+        }
     }
 
     /// Stop the spinner and clear the line.
     pub fn stop(&mut self) {
         self.running = false;
-        let _ = self.stdout.queue(cursor::Show);
-        let _ = self.stdout.write_all(b"\r\x1b[K");
-        let _ = self.stdout.flush();
-        let _ = terminal::disable_raw_mode();
+        #[cfg(feature = "tui")]
+        {
+            let _ = self.stdout.queue(cursor::Show);
+            let _ = self.stdout.write_all(b"\r\x1b[K");
+            let _ = self.stdout.flush();
+            let _ = terminal::disable_raw_mode();
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            println!();
+        }
     }
 
     /// Advance to the next frame.
     pub fn tick(&mut self) {
-        if !self.running {
-            return;
+        #[cfg(feature = "tui")]
+        {
+            if !self.running {
+                return;
+            }
+            self.frame = (self.frame + 1) % SPINNER_FRAMES.len();
+            self.render_frame();
         }
-        self.frame = (self.frame + 1) % SPINNER_FRAMES.len();
-        self.render_frame();
     }
 
+    #[cfg(feature = "tui")]
     fn render_frame(&mut self) {
         let frame = SPINNER_FRAMES[self.frame];
         let output = format!("\r\x1b[K  {} {}", frame.cyan(), self.message.dimmed());
@@ -270,36 +301,37 @@ impl Drop for Spinner {
 // ============================================================================
 
 /// Color codes for the status LED (ANSI SGR codes).
+#[cfg(feature = "tui")]
 mod led_colors {
-    pub const CYAN: &str = "36"; // Calling LLM
-    pub const MAGENTA: &str = "35"; // Executing tool
-    pub const YELLOW: &str = "33"; // Generating response
-    pub const BLUE: &str = "34"; // Searching memories
-    pub const ORANGE: &str = "38;5;208"; // Truncating context (approximate)
-    pub const GREY: &str = "90"; // Idle
+    pub const CYAN: &str = "36";
+    pub const MAGENTA: &str = "35";
+    pub const YELLOW: &str = "33";
+    pub const BLUE: &str = "34";
+    pub const ORANGE: &str = "38;5;208";
+    pub const GREY: &str = "90";
 }
 
 /// Timing constants for LED blinking.
+#[cfg(feature = "tui")]
 mod led_timing {
-    /// Slow blink: visible duration (ms) for LLM calls, memory search, composing.
     pub const SLOW_ON_MS: u64 = 500;
-    /// Slow blink: off duration (ms).
     pub const SLOW_OFF_MS: u64 = 300;
-    /// Fast blink: visible duration (ms) for tool execution, context truncation.
     pub const FAST_ON_MS: u64 = 200;
-    /// Fast blink: off duration (ms).
     pub const FAST_OFF_MS: u64 = 150;
 }
 
 /// A blinking LED indicator that reflects the agent's current runtime state.
 ///
-/// Renders a colored dot (●) with a text label on its own line. The dot
-/// blinks at different speeds depending on the state (slow for LLM calls,
-/// fast for tool execution). Runs in a background thread for smooth animation.
+/// Renders a colored dot (●) on its own line. Blinks at different speeds
+/// depending on the state. When `tui` feature is disabled, this is a no-op.
 pub struct StatusIndicator {
+    #[cfg(feature = "tui")]
     handle: Option<std::thread::JoinHandle<()>>,
+    #[cfg(feature = "tui")]
     stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    #[allow(dead_code)]
     status: Arc<std::sync::atomic::AtomicU8>,
+    #[allow(dead_code)]
     current_tool: Arc<std::sync::Mutex<String>>,
 }
 
@@ -310,90 +342,98 @@ impl StatusIndicator {
         current_tool: Arc<std::sync::Mutex<String>>,
     ) -> Self {
         Self {
+            #[cfg(feature = "tui")]
             handle: None,
+            #[cfg(feature = "tui")]
             stop_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             status,
             current_tool,
         }
     }
 
-    /// Start the blinking indicator. Spawns a background thread.
+    /// Start the blinking indicator.
     pub fn start(&mut self) {
-        let stop = Arc::clone(&self.stop_flag);
-        let status = Arc::clone(&self.status);
-        let tool = Arc::clone(&self.current_tool);
+        #[cfg(feature = "tui")]
+        {
+            let stop = Arc::clone(&self.stop_flag);
+            let status = Arc::clone(&self.status);
+            let tool = Arc::clone(&self.current_tool);
 
-        let handle = std::thread::spawn(move || {
-            // Enable raw mode for cursor control
-            let _ = terminal::enable_raw_mode();
-            let mut stdout = io::stdout();
-            let _ = stdout.queue(cursor::Hide);
-            let _ = stdout.flush();
+            let handle = std::thread::spawn(move || {
+                let _ = terminal::enable_raw_mode();
+                let mut stdout = io::stdout();
+                let _ = stdout.queue(cursor::Hide);
+                let _ = stdout.flush();
 
-            let mut visible = true;
+                let mut visible = true;
 
-            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
-                let status_code = status.load(std::sync::atomic::Ordering::Acquire);
-                let state = match status_code {
-                    1 => LedState::SearchingMemories,
-                    2 => LedState::CallingLLM,
-                    3 => LedState::ExecutingTool,
-                    4 => LedState::GeneratingResponse,
-                    5 => LedState::TruncatingContext,
-                    _ => LedState::Idle,
-                };
+                while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    let status_code = status.load(std::sync::atomic::Ordering::Acquire);
+                    let state = match status_code {
+                        1 => LedState::SearchingMemories,
+                        2 => LedState::CallingLLM,
+                        3 => LedState::ExecutingTool,
+                        4 => LedState::GeneratingResponse,
+                        5 => LedState::TruncatingContext,
+                        _ => LedState::Idle,
+                    };
 
-                let tool_name = tool.lock().ok().map(|g| g.clone()).unwrap_or_default();
+                    let tool_name =
+                        tool.lock().ok().map(|g| g.clone()).unwrap_or_default();
+                    let (color, label, fast_blink) = state.render(&tool_name);
+                    let (on_ms, off_ms) = if fast_blink {
+                        (led_timing::FAST_ON_MS, led_timing::FAST_OFF_MS)
+                    } else {
+                        (led_timing::SLOW_ON_MS, led_timing::SLOW_OFF_MS)
+                    };
 
-                let (color, label, fast_blink) = state.render(&tool_name);
+                    if state == LedState::Idle {
+                        visible = false;
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
 
-                let (on_ms, off_ms) = if fast_blink {
-                    (led_timing::FAST_ON_MS, led_timing::FAST_OFF_MS)
-                } else {
-                    (led_timing::SLOW_ON_MS, led_timing::SLOW_OFF_MS)
-                };
-
-                if state == LedState::Idle {
-                    visible = false;
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    continue;
+                    if visible {
+                        let output = format!(
+                            "\r\x1b[K  \x1b[{}m●\x1b[0m {}",
+                            color,
+                            label.dimmed()
+                        );
+                        let _ = stdout.write_all(output.as_bytes());
+                        let _ = stdout.flush();
+                        std::thread::sleep(std::time::Duration::from_millis(on_ms));
+                    } else {
+                        let _ = stdout.write_all(b"\r\x1b[K");
+                        let _ = stdout.flush();
+                        std::thread::sleep(std::time::Duration::from_millis(off_ms));
+                    }
+                    visible = !visible;
                 }
 
-                if visible {
-                    let output = format!("\r\x1b[K  \x1b[{}m●\x1b[0m {}", color, label.dimmed());
-                    let _ = stdout.write_all(output.as_bytes());
-                    let _ = stdout.flush();
-                    std::thread::sleep(std::time::Duration::from_millis(on_ms));
-                } else {
-                    let _ = stdout.write_all(b"\r\x1b[K");
-                    let _ = stdout.flush();
-                    std::thread::sleep(std::time::Duration::from_millis(off_ms));
-                }
+                let _ = stdout.write_all(b"\r\x1b[K");
+                let _ = stdout.queue(cursor::Show);
+                let _ = stdout.flush();
+                let _ = terminal::disable_raw_mode();
+            });
 
-                visible = !visible;
-            }
-
-            // Cleanup
-            let _ = stdout.write_all(b"\r\x1b[K");
-            let _ = stdout.queue(cursor::Show);
-            let _ = stdout.flush();
-            let _ = terminal::disable_raw_mode();
-        });
-
-        self.handle = Some(handle);
+            self.handle = Some(handle);
+        }
     }
 
     /// Stop the indicator and wait for the background thread to exit.
-    pub fn stop(mut self) {
-        self.stop_flag
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+    pub fn stop(self) {
+        #[cfg(feature = "tui")] {
+            self.stop_flag
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            if let Some(handle) = self.handle {
+                let _ = handle.join();
+            }
         }
     }
 }
 
 /// Represents the visual state of the LED indicator.
+#[cfg(feature = "tui")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LedState {
     Idle,
@@ -404,16 +444,14 @@ enum LedState {
     TruncatingContext,
 }
 
+#[cfg(feature = "tui")]
 impl LedState {
-    /// Returns (color_code, label, fast_blink).
     fn render(&self, tool_name: &str) -> (&'static str, String, bool) {
         match self {
             Self::Idle => (led_colors::GREY, String::new(), false),
-            Self::SearchingMemories => (
-                led_colors::BLUE,
-                "🔍 Searching memories...".to_string(),
-                false,
-            ),
+            Self::SearchingMemories => {
+                (led_colors::BLUE, "🔍 Searching memories...".to_string(), false)
+            }
             Self::CallingLLM => (led_colors::CYAN, "🤖 Calling LLM...".to_string(), false),
             Self::ExecutingTool => (
                 led_colors::MAGENTA,
@@ -424,16 +462,12 @@ impl LedState {
                 },
                 true,
             ),
-            Self::GeneratingResponse => (
-                led_colors::YELLOW,
-                "✍️  Composing response...".to_string(),
-                false,
-            ),
-            Self::TruncatingContext => (
-                led_colors::ORANGE,
-                "📏 Managing context...".to_string(),
-                true,
-            ),
+            Self::GeneratingResponse => {
+                (led_colors::YELLOW, "✍️  Composing response...".to_string(), false)
+            }
+            Self::TruncatingContext => {
+                (led_colors::ORANGE, "📏 Managing context...".to_string(), true)
+            }
         }
     }
 }
@@ -456,9 +490,6 @@ pub struct StatusInfo {
 }
 
 /// Print a compact status bar showing token usage and context info.
-///
-/// Renders something like:
-///   📊 1.2K tokens | 💬 12 msgs (6%) | 🤖 qwen3.6-plus | ⏱ 3.5s
 pub fn print_status_bar(info: &StatusInfo) {
     let token_str = format_tokens(info.total_tokens);
     let msg_pct = if info.messages_max > 0 {
@@ -469,7 +500,6 @@ pub fn print_status_bar(info: &StatusInfo) {
 
     let mut parts: Vec<String> = Vec::new();
 
-    // Token usage with spark indicator
     if info.total_tokens > 0 {
         let icon = if info.prompt_tokens > info.completion_tokens {
             "📤"
@@ -479,7 +509,6 @@ pub fn print_status_bar(info: &StatusInfo) {
         parts.push(format!("{} {} tokens", icon, token_str.bold()));
     }
 
-    // Context usage
     if info.messages_count > 0 {
         parts.push(format!(
             "💬 {} msgs ({}%)",
@@ -488,7 +517,6 @@ pub fn print_status_bar(info: &StatusInfo) {
         ));
     }
 
-    // Model
     if !info.model_name.is_empty() {
         let model_short = info
             .model_name
@@ -498,7 +526,6 @@ pub fn print_status_bar(info: &StatusInfo) {
         parts.push(format!("🤖 {}", model_short.dimmed()));
     }
 
-    // Elapsed time
     if info.elapsed_secs > 0.0 {
         let color = if info.elapsed_secs > 10.0 {
             "🔴"
@@ -510,7 +537,6 @@ pub fn print_status_bar(info: &StatusInfo) {
         parts.push(format!("{} {:.1}s", color, info.elapsed_secs));
     }
 
-    // API calls
     if info.api_calls > 1 {
         parts.push(format!("🔄 {} calls", info.api_calls));
     }
@@ -523,7 +549,7 @@ pub fn print_status_bar(info: &StatusInfo) {
     println!("  {}", format!("  {}", parts.join("  │  ")).dimmed());
 }
 
-/// Format token count for display (e.g. 1234 → "1.2K", 1234567 → "1.2M")
+/// Format token count for display.
 pub fn format_tokens(n: u64) -> String {
     if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1_000_000.0)
@@ -535,13 +561,208 @@ pub fn format_tokens(n: u64) -> String {
 }
 
 /// Print a "now thinking" line with the current agent status.
-/// This is shown before the spinner starts.
 pub fn print_thinking_status(status_display: &str) {
     println!("  ⏳ {} {}", "⟐".dimmed(), status_display.dimmed());
 }
 
 /// Print a status update during processing (replaces previous line).
 pub fn print_status_update(status_display: &str) {
-    print!("\r\x1b[K  ⏳ {} {}", "⟐".dimmed(), status_display.dimmed());
+    #[cfg(feature = "tui")]
+    {
+        print!(
+            "\r\x1b[K  ⏳ {} {}",
+            "⟐".dimmed(),
+            status_display.dimmed()
+        );
+        let _ = io::stdout().flush();
+    }
+    #[cfg(not(feature = "tui"))]
+    {
+        println!("  ⏳ {}", status_display.dimmed());
+    }
+}
+
+// ============================================================================
+// Multi-line input reader
+// ============================================================================
+
+/// Read multi-line user input from the terminal.
+///
+/// When `tui` feature is enabled, supports Shift+Enter for newlines,
+/// arrow keys, and visual cursor. Otherwise falls back to simple stdin line.
+pub fn read_multiline_input() -> Option<String> {
+    #[cfg(feature = "tui")]
+    {
+        tui_read_multiline_input()
+    }
+    #[cfg(not(feature = "tui"))]
+    {
+        simple_read_line()
+    }
+}
+
+/// Simple stdin line reader (fallback when `tui` is disabled).
+#[cfg(not(feature = "tui"))]
+fn simple_read_line() -> Option<String> {
+    use std::io::BufRead;
+    print!("  {} ", "▸".green().bold());
     let _ = io::stdout().flush();
+    let mut line = String::new();
+    match io::stdin().lock().read_line(&mut line) {
+        Ok(0) => None, // EOF
+        Ok(_) => {
+            let trimmed = line.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+/// Full-featured multi-line reader (crossterm-based).
+#[cfg(feature = "tui")]
+fn tui_read_multiline_input() -> Option<String> {
+    let _ = terminal::enable_raw_mode();
+    let mut stdout = io::stdout();
+    let _ = stdout.queue(cursor::Show);
+    let _ = stdout.flush();
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
+    let mut cursor_pos: usize = 0;
+
+    print!("  {} ", "▸".green().bold());
+    let _ = stdout.flush();
+
+    loop {
+        if event::poll(std::time::Duration::from_millis(50)).is_err() {
+            continue;
+        }
+        let Ok(ev) = event::read() else { continue };
+        let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = ev
+        else {
+            continue;
+        };
+
+        match (code, modifiers) {
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                if lines.is_empty() && current_line.is_empty() {
+                    terminal::disable_raw_mode().ok();
+                    println!();
+                    return None;
+                }
+                lines.push(current_line);
+                let result = lines.join("\n");
+                terminal::disable_raw_mode().ok();
+                println!();
+                return Some(result);
+            }
+
+            (KeyCode::Enter, KeyModifiers::SHIFT)
+            | (KeyCode::Enter, KeyModifiers::ALT)
+            | (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+                lines.push(current_line.clone());
+                current_line.clear();
+                cursor_pos = 0;
+                print!("\n  {} ", "···".dimmed());
+                let _ = stdout.flush();
+            }
+
+            (KeyCode::Char('c'), KeyModifiers::CONTROL)
+            | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                terminal::disable_raw_mode().ok();
+                println!();
+                return None;
+            }
+
+            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                let chars: Vec<char> = current_line.chars().collect();
+                let mut new_line: Vec<char> = chars;
+                new_line.insert(cursor_pos, c);
+                current_line = new_line.into_iter().collect();
+                cursor_pos += 1;
+                redraw_line(&current_line, cursor_pos, &mut stdout);
+            }
+
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                if cursor_pos > 0 {
+                    let chars: Vec<char> = current_line.chars().collect();
+                    let mut new_line: Vec<char> = chars;
+                    new_line.remove(cursor_pos - 1);
+                    current_line = new_line.into_iter().collect();
+                    cursor_pos -= 1;
+                    redraw_line(&current_line, cursor_pos, &mut stdout);
+                }
+            }
+
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                let chars: Vec<char> = current_line.chars().collect();
+                if cursor_pos < chars.len() {
+                    let mut new_line: Vec<char> = chars;
+                    new_line.remove(cursor_pos);
+                    current_line = new_line.into_iter().collect();
+                    redraw_line(&current_line, cursor_pos, &mut stdout);
+                }
+            }
+
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                if cursor_pos > 0 {
+                    cursor_pos -= 1;
+                    redraw_line(&current_line, cursor_pos, &mut stdout);
+                }
+            }
+
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                let chars: Vec<char> = current_line.chars().collect();
+                if cursor_pos < chars.len() {
+                    cursor_pos += 1;
+                    redraw_line(&current_line, cursor_pos, &mut stdout);
+                }
+            }
+
+            (KeyCode::Home, _) => {
+                cursor_pos = 0;
+                let _ = write!(stdout, "\r\x1b[4C");
+                let _ = stdout.flush();
+            }
+
+            (KeyCode::End, _) => {
+                cursor_pos = current_line.chars().count();
+                let prefix_len = 4;
+                let target =
+                    prefix_len + current_line.chars().map(|c| c.len_utf8()).sum::<usize>();
+                let _ = write!(stdout, "\r\x1b[{}C", target);
+                let _ = stdout.flush();
+            }
+
+            (KeyCode::Esc, _) => {
+                current_line.clear();
+                cursor_pos = 0;
+                redraw_line(&current_line, cursor_pos, &mut stdout);
+            }
+
+            _ => {}
+        }
+    }
+}
+
+/// Redraw the current line with cursor at the correct position.
+#[cfg(feature = "tui")]
+fn redraw_line(line: &str, cursor_pos: usize, stdout: &mut io::Stdout) {
+    print!("\r\x1b[K");
+    print!("  {} {}", "▸".green().bold(), line);
+    let prefix_len = 4;
+    let target = prefix_len
+        + line
+            .chars()
+            .take(cursor_pos)
+            .map(|c| c.len_utf8())
+            .sum::<usize>();
+    print!("\r\x1b[{}C", target);
+    let _ = stdout.flush();
 }

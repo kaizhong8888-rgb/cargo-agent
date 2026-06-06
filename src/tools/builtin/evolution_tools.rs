@@ -179,7 +179,9 @@ impl SelfModifyTool {
         let quality_gate_result = if auto_quality_gate && verify {
             // Only run quality gate if cargo check passed
             match &verify_result {
-                Some(Ok(v)) if v["status"] == "pass" => Some(self.run_quality_gates_inner(&full_path)),
+                Some(Ok(v)) if v["status"] == "pass" => {
+                    Some(self.run_quality_gates_inner(&full_path))
+                }
                 _ => None,
             }
         } else {
@@ -269,7 +271,9 @@ impl SelfModifyTool {
 
         let quality_gate_result = if auto_quality_gate && verify {
             match &verify_result {
-                Some(Ok(v)) if v["status"] == "pass" => Some(self.run_quality_gates_inner(&full_path)),
+                Some(Ok(v)) if v["status"] == "pass" => {
+                    Some(self.run_quality_gates_inner(&full_path))
+                }
                 _ => None,
             }
         } else {
@@ -345,7 +349,10 @@ impl SelfModifyTool {
             "status": if anti_patterns.get("total").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { "pass" } else { "warn" },
             "counts": anti_patterns,
         }));
-        let total_anti = anti_patterns.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
+        let total_anti = anti_patterns
+            .get("total")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
         score -= total_anti;
 
         // Gate 3: File size check
@@ -419,10 +426,7 @@ impl SelfModifyTool {
                     "info"
                 };
                 // Extract line number if available
-                let line_num = line
-                    .split(':')
-                    .nth(1)
-                    .and_then(|s| s.parse::<u32>().ok());
+                let line_num = line.split(':').nth(1).and_then(|s| s.parse::<u32>().ok());
                 issues.push(serde_json::json!({
                     "severity": severity,
                     "message": line.trim().chars().take(200).collect::<String>(),
@@ -460,7 +464,12 @@ impl SelfModifyTool {
         let todo_count = filtered.matches("todo!").count();
         let unimplemented_count = filtered.matches("unimplemented!").count();
         let unsafe_count = filtered.matches("unsafe ").count();
-        let total = unwrap_count + expect_count + dbg_count + todo_count + unimplemented_count + unsafe_count;
+        let total = unwrap_count
+            + expect_count
+            + dbg_count
+            + todo_count
+            + unimplemented_count
+            + unsafe_count;
 
         serde_json::json!({
             "unwrap": unwrap_count,
@@ -1059,6 +1068,36 @@ impl Tool for ManageSkillsTool {
                 required: false,
                 parameter_type: "string".to_string(),
             },
+            ToolParameter {
+                name: "category".to_string(),
+                description: "Category for grouping (e.g. 'web-framework', 'database') (for create/update)".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "version".to_string(),
+                description: "Semantic version of the skill (e.g. '1.0.0') (for create/update)".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "author".to_string(),
+                description: "Author/creator of the skill (for create/update)".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "tags".to_string(),
+                description: "Comma-separated tags for fine-grained classification (for create/update)".to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
+            ToolParameter {
+                name: "priority".to_string(),
+                description: "Priority level 1-10 (higher = more important, default: 5) (for create/update)".to_string(),
+                required: false,
+                parameter_type: "number".to_string(),
+            },
         ]
     }
 
@@ -1077,20 +1116,31 @@ impl Tool for ManageSkillsTool {
                 let registry = SkillRegistry::load_from_dir(&skills_dir)
                     .map_err(|e| format!("Failed to load skills: {e}"))?;
                 let skills: Vec<Value> = registry
-                    .list()
+                    .list_with_metadata()
                     .iter()
-                    .map(|(name, desc, active)| {
+                    .map(|s| {
                         serde_json::json!({
-                            "name": name,
-                            "description": desc,
-                            "always_active": active,
+                            "name": &s.name,
+                            "description": &s.description,
+                            "always_active": s.always_active,
+                            "category": if s.category.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(s.category.clone()) },
+                            "version": if s.version.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(s.version.clone()) },
+                            "priority": s.priority,
+                            "tags": if s.tags.is_empty() { serde_json::Value::Null } else { serde_json::Value::Array(s.tags.iter().map(|t| serde_json::Value::String(t.clone())).collect()) },
                         })
                     })
                     .collect();
+                let stats = registry.stats();
                 Ok(serde_json::json!({
                     "status": "ok",
                     "count": skills.len(),
                     "skills": skills,
+                    "stats": {
+                        "total": stats.total,
+                        "always_active": stats.always_active,
+                        "with_metadata": stats.with_metadata,
+                        "categories": stats.categories,
+                    },
                 }))
             }
             "show" => {
@@ -1110,6 +1160,13 @@ impl Tool for ManageSkillsTool {
                         "keywords": skill.keywords,
                         "system_instructions": skill.system_instructions,
                         "reference": skill.reference,
+                        "category": skill.category,
+                        "version": skill.version,
+                        "author": skill.author,
+                        "created_at": skill.created_at,
+                        "updated_at": skill.updated_at,
+                        "tags": skill.tags,
+                        "priority": skill.priority,
                     },
                 }))
             }
@@ -1149,6 +1206,58 @@ impl Tool for ManageSkillsTool {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                let category = params
+                    .get("category")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let version = params
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let author = params
+                    .get("author")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let tags_str = params
+                    .get("tags")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let tags: Vec<String> = if tags_str.is_empty() {
+                    vec![]
+                } else {
+                    tags_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect()
+                };
+                let priority = params
+                    .get("priority")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u8)
+                    .unwrap_or(5)
+                    .clamp(1, 10);
+
+                // For updates, preserve existing metadata if not provided
+                let existing = Skill::from_file(&skills_dir.join(format!("{name}.yaml"))).ok();
+                let (created_at, final_version) = if let Some(ref existing_skill) = existing {
+                    let ts = if action == "create" {
+                        chrono::Utc::now().to_rfc3339()
+                    } else {
+                        existing_skill.created_at.clone()
+                    };
+                    let ver = if version.is_empty() {
+                        existing_skill.version.clone()
+                    } else {
+                        version.clone()
+                    };
+                    (ts, ver)
+                } else {
+                    (chrono::Utc::now().to_rfc3339(), if version.is_empty() { "0.1.0".into() } else { version })
+                };
+                let updated_at = chrono::Utc::now().to_rfc3339();
 
                 let skill = Skill {
                     name: name.to_string(),
@@ -1158,6 +1267,17 @@ impl Tool for ManageSkillsTool {
                     system_instructions,
                     reference,
                     reference_files: vec![],
+                    category,
+                    version: final_version,
+                    author: if author.is_empty() {
+                        existing.map_or("cargo-agent".into(), |s| if s.author.is_empty() { "cargo-agent".into() } else { s.author })
+                    } else {
+                        author
+                    },
+                    created_at,
+                    updated_at,
+                    tags,
+                    priority,
                 };
 
                 let file_path = skill

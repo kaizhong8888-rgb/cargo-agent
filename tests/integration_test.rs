@@ -1,6 +1,7 @@
 //! Integration tests for cargo-agent configuration and module loading.
 
 use cargo_agent::config::CargoConfig;
+use std::collections::HashMap;
 
 #[test]
 fn default_config_has_valid_defaults() {
@@ -20,6 +21,7 @@ fn config_validates_empty_model_name() {
             base_url: None,
         },
         api_key: None,
+        mcp_servers: HashMap::new(),
     };
     let issues = config.validate();
     assert!(issues.iter().any(|i| i.contains("model.name is empty")));
@@ -35,6 +37,7 @@ fn config_validates_invalid_base_url() {
             base_url: Some("not-a-url".into()),
         },
         api_key: None,
+        mcp_servers: HashMap::new(),
     };
     let issues = config.validate();
     assert!(issues.iter().any(|i| i.contains("base_url")));

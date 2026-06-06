@@ -68,24 +68,17 @@ impl CalendarInfo {
 
 /// Compute historical average returns by month
 fn compute_monthly_returns(candles: &[Candle]) -> Vec<f64> {
-    let mut monthly_sums = vec![0.0; 12];
-    let mut monthly_counts = vec![0usize; 12];
+    let mut monthly_sums = [0.0; 12];
+    let mut monthly_counts = [0usize; 12];
     let mut prev_price = candles[0].close;
-    let mut trading_day = 0;
 
-    for (i, candle) in candles.iter().enumerate().skip(1) {
+    for (trading_day, candle) in candles.iter().enumerate().skip(1) {
         let ret = (candle.close - prev_price) / prev_price;
         let cal = CalendarInfo::from_index(trading_day, 252);
         let month_idx = (cal.month as usize).saturating_sub(1).min(11);
         monthly_sums[month_idx] += ret;
         monthly_counts[month_idx] += 1;
         prev_price = candle.close;
-        trading_day += 1;
-
-        // Reset month approximation every ~21 days
-        if (i + 1) % 21 == 0 {
-            // month rollover
-        }
     }
 
     let mut averages = vec![0.0; 12];
@@ -99,13 +92,13 @@ fn compute_monthly_returns(candles: &[Candle]) -> Vec<f64> {
 
 /// Compute historical average returns by day of week
 fn compute_daily_returns(candles: &[Candle]) -> Vec<f64> {
-    let mut daily_sums = vec![0.0; 5];
-    let mut daily_counts = vec![0usize; 5];
+    let mut daily_sums = [0.0; 5];
+    let mut daily_counts = [0usize; 5];
     let mut prev_price = candles[0].close;
 
     for (i, candle) in candles.iter().enumerate().skip(1) {
         let ret = (candle.close - prev_price) / prev_price;
-        let day_of_week = (i % 5) as usize;
+        let day_of_week = i % 5;
         daily_sums[day_of_week] += ret;
         daily_counts[day_of_week] += 1;
         prev_price = candle.close;
@@ -132,7 +125,7 @@ fn compute_tom_effect(candles: &[Candle]) -> (f64, f64) {
 
     for candle in candles.iter().skip(1) {
         let ret = (candle.close - prev_price) / prev_price;
-        let is_tom = day_in_month < 3 || day_in_month >= 18; // first/last 3 trading days
+        let is_tom = !(3..18).contains(&day_in_month); // first/last 3 trading days
 
         if is_tom {
             tom_sum += ret;
@@ -146,7 +139,11 @@ fn compute_tom_effect(candles: &[Candle]) -> (f64, f64) {
         day_in_month = (day_in_month + 1) % 21;
     }
 
-    let tom_avg = if tom_count > 0 { tom_sum / tom_count as f64 } else { 0.0 };
+    let tom_avg = if tom_count > 0 {
+        tom_sum / tom_count as f64
+    } else {
+        0.0
+    };
     let rest_avg = if rest_count > 0 {
         rest_sum / rest_count as f64
     } else {
@@ -271,8 +268,7 @@ impl SeasonalAnalysis {
     /// Generate a human-readable summary
     pub fn summary(&self) -> String {
         let months = [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
         ];
         let days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
@@ -417,16 +413,16 @@ impl Default for HolidayEffectStrategy {
             pre_days: 1,
             post_days: 1,
             holiday_offsets: vec![
-                0,    // New Year
-                20,   // MLK Day
-                35,   // Presidents Day
-                75,   // Good Friday
-                105,  // Memorial Day
-                130,  // Independence Day
-                175,  // Labor Day
-                200,  // Thanksgiving
-                220,  // Christmas
-                245,  // Year-end
+                0,   // New Year
+                20,  // MLK Day
+                35,  // Presidents Day
+                75,  // Good Friday
+                105, // Memorial Day
+                130, // Independence Day
+                175, // Labor Day
+                200, // Thanksgiving
+                220, // Christmas
+                245, // Year-end
             ],
         }
     }

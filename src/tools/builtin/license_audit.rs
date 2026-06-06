@@ -795,7 +795,6 @@ struct RiskSummary {
     critical: usize,
 }
 
-
 struct Violation {
     package: String,
     license: String,
@@ -975,13 +974,19 @@ mod tests {
     #[test]
     fn test_normalize_license_or() {
         let tool = make_tool();
-        assert_eq!(tool.normalize_license("MIT OR Apache-2.0"), "MIT OR Apache-2.0");
+        assert_eq!(
+            tool.normalize_license("MIT OR Apache-2.0"),
+            "MIT OR Apache-2.0"
+        );
     }
 
     #[test]
     fn test_normalize_license_and() {
         let tool = make_tool();
-        assert_eq!(tool.normalize_license("MIT AND Apache-2.0"), "MIT AND Apache-2.0");
+        assert_eq!(
+            tool.normalize_license("MIT AND Apache-2.0"),
+            "MIT AND Apache-2.0"
+        );
     }
 
     #[test]
@@ -1090,11 +1095,41 @@ mod tests {
     fn test_count_risk_levels() {
         let tool = make_tool();
         let deps = vec![
-            DepLicense { name: "a".into(), version: "1.0".into(), license: "MIT".into(), risk_level: "low", is_copyleft: false },
-            DepLicense { name: "b".into(), version: "1.0".into(), license: "MPL-2.0".into(), risk_level: "medium", is_copyleft: true },
-            DepLicense { name: "c".into(), version: "1.0".into(), license: "GPL-3.0".into(), risk_level: "high", is_copyleft: true },
-            DepLicense { name: "d".into(), version: "1.0".into(), license: "AGPL-3.0".into(), risk_level: "critical", is_copyleft: true },
-            DepLicense { name: "e".into(), version: "1.0".into(), license: "BSD".into(), risk_level: "low", is_copyleft: false },
+            DepLicense {
+                name: "a".into(),
+                version: "1.0".into(),
+                license: "MIT".into(),
+                risk_level: "low",
+                is_copyleft: false,
+            },
+            DepLicense {
+                name: "b".into(),
+                version: "1.0".into(),
+                license: "MPL-2.0".into(),
+                risk_level: "medium",
+                is_copyleft: true,
+            },
+            DepLicense {
+                name: "c".into(),
+                version: "1.0".into(),
+                license: "GPL-3.0".into(),
+                risk_level: "high",
+                is_copyleft: true,
+            },
+            DepLicense {
+                name: "d".into(),
+                version: "1.0".into(),
+                license: "AGPL-3.0".into(),
+                risk_level: "critical",
+                is_copyleft: true,
+            },
+            DepLicense {
+                name: "e".into(),
+                version: "1.0".into(),
+                license: "BSD".into(),
+                risk_level: "low",
+                is_copyleft: false,
+            },
         ];
         let summary = tool.count_risk_levels(&deps);
         assert_eq!(summary.low, 2);

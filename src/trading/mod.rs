@@ -21,6 +21,7 @@ pub mod risk_management;
 pub mod seasonal_strategy;
 pub mod statistical_arbitrage;
 pub mod strategy;
+pub mod strategy_comparison;
 pub mod strategy_router;
 pub mod tencent;
 pub mod walk_forward;

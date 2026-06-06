@@ -177,7 +177,10 @@ fn search_fortunes(keyword: &str) -> Vec<&Fortune> {
         .filter(|f| {
             f.quote.to_lowercase().contains(&keyword_lower)
                 || f.author.to_lowercase().contains(&keyword_lower)
-                || f.category.to_string().to_lowercase().contains(&keyword_lower)
+                || f.category
+                    .to_string()
+                    .to_lowercase()
+                    .contains(&keyword_lower)
         })
         .collect()
 }
@@ -250,10 +253,7 @@ impl Tool for FortuneTool {
                     .get("keyword")
                     .and_then(|v| v.as_str())
                     .ok_or("keyword parameter is required for search action")?;
-                let limit = params
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(5) as usize;
+                let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
                 let results = search_fortunes(keyword);
                 let results: Vec<_> = results.into_iter().take(limit).collect();
 
@@ -288,10 +288,7 @@ impl Tool for FortuneTool {
                     .get("category")
                     .and_then(|v| v.as_str())
                     .ok_or("category parameter is required for category action. Available: safety, performance, philosophy, humor, best_practice")?;
-                let limit = params
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(5) as usize;
+                let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
                 let results = fortunes_by_category(category);
                 let results: Vec<_> = results.into_iter().take(limit).collect();
 
@@ -390,7 +387,9 @@ mod tests {
     fn test_fortunes_by_category() {
         let safety = fortunes_by_category("safety");
         assert!(!safety.is_empty());
-        assert!(safety.iter().all(|f| matches!(f.category, FortuneCategory::Safety)));
+        assert!(safety
+            .iter()
+            .all(|f| matches!(f.category, FortuneCategory::Safety)));
     }
 
     #[test]
@@ -410,6 +409,10 @@ mod tests {
 
     #[test]
     fn test_fortune_count() {
-        assert!(FORTUNES.len() >= 20, "Should have at least 20 fortunes, got {}", FORTUNES.len());
+        assert!(
+            FORTUNES.len() >= 20,
+            "Should have at least 20 fortunes, got {}",
+            FORTUNES.len()
+        );
     }
 }

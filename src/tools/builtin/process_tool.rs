@@ -185,6 +185,9 @@ fn kill_process(params: &HashMap<String, Value>) -> Result<Value, String> {
         "int" | "2" => {
             #[cfg(unix)]
             {
+                // SAFETY: `libc::kill` is a standard POSIX syscall. `pid_val` comes from
+                // user-supplied params and was validated to exist via `sys.process(pid)`.
+                // SIGINT is a standard signal number. The return value is checked.
                 unsafe { libc::kill(pid_val as i32, libc::SIGINT) == 0 }
             }
             #[cfg(not(unix))]

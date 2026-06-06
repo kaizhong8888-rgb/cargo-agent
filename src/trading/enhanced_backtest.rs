@@ -1,3 +1,21 @@
+/// Context for closing a position
+struct CloseContext<'a> {
+    exit_price: f64,
+    exit_idx: usize,
+    candles: &'a [Candle],
+    trades: &'a mut Vec<Trade>,
+    current_equity: &'a mut f64,
+    in_position: &'a mut bool,
+    entry_idx: usize,
+    entry_price: f64,
+    quantity: f64,
+    side: TradeSide,
+    exit_reason: &'a str,
+    exit_reasons: &'a mut std::collections::HashMap<String, (usize, f64)>,
+    base_slippage: f64,
+    commission_rate: f64,
+}
+
 /// 增强型回测引擎
 /// 集成：动态风险管理、市场状态识别、动态止损止盈、交易成本建模、执行延迟
 use super::backtest::{Trade, TradeSide};
@@ -231,22 +249,22 @@ impl EnhancedBacktestEngine {
                             };
 
                             if regime_ok {
-                                Self::close_position_fn(
-                                    price,
-                                    i,
+                                Self::close_position(CloseContext {
+                                    exit_price: price,
+                                    exit_idx: i,
                                     candles,
-                                    &mut trades,
-                                    &mut current_equity,
-                                    &mut in_position,
+                                    trades: &mut trades,
+                                    current_equity: &mut current_equity,
+                                    in_position: &mut in_position,
                                     entry_idx,
                                     entry_price,
-                                    entry_quantity,
+                                    quantity: entry_quantity,
                                     side,
-                                    "Signal Sell",
-                                    &mut exit_reasons,
-                                    self.config.base_slippage,
-                                    self.config.commission_rate,
-                                );
+                                    exit_reason: "Signal Sell",
+                                    exit_reasons: &mut exit_reasons,
+                                    base_slippage: self.config.base_slippage,
+                                    commission_rate: self.config.commission_rate,
+                                });
                                 last_signal_idx = i;
                             }
                         }
@@ -279,22 +297,22 @@ impl EnhancedBacktestEngine {
                     if let Some(ref exit_mgr) = exit_manager {
                         let exit_signal = exit_mgr.check_exit(price, atr, breakeven_triggered);
                         if exit_signal.should_exit {
-                            Self::close_position_fn(
-                                exit_signal.exit_price,
-                                i,
+                            Self::close_position(CloseContext {
+                                exit_price: exit_signal.exit_price,
+                                exit_idx: i,
                                 candles,
-                                &mut trades,
-                                &mut current_equity,
-                                &mut in_position,
+                                trades: &mut trades,
+                                current_equity: &mut current_equity,
+                                in_position: &mut in_position,
                                 entry_idx,
                                 entry_price,
-                                entry_quantity,
+                                quantity: entry_quantity,
                                 side,
-                                &exit_signal.reason,
-                                &mut exit_reasons,
-                                self.config.base_slippage,
-                                self.config.commission_rate,
-                            );
+                                exit_reason: &exit_signal.reason,
+                                exit_reasons: &mut exit_reasons,
+                                base_slippage: self.config.base_slippage,
+                                commission_rate: self.config.commission_rate,
+                            });
                             exit_manager = None;
                         }
                     }
@@ -321,22 +339,22 @@ impl EnhancedBacktestEngine {
         if in_position {
             let last_idx = candles.len() - 1;
             let last_price = candles[last_idx].close;
-            Self::close_position_fn(
-                last_price,
-                last_idx,
+            Self::close_position(CloseContext {
+                exit_price: last_price,
+                exit_idx: last_idx,
                 candles,
-                &mut trades,
-                &mut current_equity,
-                &mut in_position,
+                trades: &mut trades,
+                current_equity: &mut current_equity,
+                in_position: &mut in_position,
                 entry_idx,
                 entry_price,
-                entry_quantity,
+                quantity: entry_quantity,
                 side,
-                "End of Data",
-                &mut exit_reasons,
-                self.config.base_slippage,
-                self.config.commission_rate,
-            );
+                exit_reason: "End of Data",
+                exit_reasons: &mut exit_reasons,
+                base_slippage: self.config.base_slippage,
+                commission_rate: self.config.commission_rate,
+            });
         }
 
         let final_equity = current_equity;
@@ -418,53 +436,39 @@ impl EnhancedBacktestEngine {
         vol * 0.5 + base_slippage
     }
 
-    fn close_position_fn(
-        exit_price: f64,
-        exit_idx: usize,
-        candles: &[Candle],
-        trades: &mut Vec<Trade>,
-        current_equity: &mut f64,
-        in_position: &mut bool,
-        entry_idx: usize,
-        entry_price: f64,
-        quantity: f64,
-        side: TradeSide,
-        exit_reason: &str,
-        exit_reasons: &mut std::collections::HashMap<String, (usize, f64)>,
-        base_slippage: f64,
-        commission_rate: f64,
-    ) {
-        let sell_price = exit_price * (1.0 - base_slippage);
-        let revenue = quantity * sell_price;
-        let commission = revenue * commission_rate;
-        let pnl = revenue - commission - (quantity * entry_price);
+    fn close_position(ctx: CloseContext<'_>) {
+        let sell_price = ctx.exit_price * (1.0 - ctx.base_slippage);
+        let revenue = ctx.quantity * sell_price;
+        let commission = revenue * ctx.commission_rate;
+        let pnl = revenue - commission - (ctx.quantity * ctx.entry_price);
 
-        *current_equity += revenue - commission;
-        *in_position = false;
+        *ctx.current_equity += revenue - commission;
+        *ctx.in_position = false;
 
-        let pnl_pct = if entry_price > 0.0 {
-            (sell_price - entry_price) / entry_price * 100.0
+        let pnl_pct = if ctx.entry_price > 0.0 {
+            (sell_price - ctx.entry_price) / ctx.entry_price * 100.0
         } else {
             0.0
         };
 
-        let entry = exit_reasons
-            .entry(exit_reason.to_string())
+        let entry = ctx
+            .exit_reasons
+            .entry(ctx.exit_reason.to_string())
             .or_insert((0, 0.0));
         entry.0 += 1;
         entry.1 += pnl;
 
-        trades.push(Trade {
-            entry_time: candles[entry_idx].timestamp.to_rfc3339(),
-            exit_time: candles[exit_idx].timestamp.to_rfc3339(),
-            side,
-            entry_price,
+        ctx.trades.push(Trade {
+            entry_time: ctx.candles[ctx.entry_idx].timestamp.to_rfc3339(),
+            exit_time: ctx.candles[ctx.exit_idx].timestamp.to_rfc3339(),
+            side: ctx.side,
+            entry_price: ctx.entry_price,
             exit_price: sell_price,
-            quantity,
+            quantity: ctx.quantity,
             pnl,
             pnl_percent: pnl_pct,
-            bars_held: exit_idx - entry_idx,
-            exit_reason: exit_reason.to_string(),
+            bars_held: ctx.exit_idx - ctx.entry_idx,
+            exit_reason: ctx.exit_reason.to_string(),
         });
     }
 

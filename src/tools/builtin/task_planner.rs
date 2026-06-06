@@ -80,6 +80,12 @@ impl Tool for TaskPlannerTool {
                 required: false,
                 parameter_type: "string".to_string(),
             },
+            ToolParameter {
+                name: "subtasks".to_string(),
+                description: r#"JSON array of subtask objects for decompose action. Each object: {"title":"...","description":"...","depends_on":"..."} (depends_on is comma-separated titles of tasks this depends on)"#.to_string(),
+                required: false,
+                parameter_type: "string".to_string(),
+            },
         ]
     }
 
@@ -96,6 +102,7 @@ impl Tool for TaskPlannerTool {
             "show" => self.show(params),
             "delete" => self.delete(params),
             "decompose" => self.decompose(params),
+            "batch_create" => self.create(params),
             other => Err(format!("Unknown action: {other}")),
         }
     }

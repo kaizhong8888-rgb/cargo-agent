@@ -1,3 +1,5 @@
+// ── Always compiled (core coding tools) ──────────────────────
+#[cfg(feature = "compression")]
 pub mod archive_tool;
 pub mod ast_analyzer;
 pub mod async_profiler;
@@ -14,9 +16,9 @@ pub mod config_store;
 pub mod container_tool;
 pub mod cron_tool;
 pub mod cross_compile;
-pub mod crypto_tool;
 pub mod data_processor;
 pub mod database_tool;
+pub mod date_time_tool;
 pub mod db_migration;
 pub mod dep_manager;
 pub mod diagram;
@@ -27,39 +29,62 @@ pub mod env_file_tool;
 pub mod env_secret;
 pub mod evolution_tools;
 pub mod file_tools;
-pub mod fs_tools;
-pub mod fuzz_driver;
 pub mod fortune_tool;
+pub mod fuzz_driver;
 pub mod git_tools;
 pub mod git_workflow_tool;
-pub mod github_tool;
-pub mod hash_tool;
 pub mod hello_tool;
-pub mod image_tool;
 pub mod json_schema_tool;
 pub mod license_audit;
 pub mod llm_tool;
 pub mod log_analyzer;
-pub mod mail_tool;
 pub mod markdown_tool;
 pub mod memory_tool;
 pub mod net_tools;
 pub mod notify;
 pub mod openapi_tool;
-pub mod pdf_tool;
 pub mod plugin_tool;
-pub mod process_tool;
 pub mod regex_tool;
 pub mod scaffold;
 pub mod scheduler;
 pub mod security_scanner;
 pub mod smart_refactor;
-pub mod sysmonitor_tool;
 pub mod task_planner;
 pub mod task_pool;
-pub mod template_tool;
 pub mod test_generator;
 pub mod text_processor;
 pub mod todo_manager;
 
-pub mod date_time_tool;
+// ── Feature-gated modules ────────────────────────────────────
+#[cfg(feature = "crypto")]
+pub mod crypto_tool;
+
+#[cfg(feature = "crypto")]
+pub mod hash_tool;
+
+#[cfg(feature = "image")]
+pub mod image_tool;
+
+#[cfg(feature = "email")]
+pub mod mail_tool;
+
+#[cfg(feature = "pdf")]
+pub mod pdf_tool;
+
+#[cfg(feature = "scraper")]
+pub mod browser_tool;
+
+#[cfg(feature = "browser")]
+pub mod browser_automation;
+
+#[cfg(feature = "sysinfo")]
+pub mod sysmonitor_tool;
+
+#[cfg(feature = "sysinfo")]
+pub mod process_tool;
+
+#[cfg(feature = "templates")]
+pub mod template_tool;
+
+#[cfg(feature = "trading")]
+pub mod quantitative_trading_tool;

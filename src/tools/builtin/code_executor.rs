@@ -17,10 +17,13 @@ const DEFAULT_TIMEOUT_SECS: u64 = 60;
 /// Kill a process and all its children by PID (Unix).
 /// Used to enforce execution timeouts.
 fn kill_process_tree(pid: u32) {
-    // Send SIGTERM first (graceful)
+    // SAFETY: `kill` is a standard POSIX syscall. We cast `pid` (u32) to `pid_t`
+    // which is always safe. The process ID was obtained from `child.id()`,
+    // so it refers to a valid child process of this program.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
     // Small delay then SIGKILL if still alive
     std::thread::sleep(Duration::from_millis(500));
+    // SAFETY: Same reasoning as above. SIGKILL is sent to the same child process.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
 }
 

@@ -163,28 +163,25 @@ pub fn create_audit_log_hook() -> HookFn {
     })
 }
 
-/// Metrics hook: feeds tool call timing into shared metrics sink.
+/// Metrics hook: returns a diagnostic message from session metrics.
+///
+/// Recording is already done by `AIAgent::execute_tool` calling
+/// `SessionMetrics::record_tool_call`. This hook only reads back
+/// for diagnostics — no side effects.
 pub fn create_metrics_hook(
-    sink: Arc<parking_lot::Mutex<crate::metrics::ToolCallMetrics>>,
+    metrics: Arc<crate::metrics::SessionMetrics>,
 ) -> HookFn {
     Arc::new(move |event| {
         if let HookEvent::AfterTool(res) = event {
-            let mut m = sink.lock();
-            m.total_calls += 1;
-            m.total_duration_ms += res.duration_ms;
-            if res.success {
-                m.success_calls += 1;
-            } else {
-                m.error_calls += 1;
-            }
-            m.per_tool
-                .entry(res.tool_name.to_string())
-                .or_default()
-                .record(res.duration_ms, res.success);
+            let calls = metrics.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
+            let avg = metrics.avg_tool_latency_ms();
             format!(
-                "metrics: {} calls, avg {:.1}ms",
-                m.total_calls,
-                m.average_duration_ms()
+                "metrics: {} calls, avg {:.1}ms, last tool: {} ({:.0}ms {})",
+                calls,
+                avg,
+                res.tool_name,
+                res.duration_ms as f64,
+                if res.success { "ok" } else { "err" },
             )
         } else {
             String::new()

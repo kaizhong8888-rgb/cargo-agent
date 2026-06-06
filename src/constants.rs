@@ -23,8 +23,25 @@ pub static AGENT_DIR: Lazy<String> = Lazy::new(|| format!("{}/.cargo-agent", *CA
 /// let dir = memories_dir();
 /// assert!(dir.ends_with("/.cargo-agent/memories"));
 /// ```
-pub fn memories_dir() -> String {
-    format!("{}/memories", *AGENT_DIR)
+pub fn memories_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(&*AGENT_DIR).join("memories")
+}
+
+/// Canonical SQLite path for long-term agent memories.
+pub fn memories_db_path() -> std::path::PathBuf {
+    memories_dir().join("memories.db")
+}
+
+/// Ensure the memories directory exists and migrate legacy `memories.db` at agent root.
+pub fn ensure_memories_db() -> std::path::PathBuf {
+    let dir = memories_dir();
+    std::fs::create_dir_all(&dir).ok();
+    let canonical = memories_db_path();
+    let legacy = std::path::PathBuf::from(&*AGENT_DIR).join("memories.db");
+    if !canonical.exists() && legacy.exists() && std::fs::rename(&legacy, &canonical).is_err() {
+        std::fs::copy(&legacy, &canonical).ok();
+    }
+    canonical
 }
 
 /// Get the path to the skills directory.
@@ -65,7 +82,13 @@ mod tests {
     #[test]
     fn test_memories_dir_format() {
         let dir = memories_dir();
-        assert!(dir.contains(".cargo-agent/memories"));
+        assert!(dir.to_string_lossy().contains(".cargo-agent/memories"));
+    }
+
+    #[test]
+    fn test_memories_db_path_format() {
+        let path = memories_db_path();
+        assert!(path.to_string_lossy().ends_with("memories/memories.db"));
     }
 
     #[test]
