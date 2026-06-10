@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="专业印刷包装定制服务 - 高品质包装盒、标签、画册一站式定制">
+    <title>{% block title %}PrintPack - 专业印刷包装定制{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container nav-container">
+            <a href="/" class="logo">📦 PrintPack</a>
+            <div class="nav-links" id="navLinks">
+                <a href="/">{{ t("nav.home") }}</a>
+                <a href="/products">{{ t("nav.products") }}</a>
+                <a href="/quote">{{ t("nav.quote") }}</a>
+            </div>
+            <div class="nav-auth">
+                <a href="/cart" class="cart-link">🛒 {{ t("nav.cart") }}</a>
+                <a href="/lang/zh">中文</a>
+                <a href="/lang/en">EN</a>
+                <a href="/login">{{ t("nav.login") }}</a>
+                <a href="/register" class="btn btn-sm btn-primary">{{ t("nav.register") }}</a>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-grid">
+            <div>
+                <h4>{{ t("footer.about") }}</h4>
+                <p>专业印刷包装定制服务平台</p>
+            </div>
+            <div>
+                <h4>{{ t("footer.contact") }}</h4>
+                <p>{{ t("footer.phone") }}</p>
+                <p>{{ t("footer.email") }}</p>
+            </div>
+            <div>
+                <h4>快速链接</h4>
+                <p><a href="/products">{{ t("nav.products") }}</a></p>
+                <p><a href="/quote">{{ t("nav.quote") }}</a></p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>{{ t("footer.copyright") }}</p>
+        </div>
+    </footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

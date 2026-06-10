@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
 
-// ─── 应用状态 ────────────────────────────────────────────────────
+// ─── Data Models ────────────────────────────────────────────────────
 
-/// 笔记条目
+/// A user-created note with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub id: String,
@@ -14,7 +14,7 @@ pub struct Note {
     pub updated_at: String,
 }
 
-/// 系统信息
+/// System information for display.
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemInfo {
     pub os: String,
@@ -25,7 +25,7 @@ pub struct SystemInfo {
     pub rust_version: String,
 }
 
-/// 文件条目
+/// A file or directory entry.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileEntry {
     pub name: String,
@@ -35,21 +35,21 @@ pub struct FileEntry {
     pub modified: String,
 }
 
-/// 应用全局状态
+/// Global application state shared across Tauri commands.
 pub struct AppState {
     pub notes: Mutex<Vec<Note>>,
     pub notes_dir: Mutex<std::path::PathBuf>,
 }
 
-// ─── 系统命令 ────────────────────────────────────────────────────
+// ─── System Commands ────────────────────────────────────────────────────
 
-/// 获取系统信息
+/// Returns system information including OS, hostname, CPU cores, and memory.
 #[tauri::command]
 fn get_system_info() -> SystemInfo {
     SystemInfo {
         os: std::env::consts::OS.to_string(),
         hostname: hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
+            .map(|h| h.to_string_lossy().into_owned())
             .unwrap_or_else(|_| "unknown".into()),
         cpu_cores: num_cpus::get() as u32,
         memory_total_mb: sys_info::mem_info()
@@ -60,9 +60,9 @@ fn get_system_info() -> SystemInfo {
     }
 }
 
-// ─── 笔记命令 ────────────────────────────────────────────────────
+// ─── Note Commands ────────────────────────────────────────────────────
 
-/// 加载所有笔记
+/// Returns all notes sorted by last-modified time (newest first).
 #[tauri::command]
 fn load_notes(state: State<'_, AppState>) -> Result<Vec<Note>, String> {
     let notes = state.notes.lock().map_err(|e| e.to_string())?;
@@ -71,14 +71,16 @@ fn load_notes(state: State<'_, AppState>) -> Result<Vec<Note>, String> {
     Ok(sorted)
 }
 
-/// 创建笔记
+/// Creates a new note with the given title and content.
+///
+/// Persists the note to disk and adds it to the in-memory store.
 #[tauri::command]
 fn create_note(
     title: String,
     content: String,
     state: State<'_, AppState>,
 ) -> Result<Note, String> {
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = now_string();
     let id = uuid::Uuid::new_v4().to_string();
 
     let note = Note {
@@ -89,22 +91,20 @@ fn create_note(
         updated_at: now,
     };
 
-    // 保存到文件系统
-    let notes_dir = state.notes_dir.lock().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&*notes_dir).map_err(|e| e.to_string())?;
+    save_note_to_disk(&id, &note, &state.notes_dir)?;
 
-    let file_path = notes_dir.join(format!("{}.json", id));
-    let json = serde_json::to_string_pretty(&note).map_err(|e| e.to_string())?;
-    std::fs::write(&file_path, &json).map_err(|e| e.to_string())?;
-
-    // 添加到内存状态
-    let mut notes = state.notes.lock().map_err(|e| e.to_string())?;
-    notes.push(note.clone());
+    state
+        .notes
+        .lock()
+        .map_err(|e| e.to_string())?
+        .push(note.clone());
 
     Ok(note)
 }
 
-/// 更新笔记
+/// Updates an existing note by ID.
+///
+/// Updates the title, content, and timestamp, then persists to disk.
 #[tauri::command]
 fn update_note(
     id: String,
@@ -112,45 +112,63 @@ fn update_note(
     content: String,
     state: State<'_, AppState>,
 ) -> Result<Note, String> {
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let now = now_string();
 
-    let mut notes = state.notes.lock().map_err(|e| e.to_string())?;
-    let note = notes
-        .iter_mut()
-        .find(|n| n.id == id)
-        .ok_or_else(|| "Note not found".to_string())?;
+    {
+        let mut notes = state.notes.lock().map_err(|e| e.to_string())?;
+        let note = notes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| "Note not found".to_string())?;
 
-    note.title = title;
-    note.content = content;
-    note.updated_at = now.clone();
+        note.title = title;
+        note.content = content;
+        note.updated_at = now;
+    }
 
-    // 同步到文件系统
-    let notes_dir = state.notes_dir.lock().map_err(|e| e.to_string())?;
-    let file_path = notes_dir.join(format!("{}.json", id));
-    let json = serde_json::to_string_pretty(&*note).map_err(|e| e.to_string())?;
-    std::fs::write(&file_path, &json).map_err(|e| e.to_string())?;
+    // Re-read the note for disk persistence (lock already released)
+    let note = {
+        let notes = state.notes.lock().map_err(|e| e.to_string())?;
+        notes
+            .iter()
+            .find(|n| n.id == id)
+            .cloned()
+            .ok_or_else(|| "Note not found after update".to_string())?
+    };
 
-    Ok(note.clone())
+    save_note_to_disk(&id, &note, &state.notes_dir)?;
+
+    Ok(note)
 }
 
-/// 删除笔记
+/// Deletes a note by ID, removing it from both memory and disk.
 #[tauri::command]
 fn delete_note(id: String, state: State<'_, AppState>) -> Result<bool, String> {
-    let mut notes = state.notes.lock().map_err(|e| e.to_string())?;
-    let pos = notes.iter().position(|n| n.id == id).ok_or("Note not found")?;
-    notes.remove(pos);
+    let pos = state
+        .notes
+        .lock()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .position(|n| n.id == id)
+        .ok_or("Note not found")?;
 
-    // 删除文件
-    let notes_dir = state.notes_dir.lock().map_err(|e| e.to_string())?;
-    let file_path = notes_dir.join(format!("{}.json", id));
-    let _ = std::fs::remove_file(&file_path);
+    state.notes.lock().map_err(|e| e.to_string())?.remove(pos);
+
+    // Remove disk file (ignore errors — file may already be gone)
+    if let Ok(notes_dir) = state.notes_dir.lock() {
+        let file_path = notes_dir.join(format!("{}.json", id));
+        if let Err(e) = std::fs::remove_file(&file_path) {
+            tracing::warn!("Failed to remove note file {:?}: {}", file_path, e);
+        }
+    }
 
     Ok(true)
 }
 
-// ─── 文件系统命令 ────────────────────────────────────────────────
+// ─── Filesystem Commands ────────────────────────────────────────────────
 
-/// 列出目录内容
+/// Lists the contents of a directory, sorted with directories first
+/// then alphabetically (case-insensitive).
 #[tauri::command]
 fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
     let dir = std::path::Path::new(&path);
@@ -158,28 +176,31 @@ fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
         return Err("Not a directory".to_string());
     }
 
-    let mut entries: Vec<FileEntry> = Vec::new();
-
-    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let metadata = entry.metadata().map_err(|e| e.to_string())?;
-
-        entries.push(FileEntry {
-            name: entry.file_name().to_string_lossy().to_string(),
-            path: entry.path().to_string_lossy().to_string(),
-            size: metadata.len(),
-            is_dir: metadata.is_dir(),
-            modified: metadata
+    let entries: Result<Vec<FileEntry>, String> = std::fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| -> Result<FileEntry, String> {
+            let metadata = entry.metadata().map_err(|e| e.to_string())?;
+            let modified = metadata
                 .modified()
                 .map(|t| {
                     let dt: chrono::DateTime<chrono::Local> = t.into();
                     dt.format("%Y-%m-%d %H:%M:%S").to_string()
                 })
-                .unwrap_or_default(),
-        });
-    }
+                .unwrap_or_default();
 
-    // 目录优先，再按名称排序
+            Ok(FileEntry {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                path: entry.path().to_string_lossy().into_owned(),
+                size: metadata.len(),
+                is_dir: metadata.is_dir(),
+                modified,
+            })
+        })
+        .collect();
+
+    let mut entries = entries?;
+
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
@@ -189,30 +210,28 @@ fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
     Ok(entries)
 }
 
-/// 读取文件内容
+/// Reads the full contents of a text file.
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))?;
-    Ok(content)
+    std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))
 }
 
-/// 写入文件
+/// Writes text content to a file, creating or overwriting it.
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<bool, String> {
-    std::fs::write(&path, &content).map_err(|e| format!("写入失败: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("写入失败: {}", e))?;
     Ok(true)
 }
 
-// ─── 应用启动 ────────────────────────────────────────────────────
+// ─── App Bootstrap ────────────────────────────────────────────────────────
 
+/// Runs the Tauri application with all plugins and commands registered.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 笔记存储目录（用户数据目录）
     let notes_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("dev-notes");
 
-    // 启动时加载已有笔记
     let initial_notes = load_notes_from_disk(&notes_dir);
 
     tauri::Builder::default()
@@ -235,26 +254,42 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// 从磁盘加载已有笔记
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+/// Returns the current local time as a formatted string.
+fn now_string() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Persists a single note to the notes directory as a JSON file.
+fn save_note_to_disk(
+    id: &str,
+    note: &Note,
+    notes_dir_lock: &Mutex<std::path::PathBuf>,
+) -> Result<(), String> {
+    let notes_dir = notes_dir_lock.lock().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&*notes_dir).map_err(|e| e.to_string())?;
+
+    let file_path = notes_dir.join(format!("{}.json", id));
+    let json = serde_json::to_string_pretty(note).map_err(|e| e.to_string())?;
+    std::fs::write(&file_path, json).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Loads all `.json` note files from the notes directory.
 fn load_notes_from_disk(notes_dir: &std::path::Path) -> Vec<Note> {
     if !notes_dir.exists() {
         return Vec::new();
     }
 
-    let mut notes = Vec::new();
-
-    if let Ok(entries) = std::fs::read_dir(notes_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "json") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(note) = serde_json::from_str::<Note>(&content) {
-                        notes.push(note);
-                    }
-                }
-            }
-        }
-    }
-
-    notes
+    std::fs::read_dir(notes_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
+        .filter_map(|entry| std::fs::read_to_string(&entry.path()).ok())
+        .filter_map(|content| serde_json::from_str::<Note>(&content).ok())
+        .collect()
 }

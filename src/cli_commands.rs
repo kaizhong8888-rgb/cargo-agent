@@ -147,6 +147,18 @@ pub fn help_general() -> String {
         ],
     );
 
+    // Shortcuts
+    section(
+        &mut out,
+        "Shortcuts",
+        &[
+            ("/shortcut add", "Add a command shortcut"),
+            ("/shortcut remove", "Remove a shortcut"),
+            ("/shortcut list", "List all shortcuts"),
+            ("/shortcut | /sc", "Manage custom command aliases"),
+        ],
+    );
+
     // Memory
     section(
         &mut out,
@@ -194,9 +206,10 @@ pub fn help_topic(topic: &str) -> String {
         "git" => help_git_detail(),
         "tasks" | "task" | "task_planner" => help_tasks_detail(),
         "skills" | "skill" => help_skills_detail(),
-        "commands" | "shortcuts" | "all" => help_general(),
+        "shortcut" | "shortcuts" => help_shortcut_detail(),
+        "commands" | "all" => help_general(),
         _ => format!(
-            "No help available for `{topic}`.\nTry: tools, memory, git, tasks, skills, commands"
+            "No help available for `{topic}`.\nTry: tools, memory, git, tasks, skills, shortcuts, commands"
         ),
     }
 }
@@ -277,6 +290,28 @@ fn help_skills_detail() -> String {
     out.push_str(&format!(
         "\n  {}\n",
         "Skill management — ask the agent to use manage_skills.".dimmed()
+    ));
+    out
+}
+
+fn help_shortcut_detail() -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "  {}  {}\n\n",
+        "🔗".bold(),
+        "Shortcuts — Quick Reference".cyan().bold()
+    ));
+    out.push_str("  /shortcut add <a> <c>    Create shortcut: /<a> → /<c>\n");
+    out.push_str("  /shortcut remove <a>    Remove a shortcut\n");
+    out.push_str("  /shortcut list          List all shortcuts\n");
+    out.push_str("  /shortcut | /sc         Manage custom command aliases\n");
+    out.push_str(&format!(
+        "\n  {}\n",
+        "Shortcuts persist in ~/.cargo-agent/shortcuts.json.".dimmed()
+    ));
+    out.push_str(&format!(
+        "  {}\n",
+        "Also accessible via the `config` tool with action: add_shortcut, remove_shortcut, list_shortcuts.".dimmed()
     ));
     out
 }

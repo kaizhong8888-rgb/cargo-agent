@@ -187,13 +187,10 @@ impl GitIgnorePattern {
         let mut chars = raw.chars().peekable();
         let anchored = !raw.starts_with('/');
 
+        // All branches add the same prefix; only the non-anchored branch consumes a leading '/'
+        regex_str.push_str("(^|/)");
         if !anchored {
-            regex_str.push_str("(^|/)");
             let _ = chars.next();
-        } else if raw.contains('/') {
-            regex_str.push_str("(^|/)");
-        } else {
-            regex_str.push_str("(^|/)");
         }
 
         while let Some(c) = chars.next() {

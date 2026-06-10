@@ -6,6 +6,7 @@ use crate::mcp::bridge::McpBridge;
 use crate::model::client::ModelClient;
 use crate::model::router::ModelRouter;
 use crate::skills::SkillRegistry;
+use crate::tools::builtin::config_store::ConfigStore;
 use crate::tools::ToolRegistry;
 use anyhow::Result;
 use colored::Colorize;
@@ -15,6 +16,7 @@ pub struct Gateway {
     agent: AIAgent,
     model_router: ModelRouter,
     mcp_bridge: Option<McpBridge>,
+    config_store: ConfigStore,
 }
 
 impl Gateway {
@@ -123,10 +125,13 @@ impl Gateway {
             Always run cargo check after code modifications to verify correctness.",
         );
 
+        let config_store = ConfigStore::load();
+
         Self {
             agent,
             model_router,
             mcp_bridge: None, // Initialized asynchronously in new_async
+            config_store,
         }
     }
 
@@ -228,7 +233,9 @@ impl Gateway {
     pub async fn handle_slash_command(&mut self, input: &str) -> crate::cli_commands::SlashAction {
         use crate::cli_commands::SlashAction;
 
-        let (cmd, args) = crate::cli_commands::parse(input);
+        // Expand shortcuts before parsing
+        let expanded = self.expand_shortcuts(input);
+        let (cmd, args) = crate::cli_commands::parse(&expanded);
 
         match cmd {
             // ── Lifecycle ────────────────────────────────────
@@ -279,9 +286,46 @@ impl Gateway {
             "stats" => SlashAction::Output(self.slash_stats()),
             "mcp" => SlashAction::Output(self.slash_mcp(args).await),
 
+            // ── Shortcut management ─────────────────────────
+            "shortcut" | "sc" => SlashAction::Output(self.slash_shortcut(args)),
+
             // ── Unknown — let LLM try ────────────────────────
             _ => SlashAction::PassThrough,
         }
+    }
+
+    /// Expand input by resolving any configured shortcut.
+    ///
+    /// First checks in-memory shortcuts (updated via `/shortcut` commands).
+    /// Falls back to disk so that changes made via the `config` tool (LLM)
+    /// are also picked up.
+    fn expand_shortcuts(&self, input: &str) -> String {
+        if !input.starts_with('/') {
+            return input.to_string();
+        }
+
+        let rest = &input[1..];
+        let first_token = match rest.split_whitespace().next() {
+            Some(t) => t,
+            None => return input.to_string(),
+        };
+
+        // Check in-memory first (hot path: set via /shortcut)
+        if let Some(expanded) = self.config_store.get_shortcut(first_token) {
+            let expanded_rest = rest.replacen(first_token, &expanded, 1);
+            return format!("/{}", expanded_rest);
+        }
+
+        // Fall back to disk (picks up changes made via config tool / LLM)
+        let disk_store = ConfigStore::load();
+        if let Some(expanded) = disk_store.get_shortcut(first_token) {
+            let expanded_rest = rest.replacen(first_token, &expanded, 1);
+            // Sync into memory for next time
+            self.config_store.add_shortcut(first_token, &expanded);
+            return format!("/{}", expanded_rest);
+        }
+
+        input.to_string()
     }
 
     /// Clear conversation history and reset token usage (used by /clear command).
@@ -299,6 +343,80 @@ impl Gateway {
     /// Return a reference to the hook manager.
     pub fn hook_manager(&self) -> &crate::hooks::HookManager {
         self.agent.hook_manager()
+    }
+
+    // ── Tool commands ──────────────────────────────────────
+
+    // ── Shortcut commands ──────────────────────────────────
+
+    fn slash_shortcut(&self, args: &str) -> String {
+        let mut parts = args.splitn(3, ' ');
+        let subcmd = match parts.next() {
+            Some(s) => s,
+            None => return self.slash_shortcut_help(),
+        };
+
+        match subcmd {
+            "add" | "set" => {
+                let alias = match parts.next() {
+                    Some(a) => a,
+                    None => return "  Usage: `/shortcut add <alias> <command>` — e.g. `/shortcut add t tools`".to_string(),
+                };
+                let cmd = match parts.next() {
+                    Some(c) => c,
+                    None => return "  Usage: `/shortcut add <alias> <command>` — missing command".to_string(),
+                };
+                self.config_store.add_shortcut(alias, cmd);
+                format!(
+                    "  ✅ Shortcut added: /{} → /{}",
+                    alias.magenta().bold(),
+                    cmd.magenta().bold()
+                )
+            }
+            "remove" | "rm" | "del" | "delete" => {
+                let alias = match parts.next() {
+                    Some(a) => a,
+                    None => return "  Usage: `/shortcut remove <alias>` — e.g. `/shortcut remove t`".to_string(),
+                };
+                self.config_store.remove_shortcut(alias);
+                format!(
+                    "  ✅ Shortcut removed: /{}",
+                    alias.magenta().bold()
+                )
+            }
+            "list" | "ls" | "" => {
+                let shortcuts = self.config_store.list_shortcuts();
+                if shortcuts.is_empty() {
+                    return "  📭 No shortcuts defined.\n  Use `/shortcut add <alias> <command>` to create one.".to_string();
+                }
+                let mut out = String::with_capacity(512);
+                out.push_str(&format!(
+                    "  {}  {} ({})\n\n",
+                    "🔗".bold(),
+                    "Command Shortcuts".cyan().bold(),
+                    format!("{} defined", shortcuts.len()).dimmed()
+                ));
+                let mut pairs: Vec<(&String, &String)> = shortcuts.iter().collect();
+                pairs.sort_by(|a, b| a.0.cmp(b.0));
+                for (alias, cmd) in &pairs {
+                    out.push_str(&format!(
+                        "    /{:<12} → /{}\n",
+                        format!("{}", alias.magenta().bold()),
+                        cmd.magenta().bold()
+                    ));
+                }
+                out.push_str(&"\n  Use `/shortcut add <alias> <command>` to add more.".dimmed());
+                out
+            }
+            other => format!(
+                "  ❌ Unknown subcommand: `{other}`\n  {}",
+                self.slash_shortcut_help()
+            ),
+        }
+    }
+
+    fn slash_shortcut_help(&self) -> String {
+        "Usage:\n    /shortcut add <alias> <command>   Create a shortcut\n    /shortcut remove <alias>          Remove a shortcut\n    /shortcut list                     List all shortcuts\n\nExample: /shortcut add t tools".to_string()
     }
 
     // ── Tool commands ──────────────────────────────────────

@@ -100,7 +100,7 @@ impl Tool for LlmChatTool {
             },
             ToolParameter {
                 name: "timeout_secs".to_string(),
-                description: "Request timeout in seconds (default: 120)".to_string(),
+                description: "Request timeout in seconds (default: 300)".to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -150,7 +150,7 @@ impl Tool for LlmChatTool {
         let timeout_secs = params
             .get("timeout_secs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(120);
+            .unwrap_or(300);
 
         // Get API key: from params first, then try config file
         let api_key = params

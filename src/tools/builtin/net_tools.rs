@@ -35,7 +35,7 @@ impl Tool for FetchTool {
             },
             ToolParameter {
                 name: "timeout_secs".to_string(),
-                description: "Request timeout in seconds (default: 15)".to_string(),
+                description: "Request timeout in seconds (default: 120)".to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -63,7 +63,7 @@ impl Tool for FetchTool {
         let timeout_secs = params
             .get("timeout_secs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(15);
+            .unwrap_or(120);
 
         let max_size = params
             .get("max_size_bytes")
@@ -85,7 +85,7 @@ impl Tool for FetchTool {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
             .user_agent("cargo-agent/0.1.0 (self-evolving AI assistant)")
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
@@ -229,7 +229,7 @@ impl Tool for HttpClientTool {
             },
             ToolParameter {
                 name: "timeout_secs".to_string(),
-                description: "Request timeout in seconds (default: 30)".to_string(),
+                description: "Request timeout in seconds (default: 120)".to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -263,7 +263,7 @@ impl Tool for HttpClientTool {
         let timeout_secs = params
             .get("timeout_secs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(30);
+            .unwrap_or(120);
 
         let max_size = params
             .get("max_size_bytes")

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name_zh }} - PrintPack{% endblock %}
+{% block content %}
+<div class="container product-detail">
+    <div class="product-detail-grid">
+        <div class="product-gallery">
+            {% if product.image_url.is_some() %}
+            <img src="{{ product.image_url.as_ref().unwrap() }}" alt="{{ product.name_zh }}">
+            {% else %}
+            <div class="placeholder-img large">📦</div>
+            {% endif %}
+        </div>
+        <div class="product-detail-info">
+            <span class="product-category">{{ category.name_zh }}</span>
+            <h1>{{ product.name_zh }}</h1>
+            <p class="product-desc">{{ product.description_zh }}</p>
+            <div class="product-price-large">
+                <span class="price">¥{{ "%.2f"|format(product.base_price) }}</span>
+                <span class="unit">/{{ product.unit }}</span>
+            </div>
+            <p class="moq">{{ t("products.min_qty") }}: {{ product.min_quantity }} {{ product.unit }}</p>
+
+            {% if product.materials.is_some() %}
+            <div class="product-options">
+                <h3>{{ t("products.material_options") }}</h3>
+                <div class="materials-list">
+                    {% for material in product.materials.as_ref().unwrap().parse::<serde_json::Value>().unwrap_or(serde_json::Value::Array(vec![])).as_array().unwrap_or(&vec![]) %}
+                    <span class="material-tag">{{ material.as_str().unwrap_or("") }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="product-actions">
+                <a href="/quote?product={{ product.uuid }}" class="btn btn-primary btn-lg">{{ t("products.get_quote") }}</a>
+            </div>
+        </div>
+    </div>
+
+    {% if product.description_zh.is_some() %}
+    <div class="product-description">
+        <h2>{{ t("products.description") }}</h2>
+        <p>{{ product.description_zh.as_ref().unwrap() }}</p>
+    </div>
+    {% endif %}
+
+    {% if product.specs.is_some() %}
+    <div class="product-specs">
+        <h2>{{ t("products.specifications") }}</h2>
+        <div class="specs-list">
+            {% for spec in product.specs.as_ref().unwrap().parse::<serde_json::Value>().unwrap_or(serde_json::Value::Array(vec![])).as_array().unwrap_or(&vec![]) %}
+            <span class="spec-tag">{{ spec.as_str().unwrap_or("") }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

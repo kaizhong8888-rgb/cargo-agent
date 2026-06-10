@@ -1,0 +1,15 @@
+[general]
+# Directories to search for templates
+dirs = ["templates"]
+
+# The syntax to use
+default_syntax = "html"
+
+[[syntax]]
+name = "html"
+block_start = "{{"
+block_end = "}}"
+comment_start = "{#"
+comment_end = "#}"
+expr_block_start = "%%"
+expr_block_end = "%%"

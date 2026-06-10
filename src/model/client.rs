@@ -31,7 +31,7 @@ impl ModelClient {
             // Connection timeout: fail fast if we can't reach the API
             .connect_timeout(std::time::Duration::from_secs(15))
             // Overall timeout for the full request/response cycle
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(600))
             // TCP keepalive to detect dead connections
             .tcp_keepalive(std::time::Duration::from_secs(30))
             // Force HTTP/1.1 — the DashScope Anthropic endpoint only supports HTTP/1.1.
