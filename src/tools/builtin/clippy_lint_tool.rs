@@ -232,11 +232,14 @@ impl ClippyLintTool {
 
     /// Calculate a quality score from lint results.
     fn action_score(&self, params: &HashMap<String, Value>) -> Result<Value, String> {
-        let result_json = params.get("result_json").and_then(|v| v.as_str());
+        let result_json = params.get("result_json");
 
-        let (errors, warnings, notes) = if let Some(json_str) = result_json {
-            let lints: Vec<Value> =
-                serde_json::from_str(json_str).map_err(|e| format!("Invalid JSON: {e}"))?;
+        let (errors, warnings, notes) = if let Some(json_val) = result_json {
+            let lints: Vec<Value> = match json_val {
+                Value::Array(arr) => arr.clone(),
+                Value::String(s) => serde_json::from_str(s).map_err(|e| format!("Invalid JSON: {e}"))?,
+                _ => Vec::new(),
+            };
             classify_lints(&lints)
         } else {
             // Run clippy to get fresh results

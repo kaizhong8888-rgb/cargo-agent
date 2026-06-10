@@ -128,7 +128,6 @@ impl Tool for MarkdownProcessorTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing required parameter: action")?;
 
-        let content = load_content(params)?;
         let max_depth = params
             .get("max_depth")
             .and_then(|v| v.as_u64())
@@ -137,6 +136,7 @@ impl Tool for MarkdownProcessorTool {
 
         match action {
             "to_html" => {
+                let content = load_content(params)?;
                 let html = md_to_html(&content);
                 Ok(json!({
                     "status": "ok",
@@ -145,6 +145,7 @@ impl Tool for MarkdownProcessorTool {
                 }))
             }
             "to_text" => {
+                let content = load_content(params)?;
                 let text = md_to_text(&content);
                 Ok(json!({
                     "status": "ok",
@@ -153,6 +154,7 @@ impl Tool for MarkdownProcessorTool {
                 }))
             }
             "toc" => {
+                let content = load_content(params)?;
                 let toc = generate_toc(&content, max_depth);
                 Ok(json!({
                     "status": "ok",
@@ -162,6 +164,7 @@ impl Tool for MarkdownProcessorTool {
                 }))
             }
             "lint" => {
+                let content = load_content(params)?;
                 let issues = lint_markdown(&content);
                 Ok(json!({
                     "status": "ok",
@@ -172,6 +175,7 @@ impl Tool for MarkdownProcessorTool {
                 }))
             }
             "stats" => {
+                let content = load_content(params)?;
                 let stats = compute_md_stats(&content);
                 Ok(json!({
                     "status": "ok",
@@ -180,6 +184,7 @@ impl Tool for MarkdownProcessorTool {
                 }))
             }
             "transform" => {
+                let content = load_content(params)?;
                 let transformed = transform_markdown(&content);
                 Ok(json!({
                     "status": "ok",
@@ -190,6 +195,7 @@ impl Tool for MarkdownProcessorTool {
                 }))
             }
             "validate_links" => {
+                let content = load_content(params)?;
                 let links = validate_links(&content, base_path)?;
                 Ok(json!({
                     "status": "ok",
@@ -216,17 +222,15 @@ fn md_to_html(md: &str) -> String {
     let mut html = String::new();
     let mut in_code_block = false;
     let mut _code_lang = String::new();
-    let mut code_content = String::new();
 
     for line in md.lines() {
         if in_code_block {
             if line.starts_with("```") {
                 html.push_str("</code></pre>\n");
                 in_code_block = false;
-                code_content.clear();
             } else {
-                code_content.push_str(&escape_html(line));
-                code_content.push('\n');
+                html.push_str(&escape_html(line));
+                html.push('\n');
             }
             continue;
         }

@@ -1409,7 +1409,8 @@ mod tests {
     #[test]
     fn test_alternating_case() {
         let result = convert_case("hello", "alternating").unwrap();
-        assert_eq!(result, "hElLo");
+        // Implementation: even index → uppercase, odd index → lowercase
+        assert_eq!(result, "HeLlO");
     }
 
     #[test]

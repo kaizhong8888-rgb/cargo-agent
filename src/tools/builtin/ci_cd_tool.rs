@@ -411,22 +411,22 @@ fn run_build(project_path: &str, profile: &str) -> Result<Value, String> {
 fn generate_coverage_info(_project_path: &str) -> Result<Value, String> {
     let info = r#"# Test Coverage
 
-To generate test coverage, install cargo-tarpaulin:
+To generate test coverage, install cargo-llvm-cov:
 
 ```bash
-cargo install cargo-tarpaulin
+cargo install cargo-llvm-cov
 ```
 
 Then run:
 
 ```bash
-cargo tarpaulin --out Html --output-dir target/tarpaulin
+cargo llvm-cov --html
 ```
 
-Or for XML (CI integration):
+Or for JSON (CI integration):
 
 ```bash
-cargo tarpaulin --out Xml
+cargo llvm-cov --lib --json
 ```
 
 Coverage thresholds recommendation:
@@ -435,9 +435,9 @@ Coverage thresholds recommendation:
 - Function coverage: >= 85%
 "#;
 
-    // Try to check if tarpaulin is installed
-    let has_tarpaulin = std::process::Command::new("cargo")
-        .arg("tarpaulin")
+    // Try to check if llvm-cov is installed
+    let has_llvm_cov = std::process::Command::new("cargo")
+        .arg("llvm-cov")
         .arg("--version")
         .output()
         .map(|o| o.status.success())
@@ -446,12 +446,12 @@ Coverage thresholds recommendation:
     Ok(json!({
         "status": "ok",
         "action": "coverage",
-        "tarpaulin_installed": has_tarpaulin,
+        "llvm_cov_installed": has_llvm_cov,
         "instructions": info,
-        "recommendation": if has_tarpaulin {
-            "cargo-tarpaulin is installed. Run: cargo tarpaulin --out Html"
+        "recommendation": if has_llvm_cov {
+            "cargo-llvm-cov is installed. Run: cargo llvm-cov --html"
         } else {
-            "Install cargo-tarpaulin: cargo install cargo-tarpaulin"
+            "Install cargo-llvm-cov: cargo install cargo-llvm-cov"
         },
     }))
 }
