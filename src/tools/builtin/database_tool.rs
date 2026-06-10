@@ -2202,7 +2202,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_csv_no_header() {
-        let path = create_test_db("csv_noheader");
+        // Create a table with column names matching the no-header CSV import (col0, col1, etc.)
+        let path = format!("/tmp/test_db_{}_csv_noheader.sqlite", std::process::id());
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE raw_data (
+                col0 TEXT,
+                col1 TEXT,
+                col2 TEXT,
+                col3 TEXT
+             );",
+        )
+        .unwrap();
+        drop(conn);
+
         let csv_path = format!("/tmp/test_csv_noheader_{}.csv", std::process::id());
 
         let mut wtr = csv::WriterBuilder::new()
@@ -2218,7 +2232,7 @@ mod tests {
         let params = HashMap::from([
             ("action".to_string(), json!("import_csv")),
             ("database_path".to_string(), json!(path)),
-            ("table_name".to_string(), json!("users")),
+            ("table_name".to_string(), json!("raw_data")),
             ("csv_path".to_string(), json!(csv_path)),
             ("has_header".to_string(), json!(false)),
         ]);
@@ -2228,12 +2242,14 @@ mod tests {
 
         let conn = Connection::open(&path).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM raw_data", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 5);
+        assert_eq!(count, 2);
 
         let _ = std::fs::remove_file(&csv_path);
-        cleanup(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path));
+        let _ = std::fs::remove_file(format!("{}-shm", path));
     }
 
     #[tokio::test]

@@ -469,10 +469,10 @@ impl LicenseAuditTool {
             "low"
         } else if self.is_weak_copyleft(license) {
             "medium"
-        } else if self.is_strong_copyleft(license) {
-            "high"
         } else if self.is_network_copyleft(license) {
             "critical"
+        } else if self.is_strong_copyleft(license) {
+            "high"
         } else {
             "medium"
         }
@@ -513,14 +513,20 @@ impl LicenseAuditTool {
 
     fn is_strong_copyleft(&self, license: &str) -> bool {
         let lower = license.to_lowercase();
+        // Must check network copyleft first to avoid misclassification
+        if self.is_network_copyleft(license) {
+            return false;
+        }
+        if self.is_weak_copyleft(license) {
+            return false;
+        }
         lower.contains("gpl-2.0")
             || lower.contains("gpl-3.0")
             || lower.contains("gpl-2.0-only")
             || lower.contains("gpl-3.0-only")
             || lower.contains("gpl-2.0-or-later")
             || lower.contains("gpl-3.0-or-later")
-            || lower.contains("agpl-3.0")
-            || (lower.contains("gpl") && !lower.contains("lgpl"))
+            || lower.contains("gpl")
     }
 
     fn is_network_copyleft(&self, license: &str) -> bool {
@@ -723,6 +729,12 @@ impl LicenseAuditTool {
             if self.is_network_copyleft(&dep_lower) {
                 return LicenseCompat::Warning(
                     "AGPL/SSPL has additional network use requirements".to_string(),
+                );
+            }
+            // For network copyleft that also matches strong copyleft (AGPL-3.0 matches "gpl-3.0" substring)
+            if dep_lower.contains("agpl") {
+                return LicenseCompat::Warning(
+                    "AGPL has additional network use requirements".to_string(),
                 );
             }
         }
