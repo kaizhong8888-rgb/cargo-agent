@@ -31,7 +31,8 @@ impl ModelClient {
             // Connection timeout: fail fast if we can't reach the API
             .connect_timeout(std::time::Duration::from_secs(15))
             // Overall timeout for the full request/response cycle
-            .timeout(std::time::Duration::from_secs(600))
+            // Reduced from 600s to 120s — transient timeouts will be caught by retry logic
+            .timeout(std::time::Duration::from_secs(120))
             // TCP keepalive to detect dead connections
             .tcp_keepalive(std::time::Duration::from_secs(30))
             // Force HTTP/1.1 — the DashScope Anthropic endpoint only supports HTTP/1.1.
@@ -94,11 +95,16 @@ impl ModelClient {
             match self.chat_once(messages, tools).await {
                 Ok(response) => return Ok(response),
                 Err(e) => {
-                    let is_retryable = e.to_string().contains("429")
-                        || e.to_string().contains("500")
-                        || e.to_string().contains("502")
-                        || e.to_string().contains("503")
-                        || e.to_string().contains("504");
+                    let error_str = e.to_string();
+                    let is_timeout = error_str.contains("timed out")
+                        || error_str.contains("timeout")
+                        || error_str.contains("operation timed out");
+                    let is_retryable = is_timeout
+                        || error_str.contains("429")
+                        || error_str.contains("500")
+                        || error_str.contains("502")
+                        || error_str.contains("503")
+                        || error_str.contains("504");
 
                     if !is_retryable || attempt == MAX_RETRIES {
                         if !is_retryable {
