@@ -1,5 +1,6 @@
 pub mod builtin;
 pub mod registry;
+pub mod utils;
 
 pub use registry::{Tool, ToolParameter, ToolRegistry};
 
