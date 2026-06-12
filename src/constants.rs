@@ -21,7 +21,7 @@ pub static AGENT_DIR: Lazy<String> = Lazy::new(|| format!("{}/.cargo-agent", *CA
 /// use cargo_agent::constants::memories_dir;
 ///
 /// let dir = memories_dir();
-/// assert!(dir.ends_with("/.cargo-agent/memories"));
+/// assert!(dir.to_string_lossy().contains(".cargo-agent/memories"));
 /// ```
 pub fn memories_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(&*AGENT_DIR).join("memories")

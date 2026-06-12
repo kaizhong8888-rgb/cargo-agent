@@ -151,3 +151,5 @@ required-features = ["trading"]
 lto = "thin"
 codegen-units = 1
 opt-level = 3
+
+[dev-dependencies]

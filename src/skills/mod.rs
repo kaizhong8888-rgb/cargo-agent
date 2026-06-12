@@ -189,6 +189,13 @@ impl Skill {
     ///     system_instructions: String::new(),
     ///     reference: String::new(),
     ///     reference_files: vec![],
+    ///     category: String::new(),
+    ///     version: String::new(),
+    ///     author: String::new(),
+    ///     created_at: String::new(),
+    ///     updated_at: String::new(),
+    ///     tags: vec![],
+    ///     priority: 0,
     /// };
     ///
     /// assert!(skill.matches_message("How do I design a SQL schema?"));
