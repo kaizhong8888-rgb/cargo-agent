@@ -1,13 +1,53 @@
 use crate::models::*;
 use crate::AppState;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     Json,
 };
+use askama::Template;
 use bcrypt::{hash, verify, DEFAULT_COST};
-use sqlx::SqlitePool;
-use tracing::info;
+use serde_json::json;
+
+#[derive(Template)]
+#[template(path = "login.html")]
+pub struct LoginPageTemplate {
+    pub lang: String,
+    pub error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "register.html")]
+pub struct RegisterPageTemplate {
+    pub lang: String,
+    pub error: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Page handlers
+// ---------------------------------------------------------------------------
+
+pub async fn login_page(
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    LoginPageTemplate {
+        lang: "zh".to_string(),
+        error: params.get("error").cloned(),
+    }
+}
+
+pub async fn register_page(
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    RegisterPageTemplate {
+        lang: "zh".to_string(),
+        error: params.get("error").cloned(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// API handlers
+// ---------------------------------------------------------------------------
 
 pub async fn register(
     State(state): State<AppState>,
@@ -20,15 +60,16 @@ pub async fn register(
 
     // Check if email exists
     let existing = sqlx::query!("SELECT id FROM users WHERE email = ?", req.email)
-        .fetch_optional(&state.db)
+        .fetch_optional(&state.pool)
         .await;
 
-    if existing.is_ok() && existing.unwrap().is_some() {
+    if existing.is_ok() && existing.as_ref().is_some_and(|r| r.is_some()) {
         return Err(StatusCode::CONFLICT);
     }
 
     // Hash password
-    let password_hash = hash(&req.password, DEFAULT_COST).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let password_hash =
+        hash(&req.password, DEFAULT_COST).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let uuid = uuid::Uuid::new_v4().to_string();
 
     // Insert user
@@ -36,12 +77,11 @@ pub async fn register(
         "INSERT INTO users (uuid, email, password_hash, name, role, phone) VALUES (?, ?, ?, ?, 'customer', ?)",
         uuid, req.email, password_hash, req.name, req.phone
     )
-    .execute(&state.db)
+    .execute(&state.pool)
     .await;
 
     match result {
         Ok(_) => {
-            info!("User registered: {}", req.email);
             let user = UserResponse {
                 id: 0,
                 uuid,
@@ -66,20 +106,20 @@ pub async fn login(
         "SELECT id, uuid, email, password_hash, name, role, phone, address, created_at, updated_at FROM users WHERE email = ?",
         req.email
     )
-    .fetch_optional(&state.db)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let user = user.ok_or(StatusCode::UNAUTHORIZED)?;
 
-    if !verify(&req.password, &user.password_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+    if !verify(&req.password, &user.password_hash)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
     let token = crate::handlers::create_token(&user, &state.jwt_secret)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    info!("User logged in: {}", req.email);
 
     Ok(Json(LoginResponse {
         token,
@@ -97,7 +137,7 @@ pub async fn get_profile(
         "SELECT id, uuid, email, password_hash, name, role, phone, address, created_at, updated_at FROM users WHERE uuid = ?",
         claims.sub
     )
-    .fetch_optional(&state.db)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -117,7 +157,7 @@ pub async fn update_profile(
         "UPDATE users SET name = ?, phone = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE uuid = ?",
         req.name, req.phone, req.address, claims.sub
     )
-    .execute(&state.db)
+    .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -126,14 +166,14 @@ pub async fn update_profile(
         "SELECT id, uuid, email, password_hash, name, role, phone, address, created_at, updated_at FROM users WHERE uuid = ?",
         claims.sub
     )
-    .fetch_one(&state.db)
+    .fetch_one(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(UserResponse::from(user)))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct UpdateProfileRequest {
     pub name: String,
     pub phone: Option<String>,

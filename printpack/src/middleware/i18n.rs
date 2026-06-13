@@ -1,7 +1,5 @@
-pub mod i18n;
-
 use axum::{
-    extract::{Request, State},
+    extract::Request,
     middleware::Next,
     response::Response,
 };

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ t("cart.title") }} - PrintPack{% endblock %}
+{% block content %}
+<div class="container page-header">
+    <h1>🛒 {{ t("cart.title") }}</h1>
+</div>
+
+<div class="container cart-container">
+    {% if cart_items.is_empty() %}
+    <div class="empty-cart">
+        <div class="empty-cart-icon">🛒</div>
+        <h2>{{ t("cart.empty") }}</h2>
+        <p>{{ t("cart.empty_hint") }}</p>
+        <a href="/products" class="btn btn-primary">{{ t("cart.browse_products") }}</a>
+    </div>
+    {% else %}
+    <div class="cart-layout">
+        <div class="cart-items">
+            {% for item in cart_items %}
+            <div class="cart-item" data-item-id="{{ item.id }}">
+                <div class="cart-item-image">
+                    {% if item.product.image_url.is_some() %}
+                    <img src="{{ item.product.image_url.as_ref().unwrap() }}" alt="{{ item.product.name_zh }}">
+                    {% else %}
+                    <div class="placeholder-img">📦</div>
+                    {% endif %}
+                </div>
+                <div class="cart-item-details">
+                    <h3>{{ item.product.name_zh }}</h3>
+                    <p class="cart-item-specs">
+                        {{ t("cart.material") }}: {{ item.material }} |
+                        {{ t("cart.size") }}: {{ item.width }}×{{ item.height }}{% if item.depth > 0.0 %}×{{ item.depth }}{% endif %} cm
+                        {% if item.finishing.is_some() %} | {{ t("cart.finishing") }}: {{ item.finishing.as_ref().unwrap() }}{% endif %}
+                    </p>
+                    <div class="cart-item-actions">
+                        <div class="quantity-control">
+                            <button class="qty-btn" onclick="updateQuantity({{ item.id }}, -100)">−</button>
+                            <input type="number" value="{{ item.quantity }}" min="{{ item.product.min_quantity }}"
+                                   class="qty-input" onchange="setQuantity({{ item.id }}, this.value)">
+                            <button class="qty-btn" onclick="updateQuantity({{ item.id }}, 100)">+</button>
+                        </div>
+                        <button class="btn-remove" onclick="removeItem({{ item.id }})">{{ t("cart.remove") }}</button>
+                    </div>
+                </div>
+                <div class="cart-item-price">
+                    <div class="unit-price">¥{{ "%.2f"|format(item.unit_price) }}/{{ item.product.unit }}</div>
+                    <div class="subtotal">¥{{ "%.2f"|format(item.subtotal) }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="cart-summary">
+            <h3>{{ t("cart.summary") }}</h3>
+            <div class="summary-row">
+                <span>{{ t("cart.items_count") }}</span>
+                <span>{{ cart_items.len() }} {{ t("cart.items") }}</span>
+            </div>
+            <div class="summary-row">
+                <span>{{ t("cart.total_quantity") }}</span>
+                <span>{{ total_quantity }} {{ t("cart.units") }}</span>
+            </div>
+            <div class="summary-row summary-total">
+                <span>{{ t("cart.total") }}</span>
+                <span>¥{{ "%.2f"|format(cart_total) }}</span>
+            </div>
+            {% if cart_total >= 1000.0 %}
+            <div class="summary-discount">
+                {{ t("cart.free_shipping") }}
+            </div>
+            {% else %}
+            <div class="summary-hint">
+                {{ t("cart.free_shipping_hint") }} ¥{{ "%.2f"|format(1000.0 - cart_total) }}
+            </div>
+            {% endif %}
+            <button class="btn btn-primary btn-lg btn-block" onclick="checkout()">{{ t("cart.checkout") }}</button>
+            <a href="/products" class="btn btn-outline btn-block">{{ t("cart.continue_shopping") }}</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateQuantity(itemId, delta) {
+    const input = document.querySelector(`[data-item-id="${itemId}"] .qty-input`);
+    const newVal = Math.max(parseInt(input.min), parseInt(input.value) + delta);
+    setQuantity(itemId, newVal);
+}
+
+function setQuantity(itemId, value) {
+    fetch(`/api/cart/${itemId}/quantity`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({quantity: parseInt(value)})
+    }).then(() => location.reload());
+}
+
+function removeItem(itemId) {
+    fetch(`/api/cart/${itemId}`, {method: 'DELETE'})
+        .then(() => location.reload());
+}
+
+function checkout() {
+    window.location.href = '/checkout';
+}
+</script>
+{% endblock %}

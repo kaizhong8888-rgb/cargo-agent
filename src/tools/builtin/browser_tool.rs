@@ -1,6 +1,6 @@
 //! Browser/Scraper tool - HTML parsing and web scraping
 //! Uses reqwest + scraper for headless browsing capabilities.
-//! Supports: navigate, extract, links, title, table, search, meta
+//! Supports: navigate, extract, links, title, table, search, meta, forms, images, structured_data, headings, readability, diff
 
 use crate::tools::ToolParameter;
 use async_trait::async_trait;
@@ -111,19 +111,31 @@ impl crate::tools::Tool for BrowserTool {
         vec![
             ToolParameter {
                 name: "action".into(),
-                description: "Action: navigate, extract, links, title, table, search, meta".into(),
+                description: "Action: navigate, extract, links, title, table, search, meta, forms, images, structured_data, headings, readability, diff".into(),
                 required: true,
                 parameter_type: "string".into(),
             },
             ToolParameter {
                 name: "url".into(),
-                description: "URL to fetch (for navigate/links/title/table/meta)".into(),
+                description: "URL to fetch (for navigate/links/title/table/meta/forms/images/headings/readability/diff)".into(),
                 required: false,
                 parameter_type: "string".into(),
             },
             ToolParameter {
                 name: "html".into(),
                 description: "Raw HTML string to parse (alternative to url)".into(),
+                required: false,
+                parameter_type: "string".into(),
+            },
+            ToolParameter {
+                name: "html2".into(),
+                description: "Second HTML string for diff action (alternative to url2)".into(),
+                required: false,
+                parameter_type: "string".into(),
+            },
+            ToolParameter {
+                name: "url2".into(),
+                description: "Second URL for diff action (compare two pages)".into(),
                 required: false,
                 parameter_type: "string".into(),
             },
@@ -186,8 +198,14 @@ impl crate::tools::Tool for BrowserTool {
             "table" => table(params).await,
             "search" => search(params).await,
             "meta" => meta(params).await,
+            "forms" => forms(params).await,
+            "images" => images(params).await,
+            "structured_data" => structured_data(params).await,
+            "headings" => headings(params).await,
+            "readability" => readability(params).await,
+            "diff" => diff_pages(params).await,
             _ => Err(format!(
-                "Unknown action: {}. Supported: navigate, extract, links, title, table, search, meta",
+                "Unknown action: {}. Supported: navigate, extract, links, title, table, search, meta, forms, images, structured_data, headings, readability, diff",
                 action
             )),
         }
@@ -543,7 +561,7 @@ async fn search(params: &HashMap<String, Value>) -> Result<Value, String> {
 }
 
 // ============================================================================
-// 7. META
+// 8. META
 // ============================================================================
 
 async fn meta(params: &HashMap<String, Value>) -> Result<Value, String> {
@@ -593,6 +611,458 @@ async fn meta(params: &HashMap<String, Value>) -> Result<Value, String> {
     Ok(json!({
         "url": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
         "meta": meta_data,
+    }))
+}
+
+// ============================================================================
+// 9. FORMS - Extract all forms with fields
+// ============================================================================
+
+async fn forms(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let (document, _) = fetch_html(params).await?;
+    let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(20) as usize;
+
+    let form_sel = Selector::parse("form").unwrap();
+    let input_sel = Selector::parse("input, select, textarea").unwrap();
+
+    let mut forms_list: Vec<Value> = Vec::new();
+
+    for (idx, form_el) in document.select(&form_sel).take(limit).enumerate() {
+        let action = get_attr(&form_el, "action");
+        let method = get_attr(&form_el, "method");
+        let id = get_attr(&form_el, "id");
+        let name = get_attr(&form_el, "name");
+
+        let mut fields: Vec<Value> = Vec::new();
+        for field in form_el.select(&input_sel) {
+            let field_type = get_first_attr(&field, &["type", "tag"]);
+            let field_name = get_attr(&field, "name");
+            let placeholder = get_attr(&field, "placeholder");
+            let required = get_attr(&field, "required");
+            let value = get_attr(&field, "value");
+            let field_id = get_attr(&field, "id");
+
+            let tag = if field.value().name() == "select" {
+                "select"
+            } else if field.value().name() == "textarea" {
+                "textarea"
+            } else {
+                "input"
+            };
+
+            let mut field_obj = serde_json::Map::new();
+            field_obj.insert("tag".to_string(), Value::String(tag.to_string()));
+            if !field_type.is_empty() && tag == "input" {
+                field_obj.insert("type".to_string(), Value::String(field_type));
+            }
+            if !field_name.is_empty() {
+                field_obj.insert("name".to_string(), Value::String(field_name));
+            }
+            if !field_id.is_empty() {
+                field_obj.insert("id".to_string(), Value::String(field_id));
+            }
+            if !placeholder.is_empty() {
+                field_obj.insert("placeholder".to_string(), Value::String(placeholder));
+            }
+            if !required.is_empty() {
+                field_obj.insert("required".to_string(), Value::Bool(true));
+            }
+            if !value.is_empty() && tag != "password" {
+                field_obj.insert("value".to_string(), Value::String(value));
+            }
+
+            // For select, get options
+            if tag == "select" {
+                let opt_sel = Selector::parse("option").unwrap();
+                let options: Vec<Value> = field.select(&opt_sel)
+                    .map(|opt| {
+                        let opt_value = get_attr(&opt, "value");
+                        let opt_text = element_text(&opt);
+                        let selected = get_attr(&opt, "selected");
+                        json!({
+                            "value": if opt_value.is_empty() { opt_text.clone() } else { opt_value },
+                            "text": opt_text,
+                            "selected": !selected.is_empty(),
+                        })
+                    })
+                    .collect();
+                field_obj.insert("options".to_string(), Value::Array(options));
+            }
+
+            fields.push(Value::Object(field_obj));
+        }
+
+        // Get submit buttons
+        let button_sel = Selector::parse("button, input[type='submit']").unwrap();
+        let buttons: Vec<Value> = form_el.select(&button_sel)
+            .map(|btn| {
+                let btn_text = element_text(&btn);
+                let btn_type = get_attr(&btn, "type");
+                json!({
+                    "text": if btn_text.is_empty() { get_attr(&btn, "value") } else { btn_text },
+                    "type": if btn_type.is_empty() { "submit".to_string() } else { btn_type },
+                })
+            })
+            .collect();
+
+        let mut form_obj = serde_json::Map::new();
+        form_obj.insert("index".to_string(), Value::Number(idx.into()));
+        if !id.is_empty() {
+            form_obj.insert("id".to_string(), Value::String(id));
+        }
+        if !name.is_empty() {
+            form_obj.insert("name".to_string(), Value::String(name));
+        }
+        if !action.is_empty() {
+            form_obj.insert("action".to_string(), Value::String(action));
+        }
+        form_obj.insert("method".to_string(), Value::String(if method.is_empty() { "GET".to_string() } else { method.to_uppercase() }));
+        form_obj.insert("fields".to_string(), Value::Array(fields));
+        if !buttons.is_empty() {
+            form_obj.insert("buttons".to_string(), Value::Array(buttons));
+        }
+
+        forms_list.push(Value::Object(form_obj));
+    }
+
+    Ok(json!({
+        "url": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "form_count": forms_list.len(),
+        "forms": forms_list,
+    }))
+}
+
+// ============================================================================
+// 10. IMAGES - Extract all images with metadata
+// ============================================================================
+
+async fn images(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let (document, _) = fetch_html(params).await?;
+    let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(100) as usize;
+
+    let img_sel = Selector::parse("img").unwrap();
+    let source_sel = Selector::parse("source").unwrap();
+
+    let base_url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
+
+    let mut images_list: Vec<Value> = Vec::new();
+
+    for el in document.select(&img_sel).take(limit) {
+        let src = get_first_attr(&el, &["data-src", "src"]);
+        let srcset = get_attr(&el, "srcset");
+        let alt = get_attr(&el, "alt");
+        let width = get_attr(&el, "width");
+        let height = get_attr(&el, "height");
+        let loading = get_attr(&el, "loading");
+
+        // Get responsive sources
+        let sources: Vec<Value> = el.select(&source_sel)
+            .filter_map(|s| {
+                let media = get_attr(&s, "media");
+                let src = get_first_attr(&s, &["srcset", "src"]);
+                if src.is_empty() { None } else {
+                    Some(json!({
+                        "media": if media.is_empty() { Value::Null } else { Value::String(media) },
+                        "src": src,
+                    }))
+                }
+            })
+            .collect();
+
+        // Resolve relative URLs
+        let resolved_src = resolve_url(base_url, &src);
+
+        let mut img_obj = serde_json::Map::new();
+        img_obj.insert("src".to_string(), Value::String(resolved_src));
+        if !alt.is_empty() {
+            img_obj.insert("alt".to_string(), Value::String(alt));
+        }
+        if !width.is_empty() {
+            img_obj.insert("width".to_string(), Value::String(width));
+        }
+        if !height.is_empty() {
+            img_obj.insert("height".to_string(), Value::String(height));
+        }
+        if !srcset.is_empty() {
+            img_obj.insert("srcset".to_string(), Value::String(srcset));
+        }
+        if !loading.is_empty() {
+            img_obj.insert("loading".to_string(), Value::String(loading));
+        }
+        if !sources.is_empty() {
+            img_obj.insert("sources".to_string(), Value::Array(sources));
+        }
+
+        images_list.push(Value::Object(img_obj));
+    }
+
+    // Also get picture elements
+    let picture_sel = Selector::parse("picture").unwrap();
+    let mut picture_count = 0;
+    for _ in document.select(&picture_sel) {
+        picture_count += 1;
+    }
+
+    Ok(json!({
+        "url": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "image_count": images_list.len(),
+        "picture_elements": picture_count,
+        "images": images_list,
+    }))
+}
+
+/// Resolve a relative URL against a base URL
+fn resolve_url(base: &str, relative: &str) -> String {
+    if relative.starts_with("http://") || relative.starts_with("https://") || relative.starts_with("//") || relative.starts_with("data:") {
+        return relative.to_string();
+    }
+    if relative.is_empty() {
+        return base.to_string();
+    }
+    // Simple resolution
+    if let Ok(base_url) = url::Url::parse(base) {
+        if let Ok(full) = base_url.join(relative) {
+            return full.to_string();
+        }
+    }
+    if relative.starts_with('/') {
+        if let Ok(base_url) = url::Url::parse(base) {
+            if let Some(host) = base_url.host_str() {
+                return format!("{}://{}{}", base_url.scheme(), host, relative);
+            }
+        }
+    }
+    // Fall back: just combine
+    let base_clean = base.trim_end_matches('/');
+    if relative.starts_with('/') {
+        format!("{}{}", base_clean, relative)
+    } else {
+        format!("{}/{}", base_clean, relative)
+    }
+}
+
+// ============================================================================
+// 11. STRUCTURED_DATA - Extract JSON-LD and microdata
+// ============================================================================
+
+async fn structured_data(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let (document, _) = fetch_html(params).await?;
+
+    let mut json_ld: Vec<Value> = Vec::new();
+    let mut microdata: Vec<Value> = Vec::new();
+
+    // Extract JSON-LD
+    let script_sel = Selector::parse("script[type='application/ld+json']").unwrap();
+    for el in document.select(&script_sel) {
+        for node in el.descendants() {
+            if let scraper::Node::Text(t) = node.value() {
+                let text = t.text.trim();
+                if !text.is_empty() {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+                        json_ld.push(parsed);
+                    }
+                }
+            }
+        }
+    }
+
+    // Extract microdata
+    let itemscope_sel = Selector::parse("[itemscope]").unwrap();
+    for el in document.select(&itemscope_sel) {
+        let itemtype = get_attr(&el, "itemtype");
+        let itemid = get_attr(&el, "itemid");
+
+        let mut properties: serde_json::Map<String, Value> = serde_json::Map::new();
+        let itemprop_sel = Selector::parse("[itemprop]").unwrap();
+        for prop_el in el.select(&itemprop_sel) {
+            let prop_name = get_attr(&prop_el, "itemprop");
+            let prop_content = get_first_attr(&prop_el, &["content", "href", "src"]);
+            let prop_text = if prop_content.is_empty() {
+                element_text(&prop_el)
+            } else {
+                prop_content
+            };
+            if !prop_name.is_empty() {
+                properties.insert(prop_name, Value::String(prop_text));
+            }
+        }
+
+        let mut item = serde_json::Map::new();
+        if !itemtype.is_empty() {
+            item.insert("type".to_string(), Value::String(itemtype));
+        }
+        if !itemid.is_empty() {
+            item.insert("id".to_string(), Value::String(itemid));
+        }
+        if !properties.is_empty() {
+            item.insert("properties".to_string(), Value::Object(properties));
+        }
+        microdata.push(Value::Object(item));
+    }
+
+    Ok(json!({
+        "url": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "json_ld_count": json_ld.len(),
+        "microdata_count": microdata.len(),
+        "json_ld": json_ld,
+        "microdata": microdata,
+    }))
+}
+
+// ============================================================================
+// 12. HEADINGS - Extract document outline (h1-h6)
+// ============================================================================
+
+async fn headings(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let (document, _) = fetch_html(params).await?;
+
+    // Build outline by tag level
+    let heading_tags = ["h1", "h2", "h3", "h4", "h5", "h6"];
+    for tag in heading_tags {
+        let sel = Selector::parse(tag).map_err(|e| format!("Invalid selector: {}", e))?;
+        let found: Vec<(String, String)> = document.select(&sel)
+            .map(|el| (tag.to_string(), element_text(&el).trim().to_string()))
+            .filter(|(_, t)| !t.is_empty())
+            .collect();
+        for (t, text) in found {
+            outline.push(json!({
+                "level": t.chars().nth(1).and_then(|c| c.to_digit(10)).unwrap_or(0),
+                "tag": t,
+                "text": text,
+            }));
+        }
+    }
+
+    let h1_count = outline.iter().filter(|h| h["level"] == 1).count();
+    let total = outline.len();
+
+    Ok(json!({
+        "url": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "heading_count": total,
+        "h1_count": h1_count,
+        "outline": outline,
+    }))
+}
+
+// ============================================================================
+// 13. READABILITY - Extract main content (like Reader mode)
+// ============================================================================
+
+async fn readability(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let (document, html_text) = fetch_html(params).await?;
+
+    let body_sel = Selector::parse("body").unwrap();
+    let body = document.select(&body_sel).next()
+        .ok_or_else(|| "No <body> element found".to_string())?;
+
+    // Find content-rich container (article, main, or body)
+    let content = if let Ok(article_sel) = Selector::parse("article") {
+        document.select(&article_sel).next().map(|el| element_text(&el))
+    } else { None };
+
+    let content = content.or_else(|| {
+        if let Ok(main_sel) = Selector::parse("main") {
+            document.select(&main_sel).next().map(|el| element_text(&el))
+        } else { None }
+    });
+
+    let content = content.unwrap_or_else(|| element_text(&body));
+
+    let title_sel = Selector::parse("title").unwrap();
+    let title = document.select(&title_sel).next()
+        .map(|el| element_text(&el))
+        .unwrap_or_default();
+
+    // Get author if available
+    let author_sel = Selector::parse("meta[name='author']").unwrap();
+    let author = document.select(&author_sel).next()
+        .map(|el| get_attr(&el, "content"))
+        .unwrap_or_default();
+
+    let word_count = content.split_whitespace().count();
+    let reading_time_secs = (word_count as f64 / 200.0 * 60.0).ceil() as usize; // ~200 wpm
+
+    Ok(json!({
+        "url": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "title": title,
+        "author": if author.is_empty() { Value::Null } else { Value::String(author) },
+        "content_preview": content.chars().take(2000).collect::<String>(),
+        "content_length": content.len(),
+        "word_count": word_count,
+        "reading_time_seconds": reading_time_secs,
+        "html_size": html_text.len(),
+    }))
+}
+
+// ============================================================================
+// 14. DIFF - Compare two pages (headings, links, content)
+// ============================================================================
+
+async fn diff_pages(params: &HashMap<String, Value>) -> Result<Value, String> {
+    // Fetch first page
+    let (doc1, html1) = fetch_html(params).await?;
+
+    // Fetch second page
+    let (doc2, html2) = if let Some(html2) = params.get("html2").and_then(|v| v.as_str()) {
+        (Html::parse_document(html2), html2.to_string())
+    } else if let Some(url2) = params.get("url2").and_then(|v| v.as_str()) {
+        let custom_headers: Option<HashMap<String, String>> = params
+            .get("headers").and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str(s).ok());
+        let cookies = params.get("cookies").and_then(|v| v.as_str());
+        let proxy = params.get("proxy").and_then(|v| v.as_str());
+        let client = build_client(cookies, proxy)?;
+        let headers = build_headers(custom_headers.as_ref());
+        let mut request = client.get(url2).headers(headers);
+        if let Some(cookie_str) = cookies {
+            request = request.header(reqwest::header::COOKIE, cookie_str);
+        }
+        let response = request.send().map_err(|e| format!("Request failed for {}: {}", url2, e))?;
+        if !response.status().is_success() {
+            return Err(format!("HTTP {} for {}", response.status(), url2));
+        }
+        let text = response.text().map_err(|e| format!("Failed to read response body: {}", e))?;
+        (Html::parse_document(&text), text)
+    } else {
+        return Err("diff action requires url2 or html2 parameter".to_string());
+    };
+
+    let title1_sel = Selector::parse("title").unwrap();
+    let title2_sel = Selector::parse("title").unwrap();
+
+    let title1 = doc1.select(&title1_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+    let title2 = doc2.select(&title2_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+
+    let link_sel = Selector::parse("a[href]").unwrap();
+    let links1: Vec<String> = doc1.select(&link_sel).map(|el| get_attr(&el, "href")).collect();
+    let links2: Vec<String> = doc2.select(&link_sel).map(|el| get_attr(&el, "href")).collect();
+
+    let links1_set: std::collections::HashSet<_> = links1.iter().cloned().collect();
+    let links2_set: std::collections::HashSet<_> = links2.iter().cloned().collect();
+
+    let only_in_1: Vec<&String> = links1_set.difference(&links2_set).collect();
+    let only_in_2: Vec<&String> = links2_set.difference(&links1_set).collect();
+    let common: Vec<&String> = links1_set.intersection(&links2_set).collect();
+
+    let body_sel = Selector::parse("body").unwrap();
+    let body_text1 = doc1.select(&body_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+    let body_text2 = doc2.select(&body_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+
+    Ok(json!({
+        "url1": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+        "url2": params.get("url2").and_then(|v| v.as_str()).unwrap_or(""),
+        "title1": title1,
+        "title2": title2,
+        "html_size1": html1.len(),
+        "html_size2": html2.len(),
+        "size_diff": (html1.len() as i64 - html2.len() as i64).abs(),
+        "links": {
+            "only_in_page1_count": only_in_1.len(),
+            "only_in_page2_count": only_in_2.len(),
+            "common_count": common.len(),
+            "only_in_page1": only_in_1.into_iter().take(20).cloned().collect::<Vec<_>>(),
+            "only_in_page2": only_in_2.into_iter().take(20).cloned().collect::<Vec<_>>(),
+        },
     }))
 }
 
@@ -790,5 +1260,165 @@ mod tests {
         let params = HashMap::new();
         let result = BrowserTool.execute(&params).await;
         assert!(result.is_err());
+    }
+
+    // ---- New Action Tests ----
+
+    #[tokio::test]
+    async fn test_forms_from_raw_html() {
+        let html = r#"<html><body>
+            <form id="login" action="/login" method="POST">
+                <input type="text" name="username" placeholder="Username" required>
+                <input type="password" name="password" placeholder="Password" required>
+                <select name="role"><option value="user">User</option><option value="admin">Admin</option></select>
+                <button type="submit">Login</button>
+            </form>
+        </body></html>"#;
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("forms")),
+            ("html".to_string(), json!(html)),
+        ]);
+        let result = BrowserTool.execute(&params).await.unwrap();
+        assert_eq!(result["form_count"], 1);
+        let form = &result["forms"][0];
+        assert_eq!(form["id"], "login");
+        assert_eq!(form["method"], "POST");
+        assert_eq!(form["fields"].as_array().unwrap().len(), 3);
+        assert_eq!(form["buttons"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_images_from_raw_html() {
+        let html = r#"<html><body>
+            <img src="/logo.png" alt="Logo" width="100" height="50" loading="lazy">
+            <img data-src="/hero.jpg" alt="Hero" width="800" height="400">
+            <picture>
+                <source media="(min-width: 800px)" srcset="large.jpg">
+                <source media="(min-width: 400px)" srcset="medium.jpg">
+                <img src="small.jpg" alt="Responsive">
+            </picture>
+        </body></html>"#;
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("images")),
+            ("html".to_string(), json!(html)),
+            ("url".to_string(), json!("https://example.com/page")),
+        ]);
+        let result = BrowserTool.execute(&params).await.unwrap();
+        assert_eq!(result["image_count"], 3);
+        assert_eq!(result["picture_elements"], 1);
+        let imgs = result["images"].as_array().unwrap();
+        assert_eq!(imgs[0]["loading"], "lazy");
+        assert!(imgs[1]["src"].as_str().unwrap().contains("hero.jpg"));
+        assert_eq!(imgs[0]["alt"], "Logo");
+    }
+
+    #[tokio::test]
+    async fn test_structured_data_from_raw_html() {
+        let html = r#"<html><body>
+            <script type="application/ld+json">
+            {"@context": "https://schema.org", "@type": "Product", "name": "Widget", "price": "9.99"}
+            </script>
+            <div itemscope itemtype="https://schema.org/Person">
+                <span itemprop="name">John Doe</span>
+                <span itemprop="email">john@example.com</span>
+            </div>
+        </body></html>"#;
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("structured_data")),
+            ("html".to_string(), json!(html)),
+        ]);
+        let result = BrowserTool.execute(&params).await.unwrap();
+        assert_eq!(result["json_ld_count"], 1);
+        assert_eq!(result["microdata_count"], 1);
+        let json_ld = &result["json_ld"][0];
+        assert_eq!(json_ld["@type"], "Product");
+        let microdata = &result["microdata"][0];
+        assert_eq!(microdata["type"], "https://schema.org/Person");
+        assert_eq!(microdata["properties"]["name"], "John Doe");
+    }
+
+    #[tokio::test]
+    async fn test_headings_from_raw_html() {
+        let html = r#"<html><body>
+            <h1>Main Title</h1>
+            <h2>Section 1</h2>
+            <h3>Subsection 1.1</h3>
+            <h2>Section 2</h2>
+            <h3>Subsection 2.1</h3>
+            <h4>Detail</h4>
+        </body></html>"#;
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("headings")),
+            ("html".to_string(), json!(html)),
+        ]);
+        let result = BrowserTool.execute(&params).await.unwrap();
+        assert_eq!(result["heading_count"], 6);
+        assert_eq!(result["h1_count"], 1);
+        let outline = result["outline"].as_array().unwrap();
+        assert_eq!(outline[0]["text"], "Main Title");
+        assert_eq!(outline[0]["level"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_readability_from_raw_html() {
+        let html = r#"<html><head><title>Article Title</title><meta name="author" content="Jane Smith"></head><body>
+            <nav>Skip nav</nav>
+            <article>
+                <h1>Article Title</h1>
+                <p>This is the main content of the article. It has enough words to be meaningful.
+                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
+                incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
+                exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+            </article>
+            <footer>Footer content</footer>
+        </body></html>"#;
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("readability")),
+            ("html".to_string(), json!(html)),
+        ]);
+        let result = BrowserTool.execute(&params).await.unwrap();
+        assert_eq!(result["title"], "Article Title");
+        assert_eq!(result["author"], "Jane Smith");
+        assert!(result["word_count"].as_i64().unwrap() > 30);
+        assert!(result["reading_time_seconds"].as_i64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_diff_from_raw_html() {
+        let html1 = r#"<html><head><title>Page 1</title></head><body>
+            <a href="/home">Home</a><a href="/about">About</a><a href="/old">Old Page</a>
+        </body></html>"#;
+        let html2 = r#"<html><head><title>Page 2</title></head><body>
+            <a href="/home">Home</a><a href="/contact">Contact</a><a href="/new">New Page</a>
+        </body></html>"#;
+
+        let params = HashMap::from([
+            ("action".to_string(), json!("diff")),
+            ("html".to_string(), json!(html1)),
+            ("html2".to_string(), json!(html2)),
+        ]);
+        let result = BrowserTool.execute(&params).await.unwrap();
+        assert_eq!(result["title1"], "Page 1");
+        assert_eq!(result["title2"], "Page 2");
+        assert_eq!(result["links"]["common_count"], 1);
+        assert_eq!(result["links"]["only_in_page1_count"], 2);
+        assert_eq!(result["links"]["only_in_page2_count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_diff_missing_param() {
+        let html1 = "<html><body></body></html>";
+        let params = HashMap::from([
+            ("action".to_string(), json!("diff")),
+            ("html".to_string(), json!(html1)),
+        ]);
+        let result = BrowserTool.execute(&params).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("url2 or html2"));
     }
 }

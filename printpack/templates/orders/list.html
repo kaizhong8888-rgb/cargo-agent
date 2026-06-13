@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ t("orders.title") }} - PrintPack{% endblock %}
+{% block content %}
+<div class="container page-header">
+    <h1>{{ t("orders.title") }}</h1>
+</div>
+
+<div class="container orders-container">
+    {% if orders.is_empty() %}
+    <div class="empty-orders">
+        <div class="empty-icon">📋</div>
+        <h2>{{ t("orders.empty") }}</h2>
+        <p>{{ t("orders.empty_hint") }}</p>
+        <a href="/products" class="btn btn-primary">{{ t("orders.browse_products") }}</a>
+    </div>
+    {% else %}
+    <div class="orders-filters">
+        <select id="statusFilter" class="form-control" onchange="filterOrders(this.value)">
+            <option value="">{{ t("orders.all_status") }}</option>
+            <option value="pending">{{ t("orders.status.pending") }}</option>
+            <option value="confirmed">{{ t("orders.status.confirmed") }}</option>
+            <option value="producing">{{ t("orders.status.producing") }}</option>
+            <option value="shipped">{{ t("orders.status.shipped") }}</option>
+            <option value="delivered">{{ t("orders.status.delivered") }}</option>
+            <option value="completed">{{ t("orders.status.completed") }}</option>
+            <option value="cancelled">{{ t("orders.status.cancelled") }}</option>
+        </select>
+    </div>
+
+    <div class="orders-list">
+        {% for order in orders %}
+        <div class="order-card" data-status="{{ order.status }}">
+            <div class="order-header">
+                <div class="order-info">
+                    <span class="order-number">{{ order.order_number }}</span>
+                    <span class="order-date">{{ order.created_at|date("%Y-%m-%d %H:%M") }}</span>
+                </div>
+                <span class="order-status status-{{ order.status }}">{{ t(&format!("orders.status.{}", order.status)) }}</span>
+            </div>
+            <div class="order-items">
+                {% for item in order.items %}
+                <div class="order-item">
+                    <div class="order-item-image">
+                        {% if item.product.image_url.is_some() %}
+                        <img src="{{ item.product.image_url.as_ref().unwrap() }}" alt="{{ item.product.name_zh }}">
+                        {% else %}
+                        <div class="placeholder-img">📦</div>
+                        {% endif %}
+                    </div>
+                    <div class="order-item-details">
+                        <h4>{{ item.product.name_zh }}</h4>
+                        <p class="order-item-specs">
+                            {{ item.material }} | {{ item.width }}×{{ item.height }}{% if item.depth > 0.0 %}×{{ item.depth }}{% endif %} cm
+                            × {{ item.quantity }}
+                        </p>
+                    </div>
+                    <div class="order-item-price">¥{{ "%.2f"|format(item.subtotal) }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="order-footer">
+                <div class="order-total">
+                    <span>{{ t("orders.total") }}:</span>
+                    <strong>¥{{ "%.2f"|format(order.total_amount) }}</strong>
+                </div>
+                <div class="order-actions">
+                    <a href="/orders/{{ order.uuid }}" class="btn btn-sm btn-outline">{{ t("orders.view_detail") }}</a>
+                    {% if order.status == "pending" %}
+                    <button class="btn btn-sm btn-danger" onclick="cancelOrder('{{ order.uuid }}')">{{ t("orders.cancel") }}</button>
+                    {% endif %}
+                    {% if order.status == "delivered" %}
+                    <button class="btn btn-sm btn-primary" onclick="confirmDelivery('{{ order.uuid }}')">{{ t("orders.confirm_delivery") }}</button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="pagination">
+        {% if current_page > 1 %}
+        <a href="/orders?page={{ current_page - 1 }}" class="btn btn-sm">&laquo; {{ t("common.prev") }}</a>
+        {% endif %}
+        <span>{{ t("common.page") }} {{ current_page }} / {{ total_pages }}</span>
+        {% if current_page < total_pages %}
+        <a href="/orders?page={{ current_page + 1 }}" class="btn btn-sm">{{ t("common.next") }} &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterOrders(status) {
+    const cards = document.querySelectorAll('.order-card');
+    cards.forEach(card => {
+        if (!status || card.dataset.status === status) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+
+function cancelOrder(orderId) {
+    if (!confirm('{{ t("orders.confirm_cancel") }}')) return;
+    fetch(`/api/orders/${orderId}/cancel`, {method: 'POST'})
+        .then(res => res.ok ? location.reload() : alert('{{ t("orders.cancel_failed") }}'));
+}
+
+function confirmDelivery(orderId) {
+    if (!confirm('{{ t("orders.confirm_delivery_prompt") }}')) return;
+    fetch(`/api/orders/${orderId}/confirm`, {method: 'POST'})
+        .then(res => res.ok ? location.reload() : alert('{{ t("orders.confirm_failed") }}'));
+}
+</script>
+{% endblock %}

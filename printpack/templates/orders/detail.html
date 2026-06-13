@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}{{ t("orders.detail_title", order_number=order.order_number) }} - PrintPack{% endblock %}
+{% block content %}
+<div class="container page-header">
+    <h1>{{ t("orders.detail_title", order_number=order.order_number) }}</h1>
+</div>
+
+<div class="container order-detail-container">
+    <div class="order-detail-header">
+        <div class="order-status-badge status-{{ order.status }}">
+            {{ t(&format!("orders.status.{}", order.status)) }}
+        </div>
+        <div class="order-meta">
+            <span>{{ t("orders.order_date") }}: {{ order.created_at|date("%Y-%m-%d %H:%M") }}</span>
+            {% if order.tracking_number.is_some() %}
+            <span>{{ t("orders.tracking") }}: {{ order.tracking_number.as_ref().unwrap() }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if !order.tracking_history.is_empty() %}
+    <div class="tracking-timeline">
+        <h3>{{ t("orders.tracking_history") }}</h3>
+        {% for event in order.tracking_history %}
+        <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <div class="timeline-content">
+                <div class="timeline-time">{{ event.time|date("%Y-%m-%d %H:%M") }}</div>
+                <div class="timeline-status">{{ event.status }}</div>
+                <div class="timeline-description">{{ event.description }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="order-detail-items">
+        <h3>{{ t("orders.items") }}</h3>
+        {% for item in order.items %}
+        <div class="order-detail-item">
+            <div class="item-image">
+                {% if item.product.image_url.is_some() %}
+                <img src="{{ item.product.image_url.as_ref().unwrap() }}" alt="{{ item.product.name_zh }}">
+                {% else %}
+                <div class="placeholder-img">📦</div>
+                {% endif %}
+            </div>
+            <div class="item-info">
+                <h4>{{ item.product.name_zh }}</h4>
+                <p class="item-specs">
+                    {{ t("orders.material") }}: {{ item.material }}<br>
+                    {{ t("orders.size") }}: {{ item.width }}×{{ item.height }}{% if item.depth > 0.0 %}×{{ item.depth }}{% endif %} cm<br>
+                    {{ t("orders.quantity") }}: {{ item.quantity }}<br>
+                    {% if item.finishing.is_some() %}{{ t("orders.finishing") }}: {{ item.finishing.as_ref().unwrap() }}<br>{% endif %}
+                    {% if item.notes.is_some() %}{{ t("orders.notes") }}: {{ item.notes.as_ref().unwrap() }}{% endif %}
+                </p>
+            </div>
+            <div class="item-price">
+                <div class="unit-price">¥{{ "%.2f"|format(item.unit_price) }}/{{ item.product.unit }}</div>
+                <div class="subtotal">¥{{ "%.2f"|format(item.subtotal) }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="order-detail-summary">
+        <div class="summary-card">
+            <h3>{{ t("orders.summary") }}</h3>
+            <div class="summary-row">
+                <span>{{ t("orders.subtotal") }}</span>
+                <span>¥{{ "%.2f"|format(order.subtotal) }}</span>
+            </div>
+            {% if order.discount > 0.0 %}
+            <div class="summary-row summary-discount">
+                <span>{{ t("orders.discount") }}</span>
+                <span>-¥{{ "%.2f"|format(order.discount) }}</span>
+            </div>
+            {% endif %}
+            <div class="summary-row">
+                <span>{{ t("orders.shipping") }}</span>
+                <span>{% if order.shipping_cost > 0.0 %}¥{{ "%.2f"|format(order.shipping_cost) }}{% else %}{{ t("orders.free_shipping") }}{% endif %}</span>
+            </div>
+            <div class="summary-row summary-total">
+                <span>{{ t("orders.total") }}</span>
+                <span>¥{{ "%.2f"|format(order.total_amount) }}</span>
+            </div>
+        </div>
+
+        <div class="summary-card">
+            <h3>{{ t("orders.shipping_info") }}</h3>
+            <p><strong>{{ order.shipping_name }}</strong></p>
+            <p>{{ order.shipping_phone }}</p>
+            <p>{{ order.shipping_address }}</p>
+            <p>{{ order.shipping_city }}, {{ order.shipping_province }} {{ order.shipping_zip }}</p>
+        </div>
+
+        <div class="summary-card">
+            <h3>{{ t("orders.payment_info") }}</h3>
+            <p>{{ t("orders.payment_method") }}: {{ t(&format!("orders.payment.{}", order.payment_method)) }}</p>
+            <p>{{ t("orders.payment_status") }}: {{ t(&format!("orders.payment_status.{}", order.payment_status)) }}</p>
+            {% if order.paid_at.is_some() %}
+            <p>{{ t("orders.paid_at") }}: {{ order.paid_at.as_ref().unwrap()|date("%Y-%m-%d %H:%M") }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="order-actions">
+        {% if order.status == "pending" %}
+        <button class="btn btn-danger" onclick="cancelOrder('{{ order.uuid }}')">{{ t("orders.cancel") }}</button>
+        {% endif %}
+        {% if order.status == "delivered" %}
+        <button class="btn btn-primary" onclick="confirmDelivery('{{ order.uuid }}')">{{ t("orders.confirm_delivery") }}</button>
+        {% endif %}
+        <a href="/orders" class="btn btn-outline">{{ t("orders.back_to_list") }}</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function cancelOrder(orderId) {
+    if (!confirm('{{ t("orders.confirm_cancel") }}')) return;
+    fetch(`/api/orders/${orderId}/cancel`, {method: 'POST'})
+        .then(res => res.ok ? location.reload() : alert('{{ t("orders.cancel_failed") }}'));
+}
+
+function confirmDelivery(orderId) {
+    if (!confirm('{{ t("orders.confirm_delivery_prompt") }}')) return;
+    fetch(`/api/orders/${orderId}/confirm`, {method: 'POST'})
+        .then(res => res.ok ? location.reload() : alert('{{ t("orders.confirm_failed") }}'));
+}
+</script>
+{% endblock %}

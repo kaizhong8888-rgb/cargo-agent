@@ -2,7 +2,7 @@ use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use anyhow::Result;
 use tracing::info;
 
-pub async fn init(database_url: &str) -> Result<SqlitePool> {
+pub async fn init_pool(database_url: &str) -> Result<SqlitePool> {
     info!("Connecting to database: {}", database_url);
 
     let pool = SqlitePoolOptions::new()
@@ -10,11 +10,23 @@ pub async fn init(database_url: &str) -> Result<SqlitePool> {
         .connect(database_url)
         .await?;
 
-    // Run migrations
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    Ok(pool)
+}
+
+pub async fn migrate(pool: &SqlitePool) -> Result<()> {
+    info!("Running database migrations...");
+    sqlx::migrate!("./migrations").run(pool).await?;
     info!("Database migrations completed");
 
-    Ok(pool)
+    // Seed if tables are empty
+    let category_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM categories")
+        .fetch_one(pool)
+        .await?;
+    if category_count.0 == 0 {
+        seed(pool).await?;
+    }
+
+    Ok(())
 }
 
 pub async fn seed(pool: &SqlitePool) -> Result<()> {

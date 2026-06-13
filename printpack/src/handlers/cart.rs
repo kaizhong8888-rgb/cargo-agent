@@ -1,10 +1,44 @@
 use crate::models::*;
 use crate::AppState;
+use askama::Template;
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     Json,
 };
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+#[derive(Template)]
+#[template(path = "cart/cart.html")]
+pub struct CartPageTemplate {
+    pub lang: String,
+    pub cart_items: Vec<CartItemDetail>,
+    pub total_quantity: i64,
+    pub cart_total: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Page handlers
+// ---------------------------------------------------------------------------
+
+pub async fn cart_page(
+    State(state): State<AppState>,
+) -> impl axum::response::IntoResponse {
+    // For now, show an empty cart view. Real cart requires auth middleware.
+    CartPageTemplate {
+        lang: "zh".to_string(),
+        cart_items: vec![],
+        total_quantity: 0,
+        cart_total: 0.0,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// API handlers
+// ---------------------------------------------------------------------------
 
 pub async fn add_to_cart(
     State(state): State<AppState>,
@@ -15,7 +49,7 @@ pub async fn add_to_cart(
         "SELECT base_price, min_quantity FROM products WHERE id = ?",
         req.product_id
     )
-    .fetch_optional(&state.db)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
@@ -37,45 +71,18 @@ pub async fn add_to_cart(
         req.quantity,
         product.base_price
     )
-    .execute(&state.db)
+    .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::CREATED)
 }
 
-pub async fn get_cart(
+pub async fn update_quantity(
     State(state): State<AppState>,
     claims: axum::extract::Extension<crate::handlers::Claims>,
-) -> Result<Json<CartResponse>, StatusCode> {
-    let items = sqlx::query_as!(
-        CartItem,
-        r#"SELECT c.id, c.user_id, c.product_id, p.name_zh as product_name_zh, p.name_en as product_name_en,
-                  p.image_url as product_image, c.material, c.size_width, c.size_height,
-                  c.quantity, c.unit_price, c.created_at
-           FROM cart_items c JOIN products p ON c.product_id = p.id
-           WHERE c.user_id = ?"#,
-        claims.0.sub
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let subtotal: f64 = items.iter().map(|i| i.total()).sum();
-    let item_count: i32 = items.iter().map(|i| i.quantity).sum();
-
-    Ok(Json(CartResponse {
-        items,
-        subtotal,
-        item_count,
-    }))
-}
-
-pub async fn update_cart(
-    State(state): State<AppState>,
-    claims: axum::extract::Extension<crate::handlers::Claims>,
-    axum::extract::Path(item_id): axum::extract::Path<i64>,
-    Json(req): Json<UpdateCartRequest>,
+    Path(item_id): Path<i64>,
+    Json(req): Json<UpdateQuantityRequest>,
 ) -> Result<StatusCode, StatusCode> {
     sqlx::query!(
         "UPDATE cart_items SET quantity = ? WHERE id = ? AND user_id = ?",
@@ -83,26 +90,62 @@ pub async fn update_cart(
         item_id,
         claims.0.sub
     )
-    .execute(&state.db)
+    .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::OK)
 }
 
-pub async fn remove_from_cart(
+pub async fn remove_item(
     State(state): State<AppState>,
     claims: axum::extract::Extension<crate::handlers::Claims>,
-    axum::extract::Path(item_id): axum::extract::Path<i64>,
+    Path(item_id): Path<i64>,
 ) -> Result<StatusCode, StatusCode> {
     sqlx::query!(
         "DELETE FROM cart_items WHERE id = ? AND user_id = ?",
         item_id,
         claims.0.sub
     )
-    .execute(&state.db)
+    .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---------------------------------------------------------------------------
+// Request/Response types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AddToCartRequest {
+    pub product_id: i64,
+    pub material: String,
+    pub width: f64,
+    pub height: f64,
+    pub quantity: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateQuantityRequest {
+    pub quantity: i64,
+}
+
+// ---------------------------------------------------------------------------
+// CartItemDetail for template rendering
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct CartItemDetail {
+    pub id: i64,
+    pub product: crate::models::Product,
+    pub material: String,
+    pub width: f64,
+    pub height: f64,
+    pub depth: f64,
+    pub quantity: i64,
+    pub unit_price: f64,
+    pub subtotal: f64,
+    pub finishing: Option<String>,
 }

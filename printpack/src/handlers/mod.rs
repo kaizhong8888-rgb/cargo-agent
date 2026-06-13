@@ -42,7 +42,7 @@ impl IntoResponse for AppError {
 // Shared application state
 #[derive(Clone)]
 pub struct AppState {
-    pub db: SqlitePool,
+    pub pool: SqlitePool,
     pub jwt_secret: String,
 }
 

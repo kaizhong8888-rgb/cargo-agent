@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 use askama::Template;
+use serde_json::json;
 
 #[derive(Template)]
 #[template(path = "home.html")]
@@ -42,50 +43,15 @@ pub struct QuoteTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "cart.html")]
-pub struct CartTemplate {
+#[template(path = "about.html")]
+pub struct AboutTemplate {
     pub lang: String,
-    pub items: Vec<CartItem>,
-    pub subtotal: f64,
 }
 
 #[derive(Template)]
-#[template(path = "login.html")]
-pub struct LoginTemplate {
+#[template(path = "contact.html")]
+pub struct ContactTemplate {
     pub lang: String,
-    pub error: Option<String>,
-}
-
-#[derive(Template)]
-#[template(path = "register.html")]
-pub struct RegisterTemplate {
-    pub lang: String,
-    pub error: Option<String>,
-}
-
-#[derive(Template)]
-#[template(path = "orders.html")]
-pub struct OrdersTemplate {
-    pub lang: String,
-    pub orders: Vec<Order>,
-}
-
-#[derive(Template)]
-#[template(path = "order_detail.html")]
-pub struct OrderDetailTemplate {
-    pub lang: String,
-    pub order: Order,
-    pub items: Vec<OrderItem>,
-}
-
-#[derive(Template)]
-#[template(path = "admin/dashboard.html")]
-pub struct AdminDashboardTemplate {
-    pub lang: String,
-    pub product_count: i64,
-    pub order_count: i64,
-    pub user_count: i64,
-    pub recent_orders: Vec<Order>,
 }
 
 // Home page handler
@@ -96,7 +62,7 @@ pub async fn home(
         Category,
         "SELECT id, name_zh, name_en, slug, description_zh, description_en, sort_order, created_at FROM categories ORDER BY sort_order"
     )
-    .fetch_all(&state.db)
+    .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
 
@@ -108,7 +74,7 @@ pub async fn home(
            FROM products p JOIN categories c ON p.category_id = c.id
            WHERE p.is_active = 1 ORDER BY p.created_at DESC LIMIT 8"#
     )
-    .fetch_all(&state.db)
+    .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
 
@@ -128,7 +94,7 @@ pub async fn products_list(
         Category,
         "SELECT id, name_zh, name_en, slug, description_zh, description_en, sort_order, created_at FROM categories ORDER BY sort_order"
     )
-    .fetch_all(&state.db)
+    .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
 
@@ -147,7 +113,7 @@ pub async fn products_list(
                WHERE p.is_active = 1 AND c.slug = ? ORDER BY p.created_at DESC LIMIT ? OFFSET ?"#,
             slug, per_page, offset
         )
-        .fetch_all(&state.db)
+        .fetch_all(&state.pool)
         .await
         .unwrap_or_default()
     } else {
@@ -160,7 +126,7 @@ pub async fn products_list(
                WHERE p.is_active = 1 ORDER BY p.created_at DESC LIMIT ? OFFSET ?"#,
             per_page, offset
         )
-        .fetch_all(&state.db)
+        .fetch_all(&state.pool)
         .await
         .unwrap_or_default()
     };
@@ -185,7 +151,7 @@ pub async fn product_detail(
         "SELECT id, uuid, category_id, name_zh, name_en, description_zh, description_en, image_url, base_price, min_quantity, unit, materials, specs, is_active, seo_title_zh, seo_title_en, seo_description_zh, seo_description_en, created_at, updated_at FROM products WHERE uuid = ?",
         uuid
     )
-    .fetch_optional(&state.db)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
@@ -195,7 +161,7 @@ pub async fn product_detail(
         "SELECT id, name_zh, name_en, slug, description_zh, description_en, sort_order, created_at FROM categories WHERE id = ?",
         product.category_id
     )
-    .fetch_one(&state.db)
+    .fetch_one(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -216,7 +182,7 @@ pub async fn get_quote_calc(
         "SELECT id, uuid, category_id, name_zh, name_en, description_zh, description_en, image_url, base_price, min_quantity, unit, materials, specs, is_active, seo_title_zh, seo_title_en, seo_description_zh, seo_description_en, created_at, updated_at FROM products WHERE id = ?",
         req.product_id
     )
-    .fetch_optional(&state.db)
+    .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
@@ -251,7 +217,7 @@ pub async fn quote_page(
             "SELECT id, uuid, category_id, name_zh, name_en, description_zh, description_en, image_url, base_price, min_quantity, unit, materials, specs, is_active, seo_title_zh, seo_title_en, seo_description_zh, seo_description_en, created_at, updated_at FROM products WHERE uuid = ?",
             uuid
         )
-        .fetch_optional(&state.db)
+        .fetch_optional(&state.pool)
         .await
         .ok()
         .flatten()
@@ -263,4 +229,55 @@ pub async fn quote_page(
         lang: "zh".to_string(),
         product,
     }
+}
+
+// About page handler
+pub async fn about_page() -> impl axum::response::IntoResponse {
+    AboutTemplate {
+        lang: "zh".to_string(),
+    }
+}
+
+// Contact page handler
+pub async fn contact_page() -> impl axum::response::IntoResponse {
+    ContactTemplate {
+        lang: "zh".to_string(),
+    }
+}
+
+// Contact form submission
+pub async fn submit_contact(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let email = req.get("email").and_then(|v| v.as_str()).unwrap_or("");
+    let subject = req.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+    let message = req.get("message").and_then(|v| v.as_str()).unwrap_or("");
+
+    if name.is_empty() || email.is_empty() || message.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Store contact message in database
+    sqlx::query!(
+        "INSERT INTO contact_messages (name, email, subject, message) VALUES (?, ?, ?, ?)",
+        name, email, subject, message
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(json!({ "success": true, "message": "消息已发送，我们会尽快回复您" })))
+}
+
+// Language switcher
+pub async fn switch_language(
+    Path(lang): Path<String>,
+) -> impl axum::response::IntoResponse {
+    let redirect_url = match lang.as_str() {
+        "zh" | "en" => "/",
+        _ => "/",
+    };
+    axum::response::Redirect::to(redirect_url)
 }
