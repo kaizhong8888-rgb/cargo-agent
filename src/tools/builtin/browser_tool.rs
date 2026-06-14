@@ -4,6 +4,7 @@
 
 use crate::tools::ToolParameter;
 use async_trait::async_trait;
+use once_cell::sync::Lazy;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use scraper::{Html, Selector};
@@ -12,6 +13,36 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub struct BrowserTool;
+
+// ============================================================================
+// Pre-compiled CSS selectors (eliminate ~30 .unwrap() calls + improve perf)
+// ============================================================================
+
+static SEL_TITLE: Lazy<Selector> = Lazy::new(|| Selector::parse("title").expect("valid selector"));
+static SEL_A_HREF: Lazy<Selector> = Lazy::new(|| Selector::parse("a[href]").expect("valid selector"));
+static SEL_IMG_SRC: Lazy<Selector> = Lazy::new(|| Selector::parse("img[src]").expect("valid selector"));
+static SEL_CANONICAL: Lazy<Selector> = Lazy::new(|| Selector::parse("link[rel='canonical']").expect("valid selector"));
+static SEL_H1: Lazy<Selector> = Lazy::new(|| Selector::parse("h1").expect("valid selector"));
+static SEL_TABLE: Lazy<Selector> = Lazy::new(|| Selector::parse("table").expect("valid selector"));
+static SEL_TR: Lazy<Selector> = Lazy::new(|| Selector::parse("tr").expect("valid selector"));
+static SEL_TH: Lazy<Selector> = Lazy::new(|| Selector::parse("th").expect("valid selector"));
+static SEL_TD: Lazy<Selector> = Lazy::new(|| Selector::parse("td").expect("valid selector"));
+static SEL_BODY: Lazy<Selector> = Lazy::new(|| Selector::parse("body").expect("valid selector"));
+static SEL_META: Lazy<Selector> = Lazy::new(|| Selector::parse("meta").expect("valid selector"));
+static SEL_HTML: Lazy<Selector> = Lazy::new(|| Selector::parse("html").expect("valid selector"));
+static SEL_FORM: Lazy<Selector> = Lazy::new(|| Selector::parse("form").expect("valid selector"));
+static SEL_INPUT: Lazy<Selector> = Lazy::new(|| Selector::parse("input, select, textarea").expect("valid selector"));
+static SEL_OPTION: Lazy<Selector> = Lazy::new(|| Selector::parse("option").expect("valid selector"));
+static SEL_BUTTON: Lazy<Selector> = Lazy::new(|| Selector::parse("button, input[type='submit']").expect("valid selector"));
+static SEL_IMG: Lazy<Selector> = Lazy::new(|| Selector::parse("img").expect("valid selector"));
+static SEL_SOURCE: Lazy<Selector> = Lazy::new(|| Selector::parse("source").expect("valid selector"));
+static SEL_PICTURE: Lazy<Selector> = Lazy::new(|| Selector::parse("picture").expect("valid selector"));
+static SEL_JSON_LD: Lazy<Selector> = Lazy::new(|| Selector::parse("script[type='application/ld+json']").expect("valid selector"));
+static SEL_ITEMSCOPE: Lazy<Selector> = Lazy::new(|| Selector::parse("[itemscope]").expect("valid selector"));
+static SEL_ITEMPROP: Lazy<Selector> = Lazy::new(|| Selector::parse("[itemprop]").expect("valid selector"));
+static SEL_ARTICLE: Lazy<Selector> = Lazy::new(|| Selector::parse("article").expect("valid selector"));
+static SEL_MAIN: Lazy<Selector> = Lazy::new(|| Selector::parse("main").expect("valid selector"));
+static SEL_AUTHOR: Lazy<Selector> = Lazy::new(|| Selector::parse("meta[name='author']").expect("valid selector"));
 
 // ============================================================================
 // Helper: Build a realistic browser-like HTTP client
@@ -268,20 +299,20 @@ async fn fetch_html(params: &HashMap<String, Value>) -> Result<(Html, String), S
 async fn navigate(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, html_text) = fetch_html(params).await?;
 
-    let title_sel = Selector::parse("title").unwrap();
+    let title_sel = &SEL_TITLE;
     let title = document
-        .select(&title_sel)
+        .select(title_sel)
         .next()
         .map(|el| element_text(&el))
         .unwrap_or_default();
 
-    let link_sel = Selector::parse("a[href]").unwrap();
-    let link_count = document.select(&link_sel).count();
+    let link_sel = &SEL_A_HREF;
+    let link_count = document.select(link_sel).count();
 
-    let img_sel = Selector::parse("img[src]").unwrap();
-    let img_count = document.select(&img_sel).count();
+    let img_sel = &SEL_IMG_SRC;
+    let img_count = document.select(img_sel).count();
 
-    let canonical_sel = Selector::parse("link[rel='canonical']").unwrap();
+    let canonical_sel = &SEL_CANONICAL;
     let canonical = document
         .select(&canonical_sel)
         .next()
@@ -343,7 +374,7 @@ async fn extract(params: &HashMap<String, Value>) -> Result<Value, String> {
 async fn links(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, _) = fetch_html(params).await?;
 
-    let link_sel = Selector::parse("a[href]").unwrap();
+    let link_sel = &SEL_A_HREF;
     let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(100) as usize;
 
     let base_url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
@@ -391,16 +422,16 @@ async fn links(params: &HashMap<String, Value>) -> Result<Value, String> {
 async fn title(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, _) = fetch_html(params).await?;
 
-    let title_sel = Selector::parse("title").unwrap();
+    let title_sel = &SEL_TITLE;
     let page_title = document
-        .select(&title_sel)
+        .select(title_sel)
         .next()
         .map(|el| element_text(&el))
         .unwrap_or_default();
 
-    let h1_sel = Selector::parse("h1").unwrap();
+    let h1_sel = &SEL_H1;
     let h1_tags: Vec<String> = document
-        .select(&h1_sel)
+        .select(h1_sel)
         .map(|el| element_text(&el))
         .filter(|t| !t.is_empty())
         .collect();
@@ -419,10 +450,10 @@ async fn title(params: &HashMap<String, Value>) -> Result<Value, String> {
 async fn table(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, _) = fetch_html(params).await?;
 
-    let table_sel = Selector::parse("table").unwrap();
-    let tr_sel = Selector::parse("tr").unwrap();
-    let th_sel = Selector::parse("th").unwrap();
-    let td_sel = Selector::parse("td").unwrap();
+    let table_sel = &SEL_TABLE;
+    let tr_sel = &SEL_TR;
+    let th_sel = &SEL_TH;
+    let td_sel = &SEL_TD;
 
     let table_index = params.get("table").and_then(|v| v.as_i64()).unwrap_or(0) as usize;
 
@@ -514,9 +545,9 @@ async fn search(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(20) as usize;
 
-    let body_sel = Selector::parse("body").unwrap();
+    let body_sel = &SEL_BODY;
     let body_text = document
-        .select(&body_sel)
+        .select(body_sel)
         .next()
         .map(|el| element_text(&el))
         .unwrap_or_default();
@@ -569,8 +600,8 @@ async fn meta(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     let mut meta_data = serde_json::Map::new();
 
-    let meta_sel = Selector::parse("meta").unwrap();
-    for el in document.select(&meta_sel) {
+    let meta_sel = &SEL_META;
+    for el in document.select(meta_sel) {
         let name = get_first_attr(&el, &["name", "property", "itemprop"]);
         let content = get_attr(&el, "content");
 
@@ -579,21 +610,21 @@ async fn meta(params: &HashMap<String, Value>) -> Result<Value, String> {
         }
     }
 
-    let title_sel = Selector::parse("title").unwrap();
+    let title_sel = &SEL_TITLE;
     let title = document
-        .select(&title_sel)
+        .select(title_sel)
         .next()
         .map(|el| element_text(&el))
         .unwrap_or_default();
 
-    let canonical_sel = Selector::parse("link[rel='canonical']").unwrap();
+    let canonical_sel = &SEL_CANONICAL;
     let canonical = document
-        .select(&canonical_sel)
+        .select(canonical_sel)
         .next()
         .map(|el| get_attr(&el, "href"))
         .unwrap_or_default();
 
-    let html_sel = Selector::parse("html").unwrap();
+    let html_sel = &SEL_HTML;
     let lang = document
         .select(&html_sel)
         .next()
@@ -622,8 +653,8 @@ async fn forms(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, _) = fetch_html(params).await?;
     let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(20) as usize;
 
-    let form_sel = Selector::parse("form").unwrap();
-    let input_sel = Selector::parse("input, select, textarea").unwrap();
+    let form_sel = &SEL_FORM;
+    let input_sel = &SEL_INPUT;
 
     let mut forms_list: Vec<Value> = Vec::new();
 
@@ -673,8 +704,8 @@ async fn forms(params: &HashMap<String, Value>) -> Result<Value, String> {
 
             // For select, get options
             if tag == "select" {
-                let opt_sel = Selector::parse("option").unwrap();
-                let options: Vec<Value> = field.select(&opt_sel)
+                let opt_sel = &SEL_OPTION;
+                let options: Vec<Value> = field.select(opt_sel)
                     .map(|opt| {
                         let opt_value = get_attr(&opt, "value");
                         let opt_text = element_text(&opt);
@@ -693,7 +724,7 @@ async fn forms(params: &HashMap<String, Value>) -> Result<Value, String> {
         }
 
         // Get submit buttons
-        let button_sel = Selector::parse("button, input[type='submit']").unwrap();
+        let button_sel = &SEL_BUTTON;
         let buttons: Vec<Value> = form_el.select(&button_sel)
             .map(|btn| {
                 let btn_text = element_text(&btn);
@@ -740,8 +771,8 @@ async fn images(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, _) = fetch_html(params).await?;
     let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(100) as usize;
 
-    let img_sel = Selector::parse("img").unwrap();
-    let source_sel = Selector::parse("source").unwrap();
+    let img_sel = &SEL_IMG;
+    let source_sel = &SEL_SOURCE;
 
     let base_url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -797,7 +828,7 @@ async fn images(params: &HashMap<String, Value>) -> Result<Value, String> {
     }
 
     // Also get picture elements
-    let picture_sel = Selector::parse("picture").unwrap();
+    let picture_sel = &SEL_PICTURE;
     let mut picture_count = 0;
     for _ in document.select(&picture_sel) {
         picture_count += 1;
@@ -852,8 +883,8 @@ async fn structured_data(params: &HashMap<String, Value>) -> Result<Value, Strin
     let mut microdata: Vec<Value> = Vec::new();
 
     // Extract JSON-LD
-    let script_sel = Selector::parse("script[type='application/ld+json']").unwrap();
-    for el in document.select(&script_sel) {
+    let script_sel = &SEL_JSON_LD;
+    for el in document.select(script_sel) {
         for node in el.descendants() {
             if let scraper::Node::Text(t) = node.value() {
                 let text = t.text.trim();
@@ -867,14 +898,14 @@ async fn structured_data(params: &HashMap<String, Value>) -> Result<Value, Strin
     }
 
     // Extract microdata
-    let itemscope_sel = Selector::parse("[itemscope]").unwrap();
-    for el in document.select(&itemscope_sel) {
+    let itemscope_sel = &SEL_ITEMSCOPE;
+    for el in document.select(itemscope_sel) {
         let itemtype = get_attr(&el, "itemtype");
         let itemid = get_attr(&el, "itemid");
 
         let mut properties: serde_json::Map<String, Value> = serde_json::Map::new();
-        let itemprop_sel = Selector::parse("[itemprop]").unwrap();
-        for prop_el in el.select(&itemprop_sel) {
+        let itemprop_sel = &SEL_ITEMPROP;
+        for prop_el in el.select(itemprop_sel) {
             let prop_name = get_attr(&prop_el, "itemprop");
             let prop_content = get_first_attr(&prop_el, &["content", "href", "src"]);
             let prop_text = if prop_content.is_empty() {
@@ -918,6 +949,7 @@ async fn headings(params: &HashMap<String, Value>) -> Result<Value, String> {
 
     // Build outline by tag level
     let heading_tags = ["h1", "h2", "h3", "h4", "h5", "h6"];
+    let mut outline: Vec<Value> = Vec::new();
     for tag in heading_tags {
         let sel = Selector::parse(tag).map_err(|e| format!("Invalid selector: {}", e))?;
         let found: Vec<(String, String)> = document.select(&sel)
@@ -951,31 +983,24 @@ async fn headings(params: &HashMap<String, Value>) -> Result<Value, String> {
 async fn readability(params: &HashMap<String, Value>) -> Result<Value, String> {
     let (document, html_text) = fetch_html(params).await?;
 
-    let body_sel = Selector::parse("body").unwrap();
-    let body = document.select(&body_sel).next()
+    let body_sel = &SEL_BODY;
+    let body = document.select(body_sel).next()
         .ok_or_else(|| "No <body> element found".to_string())?;
 
     // Find content-rich container (article, main, or body)
-    let content = if let Ok(article_sel) = Selector::parse("article") {
-        document.select(&article_sel).next().map(|el| element_text(&el))
-    } else { None };
-
-    let content = content.or_else(|| {
-        if let Ok(main_sel) = Selector::parse("main") {
-            document.select(&main_sel).next().map(|el| element_text(&el))
-        } else { None }
-    });
+    let content = document.select(&SEL_ARTICLE).next().map(|el| element_text(&el))
+        .or_else(|| document.select(&SEL_MAIN).next().map(|el| element_text(&el)));
 
     let content = content.unwrap_or_else(|| element_text(&body));
 
-    let title_sel = Selector::parse("title").unwrap();
-    let title = document.select(&title_sel).next()
+    let title_sel = &SEL_TITLE;
+    let title = document.select(title_sel).next()
         .map(|el| element_text(&el))
         .unwrap_or_default();
 
     // Get author if available
-    let author_sel = Selector::parse("meta[name='author']").unwrap();
-    let author = document.select(&author_sel).next()
+    let author_sel = &SEL_AUTHOR;
+    let author = document.select(author_sel).next()
         .map(|el| get_attr(&el, "content"))
         .unwrap_or_default();
 
@@ -1027,15 +1052,15 @@ async fn diff_pages(params: &HashMap<String, Value>) -> Result<Value, String> {
         return Err("diff action requires url2 or html2 parameter".to_string());
     };
 
-    let title1_sel = Selector::parse("title").unwrap();
-    let title2_sel = Selector::parse("title").unwrap();
+    let title1_sel = &SEL_TITLE;
+    let title2_sel = &SEL_TITLE;
 
-    let title1 = doc1.select(&title1_sel).next().map(|el| element_text(&el)).unwrap_or_default();
-    let title2 = doc2.select(&title2_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+    let title1 = doc1.select(title1_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+    let title2 = doc2.select(title2_sel).next().map(|el| element_text(&el)).unwrap_or_default();
 
-    let link_sel = Selector::parse("a[href]").unwrap();
-    let links1: Vec<String> = doc1.select(&link_sel).map(|el| get_attr(&el, "href")).collect();
-    let links2: Vec<String> = doc2.select(&link_sel).map(|el| get_attr(&el, "href")).collect();
+    let link_sel = &SEL_A_HREF;
+    let links1: Vec<String> = doc1.select(link_sel).map(|el| get_attr(&el, "href")).collect();
+    let links2: Vec<String> = doc2.select(link_sel).map(|el| get_attr(&el, "href")).collect();
 
     let links1_set: std::collections::HashSet<_> = links1.iter().cloned().collect();
     let links2_set: std::collections::HashSet<_> = links2.iter().cloned().collect();
@@ -1044,9 +1069,9 @@ async fn diff_pages(params: &HashMap<String, Value>) -> Result<Value, String> {
     let only_in_2: Vec<&String> = links2_set.difference(&links1_set).collect();
     let common: Vec<&String> = links1_set.intersection(&links2_set).collect();
 
-    let body_sel = Selector::parse("body").unwrap();
-    let body_text1 = doc1.select(&body_sel).next().map(|el| element_text(&el)).unwrap_or_default();
-    let body_text2 = doc2.select(&body_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+    let body_sel = &SEL_BODY;
+    let body_text1 = doc1.select(body_sel).next().map(|el| element_text(&el)).unwrap_or_default();
+    let body_text2 = doc2.select(body_sel).next().map(|el| element_text(&el)).unwrap_or_default();
 
     Ok(json!({
         "url1": params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
