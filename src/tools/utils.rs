@@ -237,10 +237,10 @@ macro_rules! define_tool {
             pub struct [<$name:camel Tool>];
 
             #[async_trait::async_trait]
-            impl crate::tools::registry::Tool for [<$name:camel Tool>] {
+            impl $crate::tools::registry::Tool for [<$name:camel Tool>] {
                 fn name(&self) -> &str { $name }
                 fn description(&self) -> &str { $desc }
-                fn parameters(&self) -> Vec<crate::tools::registry::ToolParameter> {
+                fn parameters(&self) -> Vec<$crate::tools::registry::ToolParameter> {
                     vec![$( $param ),*]
                 }
             }

@@ -208,7 +208,7 @@ impl ModelClient {
     ) -> Result<ModelResponse> {
         // Convert OpenAI-format messages to Anthropic format
         let mut system_message: Option<String> = None;
-        let mut anthropic_messages: Vec<Value> = Vec::new();
+        let mut anthropic_messages: Vec<Value> = Vec::with_capacity(messages.len());
 
         for msg in messages {
             let role = msg["role"].as_str().unwrap_or("");
@@ -232,7 +232,7 @@ impl ModelClient {
                 "assistant" => {
                     // Check for tool_calls in the message
                     if let Some(tool_calls) = msg["tool_calls"].as_array() {
-                        let mut content_parts: Vec<Value> = Vec::new();
+                        let mut content_parts: Vec<Value> = Vec::with_capacity(tool_calls.len() + 1);
                         if !content.is_empty() {
                             content_parts.push(serde_json::json!({
                                 "type": "text",
@@ -388,8 +388,8 @@ impl ModelClient {
         let empty_arr = vec![];
         let content_parts = data["content"].as_array().unwrap_or(&empty_arr);
 
-        let mut text_parts: Vec<String> = Vec::new();
-        let mut tool_calls: Vec<ToolCallInfo> = Vec::new();
+        let mut text_parts: Vec<String> = Vec::with_capacity(content_parts.len());
+        let mut tool_calls: Vec<ToolCallInfo> = Vec::with_capacity(content_parts.len());
 
         for part in content_parts {
             match part["type"].as_str() {

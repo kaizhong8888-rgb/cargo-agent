@@ -80,7 +80,15 @@ static RE_PANIC_UNWRAP: Lazy<Regex> = Lazy::new(|| {
 });
 
 static RE_DEPRECATED_CRYPTO: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?:md5|sha1|DES|RC4|ECB)"#).expect("valid regex"));
+    Lazy::new(|| Regex::new(r#"(?x)
+        # Actual usage patterns (function calls, imports, type annotations)
+        (?:
+            (?:Md5|Sha1|DES|RC4|Ecb)::           # Type::method() pattern
+            |(?:md5|sha1|des|rc4)\s*::           # module::function() pattern
+            |use\s+.*(?:md5|sha1|des|rc4)        # use statements
+            |::(?:md5|sha1)\s*\(                  # ::md5() function call
+        )
+    "#).expect("valid regex"));
 
 static RE_TAR_BOMBING: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"Archive::new.*unpack"#).expect("valid regex"));
@@ -179,6 +187,7 @@ fn collect_files(
     files: &mut Vec<String>,
     recursive: bool,
     extensions: &[&str],
+    skip_patterns: &[&str],
 ) -> Result<(), String> {
     if !dir.exists() {
         return Err(format!("Path does not exist: {}", dir.display()));
@@ -197,9 +206,15 @@ fn collect_files(
                 continue;
             }
             if recursive {
-                collect_files(&p, files, true, extensions)?;
+                collect_files(&p, files, true, extensions, skip_patterns)?;
             }
         } else if p.is_file() {
+            // Skip files matching skip patterns (e.g. the scanner's own source file)
+            if let Some(fname) = p.file_name().and_then(|n| n.to_str()) {
+                if skip_patterns.iter().any(|pat| fname.contains(pat)) {
+                    continue;
+                }
+            }
             if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
                 if extensions.contains(&ext) {
                     files.push(p.to_string_lossy().to_string());
@@ -230,7 +245,11 @@ struct ScanRule {
 fn scan_code_security(path: &str, recursive: bool) -> Result<Value, String> {
     let scan_path = Path::new(path);
     let mut files: Vec<String> = Vec::new();
-    collect_files(scan_path, &mut files, recursive, &["rs"])?;
+    collect_files(scan_path, &mut files, recursive, &["rs"], &["security_scanner.rs"])?;
+
+    // Extra safety: explicitly remove the scanner's own file from the list
+    // This prevents the scanner from matching its own regex pattern definitions
+    files.retain(|f| !f.contains("security_scanner.rs"));
 
     if files.is_empty() {
         return Ok(json!({
@@ -387,18 +406,57 @@ fn scan_code_security(path: &str, recursive: bool) -> Result<Value, String> {
 }
 
 fn is_in_test_code(lines: &[&str], line_num: usize) -> bool {
-    // Check if we're inside a #[cfg(test)] module or #[test] function
-    let mut in_test = false;
+    // Check if we're inside a #[cfg(test)] module, #[test] function,
+    // or a #[cfg(test)] mod tests { ... } block
+    let mut brace_depth = 0isize;
+    let mut test_depth = -1isize;
+    let mut prev_line_was_test_attr = false;
+
     for i in 0..line_num.saturating_sub(1) {
         let line = lines.get(i).unwrap_or(&"").trim();
-        if line.contains("#[cfg(test)]") || line.contains("#[test]") {
-            in_test = true;
+
+        // Detect test markers — record the depth at which they appear
+        if test_depth < 0 {
+            let is_test_attr = line.starts_with("#[cfg(test)]")
+                || line.starts_with("#[test]")
+                || line.starts_with("#[tokio::test]")
+                || line.starts_with("#[actix_web::test]")
+                || line.starts_with("#[ctor]");
+            let is_mod_block = line.starts_with("mod ") && line.contains('{');
+
+            if is_test_attr {
+                prev_line_was_test_attr = true;
+            } else if prev_line_was_test_attr && is_mod_block {
+                // #[cfg(test)]\nmod tests { — record depth before the '{'
+                test_depth = brace_depth;
+                prev_line_was_test_attr = false;
+            } else if is_test_attr && line.contains('{') {
+                // Single-line: #[test] fn foo() { or #[cfg(test)] mod tests {
+                test_depth = brace_depth;
+                prev_line_was_test_attr = false;
+            } else {
+                prev_line_was_test_attr = false;
+            }
         }
-        if in_test && line == "}" {
-            in_test = false;
+
+        // Count braces to track scope depth
+        for ch in line.chars() {
+            match ch {
+                '{' => {
+                    brace_depth += 1;
+                }
+                '}' => {
+                    if brace_depth == test_depth {
+                        test_depth = -1;
+                    }
+                    brace_depth -= 1;
+                }
+                _ => {}
+            }
         }
     }
-    in_test
+
+    test_depth >= 0
 }
 
 // ============================================================================
@@ -479,11 +537,13 @@ fn check_hardcoded_secrets(path: &str, recursive: bool) -> Result<Value, String>
     let scan_path = Path::new(path);
     let mut files: Vec<String> = Vec::new();
     // Scan .rs, .toml, .env, .yaml, .yml, .json, .cfg, .conf
+    // Exclude scanner's own file to prevent self-referencing false positives
     collect_files(
         scan_path,
         &mut files,
         recursive,
         &["rs", "toml", "env", "yaml", "yml", "json", "cfg", "conf"],
+        &["security_scanner.rs"],
     )?;
 
     let secret_patterns: Vec<(&str, &str, &str)> = vec![

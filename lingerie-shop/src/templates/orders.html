@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container section">
+    <div class="page-header">
+        <h1>📦 我的订单</h1>
+    </div>
+
+    {% if orders.is_empty() %}
+    <div class="empty-state">
+        <span class="empty-state__icon">📦</span>
+        <p>暂无订单</p>
+        <a href="/products" class="btn btn--primary">去逛逛</a>
+    </div>
+    {% else %}
+    <div class="orders-list">
+        {% for order in orders %}
+        <div class="order-card">
+            <div class="order-card__header">
+                <div>
+                    <span class="order-card__id">订单号: {{ order.id }}</span>
+                    <span class="order-card__date">{{ order.created_at|date(format="%Y-%m-%d %H:%M") }}</span>
+                </div>
+                <span class="order-card__status status-{{ order.status }}">{{ order.status_label() }}</span>
+            </div>
+            <div class="order-card__items">
+                <span>共 {{ loop.index }} 件商品</span>
+            </div>
+            <div class="order-card__footer">
+                <div class="order-card__total">
+                    <span>合计:</span>
+                    <span class="order-card__amount">¥{{ "{:.2}".format(order.total) }}</span>
+                </div>
+                <a href="/orders/{{ order.id }}" class="btn btn--sm btn--outline">查看详情</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

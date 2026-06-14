@@ -637,7 +637,7 @@ CREATE TABLE IF NOT EXISTS {table} (
                 || t.contains("numeric") =>
             {
                 let val = (index as f64 * 1.5) + 0.99;
-                serde_json::Value::Number(serde_json::Number::from_f64(val).unwrap())
+                serde_json::Value::Number(serde_json::Number::from_f64(val).unwrap_or(serde_json::Number::from(0)))
             }
             _ => serde_json::Value::String(format!("mock_{index}")),
         }
@@ -787,7 +787,7 @@ fn to_snake_case(name: &str) -> String {
         if c.is_uppercase() && i > 0 {
             result.push('_');
         }
-        result.push(c.to_lowercase().next().unwrap());
+        result.push(c.to_lowercase().next().unwrap_or(c));
     }
     result
 }

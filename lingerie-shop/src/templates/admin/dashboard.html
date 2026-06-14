@@ -1,0 +1,92 @@
+{% extends "admin/base.html" %}
+
+{% block title %}数据概览{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <h1>数据概览</h1>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-card__icon">📦</div>
+            <div class="stat-card__info">
+                <span class="stat-card__value">{{ total_products }}</span>
+                <span class="stat-card__label">商品总数</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card__icon">🛒</div>
+            <div class="stat-card__info">
+                <span class="stat-card__value">{{ total_orders }}</span>
+                <span class="stat-card__label">订单总数</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card__icon">👤</div>
+            <div class="stat-card__info">
+                <span class="stat-card__value">{{ total_users }}</span>
+                <span class="stat-card__label">用户总数</span>
+            </div>
+        </div>
+        <div class="stat-card stat-card--warning">
+            <div class="stat-card__icon">⏳</div>
+            <div class="stat-card__info">
+                <span class="stat-card__value">{{ pending_orders }}</span>
+                <span class="stat-card__label">待处理订单</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-grid">
+        <div class="admin-section">
+            <h2>最近订单</h2>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>订单号</th>
+                        <th>金额</th>
+                        <th>状态</th>
+                        <th>时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in recent_orders %}
+                    <tr>
+                        <td class="admin-table__mono">{{ order.id[..8] }}...</td>
+                        <td>¥{{ "{:.2}".format(order.total) }}</td>
+                        <td><span class="badge badge--{{ order.status }}">{{ order.status_label() }}</span></td>
+                        <td>{{ order.created_at|date(format="%m-%d %H:%M") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if recent_orders.is_empty() %}
+            <p class="empty-state">暂无订单</p>
+            {% endif %}
+        </div>
+
+        <div class="admin-section">
+            <h2>库存预警</h2>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>商品</th>
+                        <th>库存</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in low_stock_products %}
+                    <tr>
+                        <td>{{ p.name }}</td>
+                        <td class="{% if p.stock < 10 %}text--danger{% endif %}">{{ p.stock }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if low_stock_products.is_empty() %}
+            <p class="empty-state">库存充足 ✓</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

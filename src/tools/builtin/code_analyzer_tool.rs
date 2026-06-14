@@ -426,7 +426,7 @@ fn analyze_dependencies(files: &[String]) -> Result<Value, String> {
 
     // Sort crate references by frequency
     let mut refs: Vec<(String, usize)> = crate_references.into_iter().collect();
-    refs.sort_by(|a, b| b.1.cmp(&a.1));
+    refs.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     Ok(serde_json::json!({
         "status": "ok",
@@ -533,11 +533,7 @@ fn analyze_complexity(files: &[String], detail: &str) -> Result<Value, String> {
         }
     }
 
-    let avg_fn_length = if total_functions > 0 {
-        Some(total_lines / total_functions)
-    } else {
-        None
-    };
+    let avg_fn_length = total_lines.checked_div(total_functions);
 
     Ok(serde_json::json!({
         "status": "ok",
@@ -665,7 +661,7 @@ fn analyze_patterns(files: &[String]) -> Result<Value, String> {
             (key.to_string(), count, *desc)
         })
         .collect();
-    sorted_patterns.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_patterns.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     Ok(serde_json::json!({
         "status": "ok",

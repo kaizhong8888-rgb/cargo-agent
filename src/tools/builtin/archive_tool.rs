@@ -384,7 +384,7 @@ fn list_zip(source: &Path) -> Result<Value, String> {
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {e}"))?;
 
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(archive.len());
     let mut total_size = 0u64;
     let mut file_count = 0;
     let mut dir_count = 0;
@@ -672,20 +672,79 @@ fn collect_files(
 }
 
 /// Simple glob-like pattern matching (supports * and ?)
+/// Uses native string matching instead of regex to avoid repeated compilation.
 fn matches_simple_pattern(name: &str, pattern: &str) -> bool {
     if pattern == "*" {
         return true;
     }
+    if !pattern.contains('*') && !pattern.contains('?') {
+        return name == pattern;
+    }
 
-    let regex_pattern = pattern
-        .replace('.', "\\.")
-        .replace('*', ".*")
-        .replace('?', ".");
+    // Common patterns handled natively for performance:
+    // "*.ext" → ends_with
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        return name.len() > suffix.len() && name.ends_with(suffix) && name.chars().nth(name.len() - suffix.len() - 1) == Some('.');
+    }
+    // "*.ext" without dot after star
+    if let Some(suffix) = pattern.strip_prefix('*') {
+        if !suffix.contains('*') {
+            return name.ends_with(suffix);
+        }
+    }
+    // "dir/*" → starts_with
+    if let Some(prefix) = pattern.strip_suffix("/*") {
+        return name.starts_with(prefix) && (name.len() == prefix.len() || name.as_bytes().get(prefix.len()) == Some(&b'/'));
+    }
 
-    if let Ok(re) = regex::Regex::new(&format!("^{regex_pattern}$")) {
-        re.is_match(name)
-    } else {
-        name == pattern
+    // General case: native glob matching without regex compilation
+    glob_match(name.as_bytes(), pattern.as_bytes())
+}
+
+/// Native glob matcher - no heap allocation, no regex compilation.
+fn glob_match(mut name: &[u8], mut pattern: &[u8]) -> bool {
+    let mut star_name = name;
+    let mut star_pat = pattern;
+
+    loop {
+        match (name.first(), pattern.first()) {
+            // Both exhausted
+            (None, None) => return true,
+            // Pattern exhausted but name remains
+            (Some(_), None) => return false,
+            // Name exhausted but pattern remains - check if rest is all stars
+            (None, Some(b'*')) => {
+                pattern = &pattern[1..];
+                continue;
+            }
+            (None, Some(_)) => return false,
+            // Star in pattern - save backtrack point
+            (_, Some(b'*')) => {
+                star_pat = &pattern[1..];
+                star_name = name;
+                pattern = star_pat;
+                name = star_name;
+            }
+            // '?' matches any single character
+            (_, Some(b'?')) => {
+                name = &name[1..];
+                pattern = &pattern[1..];
+            }
+            // Exact character match
+            (Some(n), Some(p)) if n == p => {
+                name = &name[1..];
+                pattern = &pattern[1..];
+            }
+            // Mismatch - backtrack to last star
+            (_, _) => {
+                if star_pat.is_empty() {
+                    return false;
+                }
+                star_name = &star_name[1..];
+                pattern = star_pat;
+                name = star_name;
+            }
+        }
     }
 }
 

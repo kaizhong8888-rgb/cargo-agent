@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container section">
+    <nav class="breadcrumb">
+        <a href="/orders">我的订单</a>
+        <span>/</span>
+        <span>订单详情</span>
+    </nav>
+
+    <div class="order-detail">
+        <div class="order-detail__header">
+            <div>
+                <h1>订单详情</h1>
+                <p class="order-detail__id">订单号: {{ order.id }}</p>
+                <p class="order-detail__date">{{ order.created_at|date(format="%Y-%m-%d %H:%M") }}</p>
+            </div>
+            <div class="order-detail__status">
+                <span class="badge badge--{{ order.status }}">{{ order.status_label() }}</span>
+                <span class="badge badge--payment {{ order.payment_status }}">{{ order.payment_status_label() }}</span>
+            </div>
+        </div>
+
+        <div class="order-detail__items">
+            <h3>商品清单</h3>
+            {% for item in items %}
+            <div class="order-item">
+                <div class="order-item__image">
+                    {% if !item.product_image.is_empty() %}
+                    <img src="{{ item.product_image }}" alt="{{ item.product_name }}">
+                    {% else %}
+                    <span>👙</span>
+                    {% endif %}
+                </div>
+                <div class="order-item__info">
+                    <h4>{{ item.product_name }}</h4>
+                    <p>数量: {{ item.quantity }} × ¥{{ "{:.2}".format(item.price) }}</p>
+                </div>
+                <div class="order-item__price">
+                    ¥{{ "{:.2}".format(item.price * item.quantity as f64) }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="order-detail__summary">
+            <div class="order-detail__shipping">
+                <h3>收货信息</h3>
+                <p>{{ order.shipping_name }}</p>
+                <p>{{ order.shipping_phone }}</p>
+                <p>{{ order.shipping_address }}, {{ order.shipping_city }}, {{ order.shipping_state }} {{ order.shipping_zip }}</p>
+                <p>{{ order.shipping_country }}</p>
+                {% if !order.notes.is_empty() %}
+                <p><strong>备注:</strong> {{ order.notes }}</p>
+                {% endif %}
+            </div>
+            <div class="order-detail__totals">
+                <h3>金额明细</h3>
+                <div class="order-detail__total-row">
+                    <span>商品合计</span>
+                    <span>¥{{ "{:.2}".format(order.total) }}</span>
+                </div>
+                <div class="order-detail__total-row">
+                    <span>运费</span>
+                    <span>{% if order.total >= 299.0 %}免费{% else %}¥15.00{% endif %}</span>
+                </div>
+                <hr>
+                <div class="order-detail__total-row order-detail__total-row--grand">
+                    <span>应付总额</span>
+                    <span>¥{{ "{:.2}".format(order.total) }}</span>
+                </div>
+                <div class="order-detail__payment">
+                    <span>支付方式: </span>
+                    <span>{{ order.payment_method }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

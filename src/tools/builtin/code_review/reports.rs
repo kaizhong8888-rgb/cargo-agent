@@ -140,7 +140,7 @@ pub(super) fn generate_text_report(
             }
         }
         let mut sorted: Vec<(&String, &(u32, u32, u32))> = check_counts.iter().collect();
-        sorted.sort_by(|a, b| (b.1 .0, b.1 .1, b.1 .2).cmp(&(a.1 .0, a.1 .1, a.1 .2)));
+        sorted.sort_by_key(|b| std::cmp::Reverse((b.1 .0, b.1 .1, b.1 .2)));
         for (check, (e, w, i)) in &sorted {
             report.push_str(&format!("  {:<20} {:>5} {:>5} {:>5}\n", check, e, w, i));
         }

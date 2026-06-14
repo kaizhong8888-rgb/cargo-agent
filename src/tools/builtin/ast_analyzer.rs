@@ -158,7 +158,7 @@ fn parse_file(path: &str) -> Result<File, String> {
 // ============================================================================
 
 fn action_analyze(files: &[String]) -> Result<Value, String> {
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(files.len());
     let mut total_functions = 0usize;
     let mut total_structs = 0usize;
     let mut total_enums = 0usize;
@@ -302,7 +302,7 @@ fn is_pub(vis: &Visibility) -> bool {
 // ============================================================================
 
 fn action_unused_imports(files: &[String]) -> Result<Value, String> {
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(files.len());
 
     for file_path in files {
         if let Ok(ast) = parse_file(file_path) {
@@ -406,7 +406,7 @@ fn use_tree_to_string(tree: &UseTree) -> String {
 // ============================================================================
 
 fn action_public_api(files: &[String]) -> Result<Value, String> {
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(files.len());
 
     for file_path in files {
         match parse_file(file_path) {
@@ -610,7 +610,7 @@ fn action_dependencies(files: &[String]) -> Result<Value, String> {
 // ============================================================================
 
 fn action_complexity(files: &[String]) -> Result<Value, String> {
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(files.len());
 
     for file_path in files {
         if let Ok(ast) = parse_file(file_path) {

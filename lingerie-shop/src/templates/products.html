@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container section">
+    <div class="page-header">
+        <h1>{{ page_title }}</h1>
+        <p class="page-header__subtitle">共 {{ total }} 件商品</p>
+    </div>
+
+    <div class="products-layout">
+        <!-- Sidebar -->
+        <aside class="products-sidebar">
+            <h3>分类</h3>
+            <ul class="category-list">
+                <li>
+                    <a href="/products" class="{% if current_category.is_none() %}active{% endif %}">
+                        全部商品
+                    </a>
+                </li>
+                {% for cat in categories %}
+                <li>
+                    <a href="/products?category={{ cat.slug }}"
+                       class="{% if current_category == Some(cat.slug.as_str()) %}active{% endif %}">
+                        {{ cat.name }}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </aside>
+
+        <!-- Products Grid -->
+        <div class="products-content">
+            {% if products.is_empty() %}
+            <div class="empty-state">
+                <span class="empty-state__icon">🔍</span>
+                <p>暂无商品</p>
+            </div>
+            {% else %}
+            <div class="products__grid">
+                {% for product in products %}
+                <a href="/products/{{ product.slug }}" class="product-card">
+                    <div class="product-card__image">
+                        {% if product.is_on_sale() %}
+                        <span class="product-card__badge product-card__badge--sale">特惠</span>
+                        {% endif %}
+                        <div class="product-card__placeholder">
+                            {% if product.first_image().is_some() %}
+                            <img src="{{ product.first_image().unwrap() }}" alt="{{ product.name }}" loading="lazy">
+                            {% else %}
+                            <span>👙</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="product-card__info">
+                        <h3>{{ product.name }}</h3>
+                        <p class="product-card__desc">{{ product.description|truncate(length=50) }}</p>
+                        <div class="product-card__price">
+                            {% if product.is_on_sale() %}
+                            <span class="price--sale">¥{{ product.display_price() }}</span>
+                            <span class="price--original">¥{{ product.price }}</span>
+                            {% else %}
+                            <span class="price--current">¥{{ product.display_price() }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+            <nav class="pagination">
+                {% if current_page > 1 %}
+                <a href="/products{% if current_category %}?category={{ current_category }}{% endif %}&page={{ current_page - 1 }}" class="pagination__link">← 上一页</a>
+                {% endif %}
+                <span class="pagination__info">第 {{ current_page }} / {{ total_pages }} 页</span>
+                {% if current_page < total_pages %}
+                <a href="/products{% if current_category %}?category={{ current_category }}{% endif %}&page={{ current_page + 1 }}" class="pagination__link">下一页 →</a>
+                {% endif %}
+            </nav>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

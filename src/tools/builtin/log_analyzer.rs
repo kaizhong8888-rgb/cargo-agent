@@ -498,7 +498,7 @@ fn compute_level_distribution(entries: &[LogEntry]) -> Value {
 
     // Sort by count
     let mut sorted: Vec<(String, usize)> = dist.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     json!(sorted)
 }
@@ -515,7 +515,7 @@ fn find_top_errors(entries: &[LogEntry], limit: usize) -> Vec<Value> {
     }
 
     let mut sorted: Vec<(String, usize)> = error_counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     sorted
         .into_iter()

@@ -749,7 +749,7 @@ fn handle_blame(
     }
 
     let mut contributors: Vec<(String, usize)> = author_counts.into_iter().collect();
-    contributors.sort_by(|a, b| b.1.cmp(&a.1));
+    contributors.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     if format == "json" {
         Ok(json!({

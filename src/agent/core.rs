@@ -118,7 +118,7 @@ impl AIAgent {
             tool_registry,
             skill_registry,
             client,
-            messages: Vec::new(),
+            messages: Vec::with_capacity(16),
             max_turns: MAX_TURNS,
             memory_store: Self::try_init_memory_store(),
             token_usage: TokenUsage::default(),
@@ -138,7 +138,9 @@ impl AIAgent {
     pub fn set_model(&mut self, model: impl Into<String>) {
         let name = model.into();
         self.client.set_model(&name);
-        *self.current_model.lock().unwrap() = name;
+        if let Ok(mut current) = self.current_model.lock() {
+            *current = name;
+        }
     }
 
     /// Create a shared memory store that can be passed to tools.
@@ -416,7 +418,9 @@ impl AIAgent {
         const MAX_CONCURRENT_TOOLS: usize = 4;
 
         if let Some(first) = calls.first() {
-            *self.current_tool.lock().unwrap() = first.name.clone();
+            if let Ok(mut current) = self.current_tool.lock() {
+                *current = first.name.clone();
+            }
         }
 
         let mut results = Vec::with_capacity(calls.len());
@@ -604,8 +608,8 @@ impl AIAgent {
     /// Includes the current tool name or model name when applicable.
     pub fn get_status_display(&self) -> String {
         let status = self.get_status();
-        let tool_name = self.current_tool.lock().unwrap().clone();
-        let model_name = self.current_model.lock().unwrap().clone();
+        let tool_name = self.current_tool.lock().map(|g| g.clone()).unwrap_or_default();
+        let model_name = self.current_model.lock().map(|g| g.clone()).unwrap_or_default();
 
         match status {
             AgentStatus::ExecutingTool if !tool_name.is_empty() => {

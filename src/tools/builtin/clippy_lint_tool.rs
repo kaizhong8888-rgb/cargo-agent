@@ -439,7 +439,7 @@ fn categorize_by_file(lints: &[Value]) -> Value {
 
     // Sort by count
     let mut sorted: Vec<(String, usize)> = by_file.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     json!(sorted)
 }

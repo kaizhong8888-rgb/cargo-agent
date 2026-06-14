@@ -204,10 +204,7 @@ impl Skill {
     /// ```
     pub fn matches_message(&self, message: &str) -> bool {
         let lower = message.to_lowercase();
-        self.keywords.iter().any(|kw| {
-            let kw_lower = kw.to_lowercase();
-            lower.contains(&kw_lower)
-        })
+        self.keywords.iter().any(|kw| lower.contains(kw))
     }
 
     /// Get the full instruction string combining system_instructions and reference.
@@ -239,7 +236,7 @@ impl Skill {
     /// assert!(ctx.contains("Use `Cow<str>`."));
     /// ```
     pub fn build_context(&self) -> String {
-        let mut parts = Vec::new();
+        let mut parts = Vec::with_capacity(1 + self.reference_files.len());
         if !self.system_instructions.is_empty() {
             parts.push(self.system_instructions.clone());
         }
@@ -288,7 +285,7 @@ impl Skill {
     /// assert!(header.contains("version: 1.0.0"));
     /// ```
     pub fn frontmatter(&self) -> String {
-        let mut lines: Vec<String> = Vec::new();
+        let mut lines: Vec<String> = Vec::with_capacity(12);
         lines.push("---".into());
         lines.push(format!("name: {}", self.name));
         lines.push(format!("description: {}", escape_yaml_scalar(&self.description)));
@@ -684,7 +681,8 @@ impl SkillRegistry {
     /// assert!(ctx.contains("Be concise."));
     /// ```
     pub fn build_context_for(&self, message: &str) -> String {
-        let mut parts = Vec::new();
+        let num_skills = self.active_skills().len() + self.matching_skills(message).len();
+        let mut parts = Vec::with_capacity(num_skills);
 
         // Always-active skills first
         for skill in self.active_skills() {

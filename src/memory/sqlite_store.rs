@@ -69,7 +69,15 @@ impl SqliteMemoryStore {
         importance: u8,
     ) -> anyhow::Result<MemoryEntry> {
         let now = Utc::now().to_rfc3339();
-        let tags_str = tags.join(",");
+        let tags_str = {
+            let total_len: usize = tags.iter().map(|t| t.len()).sum::<usize>() + tags.len().saturating_sub(1);
+            let mut s = String::with_capacity(total_len);
+            for (i, tag) in tags.iter().enumerate() {
+                if i > 0 { s.push(','); }
+                s.push_str(tag);
+            }
+            s
+        };
         let importance = importance.clamp(1, 10);
 
         let mut conn = self
@@ -210,7 +218,7 @@ impl SqliteMemoryStore {
             })
         })?;
 
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(limit);
         for row in rows {
             results.push(row?);
         }
@@ -230,7 +238,7 @@ impl SqliteMemoryStore {
             Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
         })?;
 
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(16);
         for row in rows {
             results.push(row?);
         }
@@ -262,7 +270,7 @@ impl SqliteMemoryStore {
         let ns_rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
         })?;
-        let mut by_namespace: Vec<(String, usize)> = Vec::new();
+        let mut by_namespace: Vec<(String, usize)> = Vec::with_capacity(8);
         for row in ns_rows {
             by_namespace.push(row?);
         }
@@ -273,7 +281,7 @@ impl SqliteMemoryStore {
         let imp_rows = imp_stmt.query_map([], |row| {
             Ok((row.get::<_, u8>(0)?, row.get::<_, usize>(1)?))
         })?;
-        let mut by_importance: Vec<(u8, usize)> = Vec::new();
+        let mut by_importance: Vec<(u8, usize)> = Vec::with_capacity(10);
         for row in imp_rows {
             by_importance.push(row?);
         }
@@ -305,26 +313,35 @@ impl SqliteMemoryStore {
         let total_docs = all.len() as f64;
 
         // Build IDF: how many docs contain each term
-        let mut idf: HashMap<&str, f64> = HashMap::new();
+        // Pre-compute lowercase text for each memory to avoid repeated allocations
+        let memory_texts: Vec<(String, String)> = all
+            .iter()
+            .map(|m| {
+                let key_lower = m.key.to_lowercase();
+                let value_lower = m.value.to_lowercase();
+                let mut combined = String::with_capacity(key_lower.len() + 1 + value_lower.len());
+                combined.push_str(&key_lower);
+                combined.push(' ');
+                combined.push_str(&value_lower);
+                (key_lower, combined)
+            })
+            .collect();
+
+        let mut idf: HashMap<&str, f64> = HashMap::with_capacity(query_terms.len());
         for term in &query_terms {
-            let doc_freq = all
+            let doc_freq = memory_texts
                 .iter()
-                .filter(|m| {
-                    let text = format!("{} {}", m.key.to_lowercase(), m.value.to_lowercase());
-                    text.contains(term)
-                })
+                .filter(|(_, text)| text.contains(term))
                 .count() as f64;
             // Smoothed IDF
             idf.insert(term, ((total_docs + 1.0) / (doc_freq + 1.0)).ln() + 1.0);
         }
 
-        // Score each memory
+        // Score each memory - reuse pre-computed lowercase texts
         let mut scored: Vec<ScoredMemory> = all
             .into_iter()
-            .filter_map(|m| {
-                let key_lower = m.key.to_lowercase();
-                let value_lower = m.value.to_lowercase();
-                let combined = format!("{key_lower} {value_lower}");
+            .zip(memory_texts)
+            .filter_map(|(m, (key_lower, combined))| {
 
                 // TF: count term occurrences in combined text
                 let mut tf_score = 0.0;

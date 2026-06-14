@@ -175,9 +175,10 @@ fn tools_list_response(id: Option<Value>, tools: &[&dyn Tool]) -> Value {
     let mcp_tools: Vec<McpTool> = tools
         .iter()
         .map(|t| {
-            let mut properties = HashMap::new();
-            let mut required = Vec::new();
-            for param in t.parameters() {
+            let params = t.parameters();
+            let mut properties = HashMap::with_capacity(params.len());
+            let mut required = Vec::with_capacity(params.len());
+            for param in params {
                 properties.insert(
                     param.name.clone(),
                     McpProperty {

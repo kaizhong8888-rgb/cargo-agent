@@ -347,7 +347,7 @@ impl OpenApiTool {
 
         // Sort method counts
         let mut sorted_methods: Vec<(String, usize)> = method_counts.into_iter().collect();
-        sorted_methods.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_methods.sort_by_key(|b| std::cmp::Reverse(b.1));
 
         Ok(json!({
             "status": "ok",

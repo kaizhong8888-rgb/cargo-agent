@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container section">
+    <div class="page-header">
+        <h1>🛒 购物车</h1>
+    </div>
+
+    {% if items.is_empty() %}
+    <div class="empty-state">
+        <span class="empty-state__icon">🛒</span>
+        <p>购物车是空的</p>
+        <a href="/products" class="btn btn--primary">去逛逛</a>
+    </div>
+    {% else %}
+    <div class="cart-layout">
+        <div class="cart-items">
+            {% for item in items %}
+            <div class="cart-item">
+                <div class="cart-item__image">
+                    <div class="cart-item__placeholder">
+                        {% if item.first_image().is_some() %}
+                        <img src="{{ item.first_image().unwrap() }}" alt="{{ item.product_name }}">
+                        {% else %}
+                        <span>👙</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="cart-item__info">
+                    <a href="/products/{{ item.product_slug }}" class="cart-item__name">{{ item.product_name }}</a>
+                    <div class="cart-item__price">
+                        {% if item.product_sale_price.is_some() %}
+                        <span class="price--sale">¥{{ item.product_sale_price.unwrap() }}</span>
+                        {% else %}
+                        <span class="price--current">¥{{ item.product_price }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <form action="/cart/update" method="POST" class="cart-item__quantity">
+                    <input type="hidden" name="item_id" value="{{ item.id }}">
+                    <input type="number" name="quantity" value="{{ item.quantity }}" min="1" max="99" class="form-control form-control--sm cart-qty" onchange="this.form.submit()">
+                </form>
+                <div class="cart-item__subtotal">
+                    ¥{{ "{:.2}".format(item.subtotal()) }}
+                </div>
+                <form action="/cart/remove" method="POST" class="cart-item__remove">
+                    <input type="hidden" name="item_id" value="{{ item.id }}">
+                    <button type="submit" class="btn btn--sm btn--outline" title="删除">✕</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="cart-summary">
+            <h3>订单摘要</h3>
+            <div class="cart-summary__row">
+                <span>商品合计</span>
+                <span>¥{{ "{:.2}".format(total) }}</span>
+            </div>
+            <div class="cart-summary__row">
+                <span>运费</span>
+                <span>{% if total >= 299.0 %}免费{% else %}¥15.00{% endif %}</span>
+            </div>
+            <hr>
+            <div class="cart-summary__row cart-summary__total">
+                <span>应付总额</span>
+                <span>¥{{ "{:.2}".format(total) }}</span>
+            </div>
+            <a href="/checkout" class="btn btn--primary btn--lg btn--block">去结算</a>
+            <a href="/products" class="btn btn--outline btn--block">继续购物</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
