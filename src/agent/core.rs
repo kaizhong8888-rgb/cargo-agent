@@ -221,9 +221,10 @@ impl AIAgent {
         for word in words {
             if let Ok(results) = store.search(None, None, Some(word), Some(7), 5) {
                 for m in results {
-                    if !all_memories.iter().any(|s: &crate::memory::sqlite_store::ScoredMemory| {
-                        s.entry.key == m.key
-                    }) {
+                    if !all_memories
+                        .iter()
+                        .any(|s: &crate::memory::sqlite_store::ScoredMemory| s.entry.key == m.key)
+                    {
                         all_memories.push(crate::memory::sqlite_store::ScoredMemory {
                             entry: m,
                             score: 0.0,
@@ -235,9 +236,7 @@ impl AIAgent {
     }
 
     /// Format memories into a system context message.
-    fn format_memory_context(
-        memories: &[crate::memory::sqlite_store::ScoredMemory],
-    ) -> String {
+    fn format_memory_context(memories: &[crate::memory::sqlite_store::ScoredMemory]) -> String {
         let lines: Vec<String> = memories
             .iter()
             .map(|m| {
@@ -349,14 +348,17 @@ impl AIAgent {
             self.truncate_if_needed();
 
             self.set_status(AgentStatus::CallingLLM);
-            let response = self.client.chat(
-                &self.messages,
-                if tool_schemas.is_empty() {
-                    None
-                } else {
-                    Some(&tool_schemas)
-                },
-            ).await?;
+            let response = self
+                .client
+                .chat(
+                    &self.messages,
+                    if tool_schemas.is_empty() {
+                        None
+                    } else {
+                        Some(&tool_schemas)
+                    },
+                )
+                .await?;
 
             self.accumulate_token_usage(&response);
 
@@ -382,7 +384,8 @@ impl AIAgent {
 
         self.set_status(AgentStatus::Idle);
         let tool_call_count = self.count_tool_messages();
-        let assistant_count = self.messages
+        let assistant_count = self
+            .messages
             .iter()
             .filter(|m| m.get("role").and_then(|v| v.as_str()) == Some("assistant"))
             .count();
@@ -495,7 +498,10 @@ impl AIAgent {
 
         // If the window starts with assistant + tool_calls but no tool results follow,
         // strip the tool_calls to avoid API validation errors.
-        if recent.first().is_some_and(Self::is_assistant_with_tool_calls) {
+        if recent
+            .first()
+            .is_some_and(Self::is_assistant_with_tool_calls)
+        {
             let has_tool_result = recent
                 .get(1)
                 .is_some_and(|m| m.get("role").and_then(|v| v.as_str()) == Some("tool"));
@@ -537,7 +543,8 @@ impl AIAgent {
         let (result_str, success) = match self.tool_registry.get(name) {
             Some(tool) => match tool.execute(&params).await {
                 Ok(value) => (
-                    serde_json::to_string(&value).unwrap_or_else(|_| "Serialization error".to_string()),
+                    serde_json::to_string(&value)
+                        .unwrap_or_else(|_| "Serialization error".to_string()),
                     true,
                 ),
                 Err(e) => (format!("Tool error: {e}"), false),
@@ -547,7 +554,8 @@ impl AIAgent {
 
         let duration_ms = exec_start.elapsed().as_millis() as u64;
 
-        self.session_metrics.record_tool_call(name, duration_ms, success);
+        self.session_metrics
+            .record_tool_call(name, duration_ms, success);
 
         let after_ctx = HookEvent::AfterTool(ToolCallResult {
             tool_name: name,
@@ -575,9 +583,8 @@ impl AIAgent {
     ///
     /// Used by the `/clear` slash command in the interactive shell.
     pub fn clear_conversation(&mut self) {
-        self.messages.retain(|m| {
-            m.get("role").and_then(|v| v.as_str()) == Some("system")
-        });
+        self.messages
+            .retain(|m| m.get("role").and_then(|v| v.as_str()) == Some("system"));
     }
 
     // ── Status tracking for UI ──
@@ -593,7 +600,10 @@ impl AIAgent {
 
     /// Returns the current runtime status.
     pub fn get_status(&self) -> AgentStatus {
-        match self.current_status.load(std::sync::atomic::Ordering::Acquire) {
+        match self
+            .current_status
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             1 => AgentStatus::SearchingMemories,
             2 => AgentStatus::CallingLLM,
             3 => AgentStatus::ExecutingTool,
@@ -608,8 +618,16 @@ impl AIAgent {
     /// Includes the current tool name or model name when applicable.
     pub fn get_status_display(&self) -> String {
         let status = self.get_status();
-        let tool_name = self.current_tool.lock().map(|g| g.clone()).unwrap_or_default();
-        let model_name = self.current_model.lock().map(|g| g.clone()).unwrap_or_default();
+        let tool_name = self
+            .current_tool
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let model_name = self
+            .current_model
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
 
         match status {
             AgentStatus::ExecutingTool if !tool_name.is_empty() => {

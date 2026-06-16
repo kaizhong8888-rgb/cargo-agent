@@ -684,7 +684,9 @@ fn matches_simple_pattern(name: &str, pattern: &str) -> bool {
     // Common patterns handled natively for performance:
     // "*.ext" → ends_with
     if let Some(suffix) = pattern.strip_prefix("*.") {
-        return name.len() > suffix.len() && name.ends_with(suffix) && name.chars().nth(name.len() - suffix.len() - 1) == Some('.');
+        return name.len() > suffix.len()
+            && name.ends_with(suffix)
+            && name.chars().nth(name.len() - suffix.len() - 1) == Some('.');
     }
     // "*.ext" without dot after star
     if let Some(suffix) = pattern.strip_prefix('*') {
@@ -694,7 +696,8 @@ fn matches_simple_pattern(name: &str, pattern: &str) -> bool {
     }
     // "dir/*" → starts_with
     if let Some(prefix) = pattern.strip_suffix("/*") {
-        return name.starts_with(prefix) && (name.len() == prefix.len() || name.as_bytes().get(prefix.len()) == Some(&b'/'));
+        return name.starts_with(prefix)
+            && (name.len() == prefix.len() || name.as_bytes().get(prefix.len()) == Some(&b'/'));
     }
 
     // General case: native glob matching without regex compilation

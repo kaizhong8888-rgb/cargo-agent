@@ -32,18 +32,6 @@ static RE_FN: Lazy<Regex> = Lazy::new(|| {
 static RE_LOOP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?m)^\s*(?:for|while|loop)\s"#).expect("valid regex"));
 
-#[allow(dead_code)]
-static RE_NESTED_LOOP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?m)^\s*(?:for|while|loop)\s.*\{[\s\S]*?(?:for|while|loop)\s"#)
-        .expect("valid regex")
-});
-
-#[allow(dead_code)]
-static RE_RECURSIVE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#)
-        .expect("valid regex")
-});
-
 static RE_COLLECT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"\.collect::<Vec"#).expect("valid regex"));
 
@@ -56,13 +44,6 @@ static RE_ALLOC: Lazy<Regex> = Lazy::new(|| {
 
 static RE_FORMAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:format!|println!|eprintln!)\s*\("#).expect("valid regex"));
-
-#[allow(dead_code)]
-static RE_UNWRAP: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\.unwrap\(\)"#).expect("valid regex"));
-
-#[allow(dead_code)]
-static RE_REF: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?m)^\s*(?:let\s+)?[a-zA-Z_]\w*\s*:\s*&"#).expect("valid regex"));
 
 static RE_STRING_CONCAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:\+\s*"[^"]*"|\+\s*\w+)"#).expect("valid regex"));

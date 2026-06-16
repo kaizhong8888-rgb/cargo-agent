@@ -511,8 +511,14 @@ fn generate_diffstat(old: &[String], new: &[String], old_label: &str, new_label:
     let total = additions + deletions;
 
     let max_bar = 50;
-    let bar_add = (additions * max_bar).checked_div(total).unwrap_or(0).min(max_bar);
-    let bar_del = (deletions * max_bar).checked_div(total).unwrap_or(0).min(max_bar);
+    let bar_add = (additions * max_bar)
+        .checked_div(total)
+        .unwrap_or(0)
+        .min(max_bar);
+    let bar_del = (deletions * max_bar)
+        .checked_div(total)
+        .unwrap_or(0)
+        .min(max_bar);
 
     let bar = format!("{}{}", "+".repeat(bar_add), "-".repeat(bar_del));
 

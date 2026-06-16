@@ -90,13 +90,6 @@ pub struct MarketRegimeDetector {
     /// ADX 趋势强度阈值
     adx_strong_trend: f64,
     adx_weak_trend: f64,
-    /// 波动率分位阈值
-    #[allow(dead_code)]
-    vol_low_pct: f64,
-    #[allow(dead_code)]
-    vol_high_pct: f64,
-    #[allow(dead_code)]
-    vol_extreme_pct: f64,
     /// ATR 周期
     atr_period: usize,
     /// ADX 周期
@@ -116,9 +109,6 @@ impl MarketRegimeDetector {
         Self {
             adx_strong_trend: 30.0,
             adx_weak_trend: 20.0,
-            vol_low_pct: 0.25,
-            vol_high_pct: 0.75,
-            vol_extreme_pct: 0.90,
             atr_period: 14,
             adx_period: 14,
             bb_period: 20,

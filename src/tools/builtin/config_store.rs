@@ -33,7 +33,7 @@ impl ConfigStore {
             .and_then(|content| serde_json::from_str::<Value>(&content).ok())
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
-        
+
         let shortcuts = load_shortcuts_from_disk();
 
         ConfigStore {
@@ -111,7 +111,7 @@ impl ConfigStore {
                 );
             }
         }
-        
+
         // Save shortcuts
         if let Ok(shortcuts) = self.shortcuts.lock() {
             let shortcuts_path = shortcuts_file_path();

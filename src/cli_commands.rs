@@ -51,6 +51,27 @@ pub enum SlashAction {
     Clear,
     /// Start the TUI dashboard (hands over terminal control).
     Dashboard,
+    /// Start a background loop (recurring task).
+    Loop {
+        /// Interval in seconds between executions.
+        interval_secs: u64,
+        /// The prompt/command to run each iteration.
+        command: String,
+    },
+    /// List active loops.
+    ListLoops,
+    /// Stop a loop by ID.
+    StopLoop { id: String },
+    /// Stop all active loops.
+    StopAllLoops,
+    /// Set a new goal.
+    SetGoal { description: String },
+    /// Clear the current goal.
+    ClearGoal,
+    /// Show the current goal.
+    ShowGoal,
+    /// Mark the current goal as completed.
+    GoalDone,
     /// Not a slash command — pass through to the LLM.
     PassThrough,
 }
@@ -187,6 +208,30 @@ pub fn help_general() -> String {
         &[
             ("/tasks", "Task overview & stats"),
             ("/tasks:todo", "Show pending tasks"),
+        ],
+    );
+
+    // Loops
+    section(
+        &mut out,
+        "Loops",
+        &[
+            ("/loop <interval> <cmd>", "Start a recurring loop"),
+            ("/loop:stop <id>", "Stop a loop by ID"),
+            ("/loop:stop-all", "Stop all loops"),
+            ("/loop:list", "List active loops"),
+        ],
+    );
+
+    // Goals
+    section(
+        &mut out,
+        "Goals",
+        &[
+            ("/goal <description>", "Set a new goal"),
+            ("/goal", "Show current goal"),
+            ("/goal:clear", "Clear the current goal"),
+            ("/goal:done", "Mark the current goal as completed"),
         ],
     );
 
@@ -365,7 +410,11 @@ pub fn status_text() -> String {
     );
 
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        out.push_str(&format!("  {} {}/.cargo-agent\n", "Data Dir".dimmed(), home));
+        out.push_str(&format!(
+            "  {} {}/.cargo-agent\n",
+            "Data Dir".dimmed(),
+            home
+        ));
     }
 
     out.push_str(&format!(

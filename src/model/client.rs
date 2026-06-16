@@ -232,7 +232,8 @@ impl ModelClient {
                 "assistant" => {
                     // Check for tool_calls in the message
                     if let Some(tool_calls) = msg["tool_calls"].as_array() {
-                        let mut content_parts: Vec<Value> = Vec::with_capacity(tool_calls.len() + 1);
+                        let mut content_parts: Vec<Value> =
+                            Vec::with_capacity(tool_calls.len() + 1);
                         if !content.is_empty() {
                             content_parts.push(serde_json::json!({
                                 "type": "text",

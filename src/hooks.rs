@@ -168,12 +168,12 @@ pub fn create_audit_log_hook() -> HookFn {
 /// Recording is already done by `AIAgent::execute_tool` calling
 /// `SessionMetrics::record_tool_call`. This hook only reads back
 /// for diagnostics — no side effects.
-pub fn create_metrics_hook(
-    metrics: Arc<crate::metrics::SessionMetrics>,
-) -> HookFn {
+pub fn create_metrics_hook(metrics: Arc<crate::metrics::SessionMetrics>) -> HookFn {
     Arc::new(move |event| {
         if let HookEvent::AfterTool(res) = event {
-            let calls = metrics.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
+            let calls = metrics
+                .tool_calls
+                .load(std::sync::atomic::Ordering::Relaxed);
             let avg = metrics.avg_tool_latency_ms();
             format!(
                 "metrics: {} calls, avg {:.1}ms, last tool: {} ({:.0}ms {})",

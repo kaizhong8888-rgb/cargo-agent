@@ -45,10 +45,6 @@ static RE_PUB_CONST: Lazy<Regex> = Lazy::new(|| {
         .expect("valid regex")
 });
 
-#[allow(dead_code)]
-static RE_DOC_COMMENT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?m)^\s*///\s*(.*)").expect("valid regex"));
-
 static RE_MODULE_DECL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?m)^\s*pub\s+mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\{|;)").expect("valid regex")
 });
@@ -961,6 +957,11 @@ pub fn register_all(registry: &mut ToolRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+
+    static RE_DOC_COMMENT: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?m)^\s*///").expect("valid regex"));
 
     #[test]
     fn regex_pub_fn() {

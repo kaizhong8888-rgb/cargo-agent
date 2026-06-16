@@ -1080,9 +1080,11 @@ fn unused_fn() -> i32 {
         assert!(patterns["todo_comments"].as_u64().unwrap_or(0) >= 1);
         // allow_attributes, unsafe_blocks, dbg_macros may not be detected depending on regex
         // Just verify the pattern detection works for core patterns
-        assert!(patterns.get("allow_attributes").is_some()
-            || patterns.get("unsafe_blocks").is_some()
-            || patterns.get("dbg_macros").is_some());
+        assert!(
+            patterns.get("allow_attributes").is_some()
+                || patterns.get("unsafe_blocks").is_some()
+                || patterns.get("dbg_macros").is_some()
+        );
 
         cleanup(&tmp);
     }

@@ -70,10 +70,13 @@ impl SqliteMemoryStore {
     ) -> anyhow::Result<MemoryEntry> {
         let now = Utc::now().to_rfc3339();
         let tags_str = {
-            let total_len: usize = tags.iter().map(|t| t.len()).sum::<usize>() + tags.len().saturating_sub(1);
+            let total_len: usize =
+                tags.iter().map(|t| t.len()).sum::<usize>() + tags.len().saturating_sub(1);
             let mut s = String::with_capacity(total_len);
             for (i, tag) in tags.iter().enumerate() {
-                if i > 0 { s.push(','); }
+                if i > 0 {
+                    s.push(',');
+                }
                 s.push_str(tag);
             }
             s
@@ -342,7 +345,6 @@ impl SqliteMemoryStore {
             .into_iter()
             .zip(memory_texts)
             .filter_map(|(m, (key_lower, combined))| {
-
                 // TF: count term occurrences in combined text
                 let mut tf_score = 0.0;
                 for term in &query_terms {

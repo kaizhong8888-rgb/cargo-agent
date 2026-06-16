@@ -32,17 +32,9 @@ static RE_BOOL_LITERAL_COMPARISON: Lazy<Regex> =
 static RE_FORMAT_STRING: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"format!\s*\(\s*"\{[^}]*\}""#).expect("valid regex"));
 
-#[allow(dead_code)]
-static RE_STRING_PUSH: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(\w+)\s*=\s*format!\s*\(\s*""#).expect("valid regex"));
-
 static RE_UNWRAP_OR_ELSE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?m)(\w+)\s*\.unwrap_or_else\(\s*\|[^|]*\|\s*[^)]+\)").expect("valid regex")
 });
-
-#[allow(dead_code)]
-static RE_CLONE_ON_COPY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?m)(\w+)\s*\.clone\(\)\s*;\s*//.*Copy").expect("valid regex"));
 
 static RE_VEC_NEW_LOOP: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?m)let\s+mut\s+(\w+)\s*=\s*Vec::new\(\)").expect("valid regex"));
@@ -66,10 +58,6 @@ static RE_IF_LET_SOME: Lazy<Regex> = Lazy::new(|| {
 static RE_ITER_COLLECT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?m)\.iter\(\)\s*\.map\([^)]*\)\s*\.collect::<Vec<_>>\(\)").expect("valid regex")
 });
-
-#[allow(dead_code)]
-static RE_EMPTY_STRING: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"if\s+\w+\s*==\s*""|if\s+\w+\.is_empty\(\)"#).expect("valid regex"));
 
 static RE_AS_REF_DEREF: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?m)\.as_ref\(\)\.unwrap\(\)|\.deref\(\)").expect("valid regex"));

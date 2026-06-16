@@ -543,21 +543,18 @@ pub struct KnnStrategy {
     labels: Vec<usize>,
     k: usize,
     config: FeatureConfig,
-    #[allow(dead_code)]
-    start_idx: usize,
     name: String,
 }
 
 impl KnnStrategy {
     pub fn new(candles: &[Candle], config: FeatureConfig, k: usize) -> Self {
-        let (features, labels, start_idx) = extract_features(candles, &config);
+        let (features, labels, _start_idx) = extract_features(candles, &config);
         let name = format!("KNN (k={})", k);
         Self {
             features,
             labels,
             k,
             config,
-            start_idx,
             name,
         }
     }
@@ -712,8 +709,6 @@ impl SimpleRng {
 pub struct RandomForestStrategy {
     trees: Vec<TreeNode>,
     config: FeatureConfig,
-    #[allow(dead_code)]
-    n_trees: usize,
     name: String,
 }
 
@@ -757,7 +752,6 @@ impl RandomForestStrategy {
         Self {
             trees,
             config,
-            n_trees,
             name,
         }
     }

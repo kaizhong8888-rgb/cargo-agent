@@ -637,7 +637,9 @@ CREATE TABLE IF NOT EXISTS {table} (
                 || t.contains("numeric") =>
             {
                 let val = (index as f64 * 1.5) + 0.99;
-                serde_json::Value::Number(serde_json::Number::from_f64(val).unwrap_or(serde_json::Number::from(0)))
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(val).unwrap_or(serde_json::Number::from(0)),
+                )
             }
             _ => serde_json::Value::String(format!("mock_{index}")),
         }
@@ -836,9 +838,9 @@ impl Column {
     }
 }
 
-#[allow(dead_code)]
 struct FieldInfo {
     name: String,
+    #[allow(dead_code)]
     field_type: String,
 }
 
@@ -1064,7 +1066,10 @@ mod tests {
     fn test_generate_mock_value_uuid() {
         let tool = DbMigrationTool;
         let val = tool.generate_mock_value("uuid", 5);
-        assert_eq!(val.as_str().unwrap(), "00000005-0005-0005-0005-000000000005");
+        assert_eq!(
+            val.as_str().unwrap(),
+            "00000005-0005-0005-0005-000000000005"
+        );
     }
 
     #[test]
@@ -1097,7 +1102,10 @@ mod tests {
     fn test_generate_mock_value_bool() {
         let tool = DbMigrationTool;
         assert_eq!(tool.generate_mock_value("bool", 0).as_bool().unwrap(), true);
-        assert_eq!(tool.generate_mock_value("bool", 1).as_bool().unwrap(), false);
+        assert_eq!(
+            tool.generate_mock_value("bool", 1).as_bool().unwrap(),
+            false
+        );
     }
 
     #[test]
@@ -1157,15 +1165,13 @@ mod tests {
     #[test]
     fn test_generate_insert_with_null() {
         let tool = DbMigrationTool;
-        let columns = vec![
-            Column {
-                name: "bio".to_string(),
-                col_type: "text".to_string(),
-                is_pk: false,
-                is_index: false,
-                is_nullable: true,
-            },
-        ];
+        let columns = vec![Column {
+            name: "bio".to_string(),
+            col_type: "text".to_string(),
+            is_pk: false,
+            is_index: false,
+            is_nullable: true,
+        }];
         let rows = vec![serde_json::json!({ "bio": null })];
         let sql = tool.generate_insert_statements("users", &columns, &rows);
         assert!(sql.contains("NULL"));
@@ -1174,9 +1180,7 @@ mod tests {
     #[tokio::test]
     async fn test_unknown_action() {
         let tool = DbMigrationTool;
-        let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("unknown")),
-        ]);
+        let params = HashMap::from([("action".to_string(), serde_json::json!("unknown"))]);
         let result = tool.execute(&params).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown action"));
@@ -1186,12 +1190,21 @@ mod tests {
     async fn test_generate_migration_sqlx_direct() {
         let tool = DbMigrationTool;
         let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("generate_migration")),
+            (
+                "action".to_string(),
+                serde_json::json!("generate_migration"),
+            ),
             ("orm".to_string(), serde_json::json!("sqlx")),
             ("name".to_string(), serde_json::json!("create_users")),
             ("table".to_string(), serde_json::json!("users")),
-            ("columns".to_string(), serde_json::json!("id:uuid;name:varchar(255);email:varchar(255)index")),
-            ("output_dir".to_string(), serde_json::json!("/tmp/test_migrations_29")),
+            (
+                "columns".to_string(),
+                serde_json::json!("id:uuid;name:varchar(255);email:varchar(255)index"),
+            ),
+            (
+                "output_dir".to_string(),
+                serde_json::json!("/tmp/test_migrations_29"),
+            ),
         ]);
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["orm"], "sqlx");
@@ -1205,12 +1218,21 @@ mod tests {
     async fn test_generate_migration_diesel_direct() {
         let tool = DbMigrationTool;
         let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("generate_migration")),
+            (
+                "action".to_string(),
+                serde_json::json!("generate_migration"),
+            ),
             ("orm".to_string(), serde_json::json!("diesel")),
             ("name".to_string(), serde_json::json!("create_posts")),
             ("table".to_string(), serde_json::json!("posts")),
-            ("columns".to_string(), serde_json::json!("id:uuid;title:varchar(255);body:text")),
-            ("output_dir".to_string(), serde_json::json!("/tmp/test_migrations_29_diesel")),
+            (
+                "columns".to_string(),
+                serde_json::json!("id:uuid;title:varchar(255);body:text"),
+            ),
+            (
+                "output_dir".to_string(),
+                serde_json::json!("/tmp/test_migrations_29_diesel"),
+            ),
         ]);
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["orm"], "diesel");
@@ -1231,12 +1253,21 @@ mod tests {
     async fn test_generate_migration_seaorm_direct() {
         let tool = DbMigrationTool;
         let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("generate_migration")),
+            (
+                "action".to_string(),
+                serde_json::json!("generate_migration"),
+            ),
             ("orm".to_string(), serde_json::json!("sea_orm")),
             ("name".to_string(), serde_json::json!("create_orders")),
             ("table".to_string(), serde_json::json!("orders")),
-            ("columns".to_string(), serde_json::json!("id:uuid;total:decimal(10,2);status:varchar(50)")),
-            ("output_dir".to_string(), serde_json::json!("/tmp/test_migrations_29_seaorm")),
+            (
+                "columns".to_string(),
+                serde_json::json!("id:uuid;total:decimal(10,2);status:varchar(50)"),
+            ),
+            (
+                "output_dir".to_string(),
+                serde_json::json!("/tmp/test_migrations_29_seaorm"),
+            ),
         ]);
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["orm"], "sea_orm");
@@ -1253,7 +1284,10 @@ mod tests {
     async fn test_generate_migration_unknown_orm() {
         let tool = DbMigrationTool;
         let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("generate_migration")),
+            (
+                "action".to_string(),
+                serde_json::json!("generate_migration"),
+            ),
             ("orm".to_string(), serde_json::json!("unknown_orm")),
         ]);
         let result = tool.execute(&params).await;
@@ -1266,7 +1300,10 @@ mod tests {
         let tool = DbMigrationTool;
         let params = HashMap::from([
             ("action".to_string(), serde_json::json!("list_migrations")),
-            ("path".to_string(), serde_json::json!("/tmp/nonexistent_migrations_29")),
+            (
+                "path".to_string(),
+                serde_json::json!("/tmp/nonexistent_migrations_29"),
+            ),
         ]);
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["action"], "list_migrations");

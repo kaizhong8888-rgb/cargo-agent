@@ -970,7 +970,12 @@ mod tests {
 
     #[test]
     fn test_generate_fuzz_source_bytes_with_function() {
-        let source = FuzzDriverTool::generate_fuzz_source("my_crate", Some("my_crate::parse"), "bytes", 1024);
+        let source = FuzzDriverTool::generate_fuzz_source(
+            "my_crate",
+            Some("my_crate::parse"),
+            "bytes",
+            1024,
+        );
         assert!(source.contains("let _ = my_crate::parse(data)"));
         assert!(source.contains("data.len() <= 1024"));
     }
@@ -1000,23 +1005,50 @@ mod tests {
 
     #[test]
     fn test_assess_fuzz_priority_high() {
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn parse(data: &[u8])"), "high");
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn decode(bytes: Vec<u8>)"), "high");
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn deserialize(s: &str)"), "high");
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn validate(input: String)"), "high");
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn parse(data: &[u8])"),
+            "high"
+        );
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn decode(bytes: Vec<u8>)"),
+            "high"
+        );
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn deserialize(s: &str)"),
+            "high"
+        );
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn validate(input: String)"),
+            "high"
+        );
     }
 
     #[test]
     fn test_assess_fuzz_priority_medium() {
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn process(data: &[u8])"), "medium");
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn handle(input: String)"), "medium");
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn convert(s: &str)"), "medium");
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn process(data: &[u8])"),
+            "medium"
+        );
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn handle(input: String)"),
+            "medium"
+        );
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn convert(s: &str)"),
+            "medium"
+        );
     }
 
     #[test]
     fn test_assess_fuzz_priority_low() {
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn hello_world()"), "low");
-        assert_eq!(FuzzDriverTool::assess_fuzz_priority("pub fn add(a: i32, b: i32)"), "low");
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn hello_world()"),
+            "low"
+        );
+        assert_eq!(
+            FuzzDriverTool::assess_fuzz_priority("pub fn add(a: i32, b: i32)"),
+            "low"
+        );
     }
 
     #[test]
@@ -1054,7 +1086,9 @@ mod tests {
     #[test]
     fn test_detect_target_from_crash_path() {
         assert_eq!(
-            FuzzDriverTool::detect_target_from_crash_path("/path/to/fuzz/crashes/fuzz_parse/crash-123"),
+            FuzzDriverTool::detect_target_from_crash_path(
+                "/path/to/fuzz/crashes/fuzz_parse/crash-123"
+            ),
             "fuzz_parse"
         );
         assert_eq!(
@@ -1122,7 +1156,10 @@ mod tests {
         params.insert("max_len".to_string(), serde_json::json!(8192));
         let result = FuzzDriverTool::run_fuzz(&params).unwrap();
         assert!(result["command"].as_str().unwrap().contains("-j 4"));
-        assert!(result["command"].as_str().unwrap().contains("-max_len=8192"));
+        assert!(result["command"]
+            .as_str()
+            .unwrap()
+            .contains("-max_len=8192"));
         assert_eq!(result["timeout_secs"].as_u64().unwrap(), 7200);
     }
 
@@ -1190,9 +1227,7 @@ mod tests {
     #[tokio::test]
     async fn test_unknown_action() {
         let tool = FuzzDriverTool;
-        let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("unknown_action")),
-        ]);
+        let params = HashMap::from([("action".to_string(), serde_json::json!("unknown_action"))]);
         let result = tool.execute(&params).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown action"));
@@ -1215,7 +1250,10 @@ mod tests {
         let tool = FuzzDriverTool;
         let params = HashMap::from([
             ("action".to_string(), serde_json::json!("list_targets")),
-            ("path".to_string(), serde_json::json!("/tmp/nonexistent_fuzz_29")),
+            (
+                "path".to_string(),
+                serde_json::json!("/tmp/nonexistent_fuzz_29"),
+            ),
         ]);
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["action"], "list_targets");
@@ -1225,9 +1263,7 @@ mod tests {
     #[tokio::test]
     async fn test_corpus_missing_target() {
         let tool = FuzzDriverTool;
-        let params = HashMap::from([
-            ("action".to_string(), serde_json::json!("corpus")),
-        ]);
+        let params = HashMap::from([("action".to_string(), serde_json::json!("corpus"))]);
         let result = tool.execute(&params).await;
         assert!(result.is_err());
     }
@@ -1237,7 +1273,10 @@ mod tests {
         let tool = FuzzDriverTool;
         let params = HashMap::from([
             ("action".to_string(), serde_json::json!("parse_crash")),
-            ("crash_input".to_string(), serde_json::json!("/tmp/nonexistent_crash_29")),
+            (
+                "crash_input".to_string(),
+                serde_json::json!("/tmp/nonexistent_crash_29"),
+            ),
         ]);
         let result = tool.execute(&params).await;
         assert!(result.is_err());
@@ -1251,21 +1290,34 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
 
         // Create a minimal Cargo.toml
-        std::fs::write(tmp.join("Cargo.toml"), r#"[package]
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            r#"[package]
 name = "test-crate"
 version = "0.1.0"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let tool = FuzzDriverTool;
         let params = HashMap::from([
             ("action".to_string(), serde_json::json!("generate_target")),
-            ("path".to_string(), serde_json::json!(tmp.to_string_lossy().to_string())),
-            ("target_name".to_string(), serde_json::json!("fuzz_parse_test")),
+            (
+                "path".to_string(),
+                serde_json::json!(tmp.to_string_lossy().to_string()),
+            ),
+            (
+                "target_name".to_string(),
+                serde_json::json!("fuzz_parse_test"),
+            ),
             ("input_type".to_string(), serde_json::json!("bytes")),
         ]);
         let result = tool.execute(&params).await.unwrap();
         assert_eq!(result["target_name"], "fuzz_parse_test");
-        assert!(result["target_file"].as_str().unwrap().contains("fuzz_parse_test.rs"));
+        assert!(result["target_file"]
+            .as_str()
+            .unwrap()
+            .contains("fuzz_parse_test.rs"));
 
         // Verify files were created
         assert!(tmp.join("fuzz/Cargo.toml").exists());

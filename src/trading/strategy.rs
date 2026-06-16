@@ -1182,8 +1182,7 @@ impl EnsembleStrategy {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn with_thresholds(
+    pub fn from_strategies(
         strategies: Vec<Box<dyn Strategy>>,
         buy_threshold: usize,
         sell_threshold: usize,

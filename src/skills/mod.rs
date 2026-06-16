@@ -288,7 +288,10 @@ impl Skill {
         let mut lines: Vec<String> = Vec::with_capacity(12);
         lines.push("---".into());
         lines.push(format!("name: {}", self.name));
-        lines.push(format!("description: {}", escape_yaml_scalar(&self.description)));
+        lines.push(format!(
+            "description: {}",
+            escape_yaml_scalar(&self.description)
+        ));
 
         if !self.category.is_empty() {
             lines.push(format!("category: {}", self.category));
@@ -602,7 +605,9 @@ impl SkillRegistry {
         let mut skills: Vec<&Skill> = self.skills.values().collect();
         // Sort by priority (descending), then alphabetically
         skills.sort_by(|a, b| {
-            b.priority.cmp(&a.priority).then_with(|| a.name.cmp(&b.name))
+            b.priority
+                .cmp(&a.priority)
+                .then_with(|| a.name.cmp(&b.name))
         });
         skills
     }

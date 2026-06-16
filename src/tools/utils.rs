@@ -20,10 +20,7 @@ use std::collections::HashMap;
 /// let action = require_str(params, "action")?;
 /// ```
 #[inline]
-pub fn require_str<'a>(
-    params: &'a HashMap<String, Value>,
-    key: &str,
-) -> Result<&'a str, String> {
+pub fn require_str<'a>(params: &'a HashMap<String, Value>, key: &str) -> Result<&'a str, String> {
     params
         .get(key)
         .and_then(|v| v.as_str())
@@ -38,23 +35,13 @@ pub fn require_str<'a>(
 /// let path = opt_str(params, "path", ".");
 /// ```
 #[inline]
-pub fn opt_str<'a>(
-    params: &'a HashMap<String, Value>,
-    key: &str,
-    default: &'a str,
-) -> &'a str {
-    params
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or(default)
+pub fn opt_str<'a>(params: &'a HashMap<String, Value>, key: &str, default: &'a str) -> &'a str {
+    params.get(key).and_then(|v| v.as_str()).unwrap_or(default)
 }
 
 /// Extract an optional string parameter that may be absent.
 #[inline]
-pub fn maybe_str<'a>(
-    params: &'a HashMap<String, Value>,
-    key: &str,
-) -> Option<&'a str> {
+pub fn maybe_str<'a>(params: &'a HashMap<String, Value>, key: &str) -> Option<&'a str> {
     params.get(key).and_then(|v| v.as_str())
 }
 
@@ -70,37 +57,25 @@ pub fn require_f64(params: &HashMap<String, Value>, key: &str) -> Result<f64, St
 /// Extract an optional f64 parameter with a default value.
 #[inline]
 pub fn opt_f64(params: &HashMap<String, Value>, key: &str, default: f64) -> f64 {
-    params
-        .get(key)
-        .and_then(|v| v.as_f64())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
 }
 
 /// Extract an optional i64 parameter with a default value.
 #[inline]
 pub fn opt_i64(params: &HashMap<String, Value>, key: &str, default: i64) -> i64 {
-    params
-        .get(key)
-        .and_then(|v| v.as_i64())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_i64()).unwrap_or(default)
 }
 
 /// Extract an optional u64 parameter with a default value.
 #[inline]
 pub fn opt_u64(params: &HashMap<String, Value>, key: &str, default: u64) -> u64 {
-    params
-        .get(key)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
 }
 
 /// Extract an optional bool parameter with a default value.
 #[inline]
 pub fn opt_bool(params: &HashMap<String, Value>, key: &str, default: bool) -> bool {
-    params
-        .get(key)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(default)
+    params.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
 }
 
 /// Extract an optional usize parameter with a default value.
@@ -199,8 +174,7 @@ pub fn parse_json<T>(params: &HashMap<String, Value>, key: &str) -> Result<T, St
 where
     T: serde::de::DeserializeOwned,
 {
-    let s = maybe_str(params, key)
-        .ok_or_else(|| format!("Missing required parameter: {key}"))?;
+    let s = maybe_str(params, key).ok_or_else(|| format!("Missing required parameter: {key}"))?;
     serde_json::from_str(s).map_err(|e| format!("Invalid JSON in {key}: {e}"))
 }
 

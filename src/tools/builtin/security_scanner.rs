@@ -18,19 +18,6 @@ use std::path::Path;
 // Security Pattern Definitions
 // ============================================================================
 
-/// A security issue found during scanning.
-#[derive(Debug)]
-#[allow(dead_code)]
-struct SecurityIssue {
-    severity: String,
-    category: String,
-    file: String,
-    line: usize,
-    pattern: String,
-    description: String,
-    suggestion: String,
-}
-
 // Pre-compiled security patterns
 static RE_SQL_INJECTION: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -57,30 +44,14 @@ static RE_CMD_INJECTION: Lazy<Regex> = Lazy::new(|| {
 static RE_PATH_TRAVERSAL: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"File::open\s*\([^)]*(?:\{|\+|format!)"#).expect("valid regex"));
 
-#[allow(dead_code)]
-static RE_HARDCODED_SECRET: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)(?:password|secret|api_key|token|private_key)\s*=\s*"[^"]{8,}""#)
-        .expect("valid regex")
-});
-
-#[allow(dead_code)]
-static RE_HARDCODED_API_KEY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)(?:API_KEY|SECRET_KEY|ACCESS_TOKEN)\s*=\s*"[A-Za-z0-9]{16,}""#)
-        .expect("valid regex")
-});
-
 static RE_UNWRAP_ON_IO: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?:File::open|fs::read|fs::write|fs::read_to_string).*\.unwrap\(\)"#)
         .expect("valid regex")
 });
 
-#[allow(dead_code)]
-static RE_PANIC_UNWRAP: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\.expect\("[^"]*panic|\.unwrap\(\)\s*//\s*should not"#).expect("valid regex")
-});
-
-static RE_DEPRECATED_CRYPTO: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?x)
+static RE_DEPRECATED_CRYPTO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r#"(?x)
         # Actual usage patterns (function calls, imports, type annotations)
         (?:
             (?:Md5|Sha1|DES|RC4|Ecb)::           # Type::method() pattern
@@ -88,7 +59,10 @@ static RE_DEPRECATED_CRYPTO: Lazy<Regex> =
             |use\s+.*(?:md5|sha1|des|rc4)        # use statements
             |::(?:md5|sha1)\s*\(                  # ::md5() function call
         )
-    "#).expect("valid regex"));
+    "#,
+    )
+    .expect("valid regex")
+});
 
 static RE_TAR_BOMBING: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"Archive::new.*unpack"#).expect("valid regex"));
@@ -245,7 +219,13 @@ struct ScanRule {
 fn scan_code_security(path: &str, recursive: bool) -> Result<Value, String> {
     let scan_path = Path::new(path);
     let mut files: Vec<String> = Vec::new();
-    collect_files(scan_path, &mut files, recursive, &["rs"], &["security_scanner.rs"])?;
+    collect_files(
+        scan_path,
+        &mut files,
+        recursive,
+        &["rs"],
+        &["security_scanner.rs"],
+    )?;
 
     // Extra safety: explicitly remove the scanner's own file from the list
     // This prevents the scanner from matching its own regex pattern definitions

@@ -237,7 +237,9 @@ impl ClippyLintTool {
         let (errors, warnings, notes) = if let Some(json_val) = result_json {
             let lints: Vec<Value> = match json_val {
                 Value::Array(arr) => arr.clone(),
-                Value::String(s) => serde_json::from_str(s).map_err(|e| format!("Invalid JSON: {e}"))?,
+                Value::String(s) => {
+                    serde_json::from_str(s).map_err(|e| format!("Invalid JSON: {e}"))?
+                }
                 _ => Vec::new(),
             };
             classify_lints(&lints)

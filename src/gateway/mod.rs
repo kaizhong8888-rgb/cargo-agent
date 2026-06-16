@@ -2,6 +2,8 @@ mod tools;
 
 use crate::agent::core::AIAgent;
 use crate::config::CargoConfig;
+use crate::goal_manager::GoalManager;
+use crate::loop_manager::LoopManager;
 use crate::mcp::bridge::McpBridge;
 use crate::model::client::ModelClient;
 use crate::model::router::ModelRouter;
@@ -17,6 +19,8 @@ pub struct Gateway {
     model_router: ModelRouter,
     mcp_bridge: Option<McpBridge>,
     config_store: ConfigStore,
+    loop_manager: LoopManager,
+    goal_manager: GoalManager,
 }
 
 impl Gateway {
@@ -132,6 +136,8 @@ impl Gateway {
             model_router,
             mcp_bridge: None, // Initialized asynchronously in new_async
             config_store,
+            loop_manager: LoopManager::new(),
+            goal_manager: GoalManager::new(),
         }
     }
 
@@ -175,6 +181,16 @@ impl Gateway {
     /// Mutable access to the MCP bridge.
     pub fn mcp_bridge_mut(&mut self) -> Option<&mut McpBridge> {
         self.mcp_bridge.as_mut()
+    }
+
+    /// Access the loop manager.
+    pub fn loop_manager(&self) -> &LoopManager {
+        &self.loop_manager
+    }
+
+    /// Access the goal manager.
+    pub fn goal_manager(&self) -> &GoalManager {
+        &self.goal_manager
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -261,19 +277,15 @@ impl Gateway {
             "version" | "v" => SlashAction::Output(crate::cli_commands::version_text()),
             "status" => SlashAction::Output(crate::cli_commands::status_text()),
             "config" => SlashAction::Output(crate::cli_commands::config_text()),
-            "usage" => {
-                SlashAction::Output(
-                    "Token usage is tracked per conversation.\nAsk the agent: 'show token usage'."
-                        .into(),
-                )
-            }
-            "model" => {
-                SlashAction::Output(
-                    "Model routing is automatic based on task complexity.\n\
+            "usage" => SlashAction::Output(
+                "Token usage is tracked per conversation.\nAsk the agent: 'show token usage'."
+                    .into(),
+            ),
+            "model" => SlashAction::Output(
+                "Model routing is automatic based on task complexity.\n\
                      Ask the agent: 'what model complexity is this task?'"
-                        .into(),
-                )
-            }
+                    .into(),
+            ),
 
             // ── Dynamic (needs runtime state) ────────────────
             "tools" => SlashAction::Output(self.slash_tools(args)),
@@ -288,6 +300,60 @@ impl Gateway {
 
             // ── Shortcut management ─────────────────────────
             "shortcut" | "sc" => SlashAction::Output(self.slash_shortcut(args)),
+
+            // ── Loop management ─────────────────────────────
+            "loop" => {
+                if args.is_empty() {
+                    SlashAction::Output(self.slash_loop_help())
+                } else if let Some((subcmd, subargs)) = args.split_once(' ') {
+                    match subcmd {
+                        "stop" => {
+                            let id = subargs.trim().parse::<u64>().ok();
+                            if let Some(id) = id {
+                                SlashAction::StopLoop { id: id.to_string() }
+                            } else {
+                                SlashAction::Output("Usage: /loop:stop <id>".into())
+                            }
+                        }
+                        "stop-all" => SlashAction::StopAllLoops,
+                        "list" => SlashAction::ListLoops,
+                        _ => SlashAction::Output(self.slash_loop_help()),
+                    }
+                } else {
+                    // Parse interval and command: "/loop 5m cargo test" or "/loop 300 cargo test"
+                    match self.parse_loop_args(args) {
+                        Ok((interval_secs, command)) => SlashAction::Loop {
+                            interval_secs,
+                            command,
+                        },
+                        Err(e) => SlashAction::Output(e),
+                    }
+                }
+            }
+
+            // ── Goal management ─────────────────────────────
+            "goal" => {
+                if args.is_empty() {
+                    SlashAction::ShowGoal
+                } else if let Some((subcmd, subargs)) = args.split_once(':') {
+                    match subcmd {
+                        "clear" => SlashAction::ClearGoal,
+                        "done" => {
+                            if subargs.is_empty() {
+                                SlashAction::GoalDone
+                            } else {
+                                SlashAction::Output("Usage: /goal:done".into())
+                            }
+                        }
+                        _ => SlashAction::Output(self.slash_goal_help()),
+                    }
+                } else {
+                    // Set new goal with the rest as description
+                    SlashAction::SetGoal {
+                        description: args.to_string(),
+                    }
+                }
+            }
 
             // ── Unknown — let LLM try ────────────────────────
             _ => SlashAction::PassThrough,
@@ -364,7 +430,10 @@ impl Gateway {
                 };
                 let cmd = match parts.next() {
                     Some(c) => c,
-                    None => return "  Usage: `/shortcut add <alias> <command>` — missing command".to_string(),
+                    None => {
+                        return "  Usage: `/shortcut add <alias> <command>` — missing command"
+                            .to_string()
+                    }
                 };
                 self.config_store.add_shortcut(alias, cmd);
                 format!(
@@ -376,13 +445,13 @@ impl Gateway {
             "remove" | "rm" | "del" | "delete" => {
                 let alias = match parts.next() {
                     Some(a) => a,
-                    None => return "  Usage: `/shortcut remove <alias>` — e.g. `/shortcut remove t`".to_string(),
+                    None => {
+                        return "  Usage: `/shortcut remove <alias>` — e.g. `/shortcut remove t`"
+                            .to_string()
+                    }
                 };
                 self.config_store.remove_shortcut(alias);
-                format!(
-                    "  ✅ Shortcut removed: /{}",
-                    alias.magenta().bold()
-                )
+                format!("  ✅ Shortcut removed: /{}", alias.magenta().bold())
             }
             "list" | "ls" | "" => {
                 let shortcuts = self.config_store.list_shortcuts();
@@ -1307,5 +1376,197 @@ impl Gateway {
     /// Return the configured model name for dashboard display.
     pub fn model_name(&self) -> &str {
         &self.model_router.default_model
+    }
+
+    // ========================================================================
+    // Loop commands
+    // ========================================================================
+
+    fn slash_loop_help(&self) -> String {
+        format!(
+            "  {}  {}\n\n\
+             {}  Start a recurring loop that executes a command at a fixed interval.\n\
+             {}  /loop <interval> <command>    Start a new loop (e.g. /loop 5m cargo test)\n\
+             {}  /loop:list                    List active loops\n\
+             {}  /loop:stop <id>               Stop a loop by ID\n\
+             {}  /loop:stop-all                Stop all active loops\n\n\
+             {}  Interval format: <number>[s|m|h] — e.g. 30s, 5m, 1h\n",
+            "🔄".bold(),
+            "Loop Commands".cyan().bold(),
+            "Description:".dimmed(),
+            "Start:".magenta().bold(),
+            "List:".magenta().bold(),
+            "Stop:".magenta().bold(),
+            "Stop All:".magenta().bold(),
+            "Tip:".dimmed(),
+        )
+    }
+
+    fn parse_loop_args(&self, args: &str) -> Result<(u64, String), String> {
+        let args = args.trim();
+        if args.is_empty() {
+            return Err("Usage: /loop <interval> <command>\nExample: /loop 5m cargo test".into());
+        }
+
+        // Split into interval and command
+        let parts: Vec<&str> = args.splitn(2, ' ').collect();
+        if parts.len() < 2 {
+            return Err("Usage: /loop <interval> <command>\nExample: /loop 5m cargo test".into());
+        }
+
+        let interval_str = parts[0];
+        let command = parts[1].to_string();
+
+        // Parse interval: supports "30s", "5m", "1h", or raw seconds
+        let interval_secs = if let Some(secs) = interval_str.strip_suffix('s') {
+            secs.parse::<u64>()
+                .map_err(|_| format!("Invalid interval: {interval_str}"))?
+        } else if let Some(mins) = interval_str.strip_suffix('m') {
+            mins.parse::<u64>()
+                .map(|m| m * 60)
+                .map_err(|_| format!("Invalid interval: {interval_str}"))?
+        } else if let Some(hours) = interval_str.strip_suffix('h') {
+            hours
+                .parse::<u64>()
+                .map(|h| h * 3600)
+                .map_err(|_| format!("Invalid interval: {interval_str}"))?
+        } else {
+            interval_str.parse::<u64>().map_err(|_| {
+                format!(
+                    "Invalid interval: {interval_str}. Use format like 30s, 5m, 1h, or raw seconds"
+                )
+            })?
+        };
+
+        if interval_secs < 1 {
+            return Err("Interval must be at least 1 second".into());
+        }
+
+        Ok((interval_secs, command))
+    }
+
+    /// List all active loops.
+    pub async fn slash_loop_list(&self) -> String {
+        let loops = self.loop_manager.list().await;
+        if loops.is_empty() {
+            return "  📭 No active loops.\n  Use /loop <interval> <command> to start one."
+                .to_string();
+        }
+
+        let mut out = String::with_capacity(512);
+        out.push_str(&format!(
+            "  {}  {}\n\n",
+            "🔄".bold(),
+            format!("Active Loops ({})", loops.len()).cyan().bold()
+        ));
+
+        for loop_task in &loops {
+            let _status = if loop_task.enabled {
+                "● running".green().to_string()
+            } else {
+                "○ paused".red().to_string()
+            };
+            out.push_str(&format!(
+                "  {}  ID: {}\n  {}  {}\n  {}  Every {} seconds\n  {}  {} runs\n\n",
+                "ID:".dimmed(),
+                loop_task.id.to_string().magenta().bold(),
+                "Cmd:".dimmed(),
+                loop_task.command.dimmed(),
+                "Interval:".dimmed(),
+                loop_task.interval_secs.to_string().yellow(),
+                "Runs:".dimmed(),
+                loop_task.run_count.to_string().yellow(),
+            ));
+        }
+
+        out.push_str(&format!(
+            "  {}  /loop:stop <id> to stop a loop.\n",
+            "Tip:".dimmed()
+        ));
+        out
+    }
+
+    /// Stop a loop by ID.
+    pub async fn slash_loop_stop(&self, id: u64) -> String {
+        match self.loop_manager.stop(id).await {
+            Ok(()) => format!("  ✅ Loop {id} stopped."),
+            Err(e) => format!("  ❌ {e}"),
+        }
+    }
+
+    /// Stop all loops.
+    pub async fn slash_loop_stop_all(&self) -> String {
+        let count = self.loop_manager.stop_all().await;
+        format!("  ✅ Stopped {count} active loop(s).")
+    }
+
+    // ========================================================================
+    // Goal commands
+    // ========================================================================
+
+    fn slash_goal_help(&self) -> String {
+        format!(
+            "  {}  {}\n\n\
+             {}  Track the current session goal.\n\
+             {}  /goal <description>          Set a new goal\n\
+             {}  /goal                        Show current goal\n\
+             {}  /goal:clear                  Clear the current goal\n\
+             {}  /goal:done                   Mark the goal as completed\n",
+            "🎯".bold(),
+            "Goal Commands".cyan().bold(),
+            "Description:".dimmed(),
+            "Set:".magenta().bold(),
+            "Show:".magenta().bold(),
+            "Clear:".magenta().bold(),
+            "Done:".magenta().bold(),
+        )
+    }
+
+    pub async fn slash_goal_set(&self, description: String) -> String {
+        self.goal_manager.set(description.clone()).await;
+        format!("  🎯 Goal set: {}\n", description)
+    }
+
+    pub async fn slash_goal_show(&self) -> String {
+        match self.goal_manager.get().await {
+            Some(goal) => {
+                let status = if goal.completed {
+                    "✅ Completed"
+                } else {
+                    "🔄 In Progress"
+                };
+                let completed_info = if let Some(ref completed_at) = goal.completed_at {
+                    format!("\n  {}  {}", "Completed at:".dimmed(), completed_at)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "  {}  {}\n\n  {}  {}\n  {}  {}{}\n",
+                    "🎯".bold(),
+                    "Current Goal".cyan().bold(),
+                    "Status:".dimmed(),
+                    status,
+                    "Goal:".dimmed(),
+                    goal.description.bold(),
+                    completed_info,
+                )
+            }
+            None => "  📭 No active goal.\n  Use /goal <description> to set one.".to_string(),
+        }
+    }
+
+    pub async fn slash_goal_clear(&self) -> String {
+        if self.goal_manager.clear().await {
+            "  ✅ Goal cleared.".to_string()
+        } else {
+            "  📭 No goal to clear.".to_string()
+        }
+    }
+
+    pub async fn slash_goal_done(&self) -> String {
+        match self.goal_manager.mark_done().await {
+            Ok(()) => "  🎉 Goal marked as completed!".to_string(),
+            Err(e) => format!("  ❌ {e}"),
+        }
     }
 }

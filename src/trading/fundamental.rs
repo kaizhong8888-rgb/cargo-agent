@@ -24,14 +24,6 @@ pub const INDUSTRIES: &[&str] = &[
     "商贸零售",
 ];
 
-/// 根据股票代码前缀/特征映射到行业（简化映射）
-#[allow(dead_code)]
-fn symbol_to_industry(symbol: &str, seed: u64) -> &'static str {
-    // 使用确定性映射，使同一股票始终在同一行业
-    let hash = (seed.wrapping_mul(31) + symbol.len() as u64) % INDUSTRIES.len() as u64;
-    INDUSTRIES[hash as usize]
-}
-
 /// 基本面数据快照（单只股票单期财报数据）
 #[derive(Debug, Clone)]
 pub struct Fundamentals {

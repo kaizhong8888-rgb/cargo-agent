@@ -223,7 +223,11 @@ impl SessionMetrics {
 
     /// Snapshot of per-tool breakdown.
     pub fn per_tool_stats(&self) -> HashMap<String, ToolStats> {
-        self.per_tool.lock().ok().map(|m| m.clone()).unwrap_or_default()
+        self.per_tool
+            .lock()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default()
     }
 
     /// Per-tool stats for a specific tool.

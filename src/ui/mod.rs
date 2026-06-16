@@ -378,8 +378,7 @@ impl StatusIndicator {
                         _ => LedState::Idle,
                     };
 
-                    let tool_name =
-                        tool.lock().ok().map(|g| g.clone()).unwrap_or_default();
+                    let tool_name = tool.lock().ok().map(|g| g.clone()).unwrap_or_default();
                     let (color, label, fast_blink) = state.render(&tool_name);
                     let (on_ms, off_ms) = if fast_blink {
                         (led_timing::FAST_ON_MS, led_timing::FAST_OFF_MS)
@@ -394,11 +393,8 @@ impl StatusIndicator {
                     }
 
                     if visible {
-                        let output = format!(
-                            "\r\x1b[K  \x1b[{}m●\x1b[0m {}",
-                            color,
-                            label.dimmed()
-                        );
+                        let output =
+                            format!("\r\x1b[K  \x1b[{}m●\x1b[0m {}", color, label.dimmed());
                         let _ = stdout.write_all(output.as_bytes());
                         let _ = stdout.flush();
                         std::thread::sleep(std::time::Duration::from_millis(on_ms));
@@ -422,7 +418,8 @@ impl StatusIndicator {
 
     /// Stop the indicator and wait for the background thread to exit.
     pub fn stop(self) {
-        #[cfg(feature = "tui")] {
+        #[cfg(feature = "tui")]
+        {
             self.stop_flag
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             if let Some(handle) = self.handle {
@@ -449,9 +446,11 @@ impl LedState {
     fn render(&self, tool_name: &str) -> (&'static str, String, bool) {
         match self {
             Self::Idle => (led_colors::GREY, String::new(), false),
-            Self::SearchingMemories => {
-                (led_colors::BLUE, "🔍 Searching memories...".to_string(), false)
-            }
+            Self::SearchingMemories => (
+                led_colors::BLUE,
+                "🔍 Searching memories...".to_string(),
+                false,
+            ),
             Self::CallingLLM => (led_colors::CYAN, "🤖 Calling LLM...".to_string(), false),
             Self::ExecutingTool => (
                 led_colors::MAGENTA,
@@ -462,12 +461,16 @@ impl LedState {
                 },
                 true,
             ),
-            Self::GeneratingResponse => {
-                (led_colors::YELLOW, "✍️  Composing response...".to_string(), false)
-            }
-            Self::TruncatingContext => {
-                (led_colors::ORANGE, "📏 Managing context...".to_string(), true)
-            }
+            Self::GeneratingResponse => (
+                led_colors::YELLOW,
+                "✍️  Composing response...".to_string(),
+                false,
+            ),
+            Self::TruncatingContext => (
+                led_colors::ORANGE,
+                "📏 Managing context...".to_string(),
+                true,
+            ),
         }
     }
 }
@@ -569,11 +572,7 @@ pub fn print_thinking_status(status_display: &str) {
 pub fn print_status_update(status_display: &str) {
     #[cfg(feature = "tui")]
     {
-        print!(
-            "\r\x1b[K  ⏳ {} {}",
-            "⟐".dimmed(),
-            status_display.dimmed()
-        );
+        print!("\r\x1b[K  ⏳ {} {}", "⟐".dimmed(), status_display.dimmed());
         let _ = io::stdout().flush();
     }
     #[cfg(not(feature = "tui"))]
@@ -734,8 +733,7 @@ fn tui_read_multiline_input() -> Option<String> {
             (KeyCode::End, _) => {
                 cursor_pos = current_line.chars().count();
                 let prefix_len = 4;
-                let target =
-                    prefix_len + current_line.chars().map(|c| c.len_utf8()).sum::<usize>();
+                let target = prefix_len + current_line.chars().map(|c| c.len_utf8()).sum::<usize>();
                 let _ = write!(stdout, "\r\x1b[{}C", target);
                 let _ = stdout.flush();
             }

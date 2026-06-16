@@ -51,13 +51,19 @@ mod cdp_impl {
             launch_opts.proxy_server = Some(proxy_url.to_string());
         }
 
-        let browser = Browser::new(launch_opts)
-            .map_err(|e| format!("Failed to launch Chrome: {e}. Make sure Chrome/Chromium is installed."))?;
+        let browser = Browser::new(launch_opts).map_err(|e| {
+            format!("Failed to launch Chrome: {e}. Make sure Chrome/Chromium is installed.")
+        })?;
 
         let browser = Arc::new(Mutex::new(browser));
         {
             let mut guard = cell.lock().map_err(|e| format!("Lock error: {e}"))?;
-            *guard = Some(browser.lock().map_err(|e| format!("Lock error: {e}"))?.clone());
+            *guard = Some(
+                browser
+                    .lock()
+                    .map_err(|e| format!("Lock error: {e}"))?
+                    .clone(),
+            );
         }
 
         Ok(cell.clone())
@@ -98,13 +104,16 @@ mod cdp_impl {
             vec![
                 ToolParameter {
                     name: "action".into(),
-                    description: "Action: navigate, screenshot, eval, html, click, type_text, metadata, wait".into(),
+                    description:
+                        "Action: navigate, screenshot, eval, html, click, type_text, metadata, wait"
+                            .into(),
                     required: true,
                     parameter_type: "string".into(),
                 },
                 ToolParameter {
                     name: "url".into(),
-                    description: "URL to navigate to (for navigate/screenshot/html/metadata)".into(),
+                    description: "URL to navigate to (for navigate/screenshot/html/metadata)"
+                        .into(),
                     required: false,
                     parameter_type: "string".into(),
                 },
@@ -218,9 +227,7 @@ mod cdp_impl {
             tab.wait_until_navigated()
                 .map_err(|e| format!("Page load wait failed: {e}"))?;
 
-            let title = tab
-                .get_title()
-                .unwrap_or_else(|_| "Unknown".to_string());
+            let title = tab.get_title().unwrap_or_else(|_| "Unknown".to_string());
 
             let current_url = tab
                 .get_url()
@@ -296,7 +303,8 @@ mod cdp_impl {
                 };
 
                 let size_kb = png_data.len() / 1024;
-                let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png_data);
+                let b64 =
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png_data);
 
                 Ok(json!({
                     "status": "ok",

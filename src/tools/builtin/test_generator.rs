@@ -38,22 +38,6 @@ static RE_STRUCT: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
-#[allow(dead_code)]
-static RE_ENUM: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r#"(?m)^\s*(?:pub\s+)(?:enum)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?:where\s+[^{]+)?\{?"#,
-    )
-    .expect("valid regex")
-});
-
-#[allow(dead_code)]
-static RE_TRAIT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r#"(?m)^\s*(?:pub\s+)(?:unsafe\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\s*(?::\s*([^{;]+))?\s*(?:where\s+[^{]+)?\{?"#,
-    )
-    .expect("valid regex")
-});
-
 static RE_IMPL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r#"(?m)^\s*(?:(?:pub\s+)?(?:unsafe\s+)?impl\s+(?:(?:<[^>]*>)\s+)?([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s*::\s*[a-zA-Z_][a-zA-Z0-9_<>]*)*)\s*(?:for\s+([a-zA-Z_][a-zA-Z0-9_<>]*(?:\s*::\s*[a-zA-Z_][a-zA-Z0-9_<>]*)*))?)"#,
@@ -71,19 +55,6 @@ static RE_FN_SIG: Lazy<Regex> = Lazy::new(|| {
 static RE_PARAM: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([^,]+)"#).expect("valid regex"));
 
-#[allow(dead_code)]
-static RE_OPTION: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?:^|[\s<,])Option\s*<\s*([^>]+)\s*>"#).expect("valid regex"));
-
-#[allow(dead_code)]
-static RE_RESULT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:^|[\s<,])Result\s*<\s*([^,>]+)\s*(?:,\s*[^>]+)?\s*>"#).expect("valid regex")
-});
-
-#[allow(dead_code)]
-static RE_VEC: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?:^|[\s<,])Vec\s*<\s*([^>]+)\s*>"#).expect("valid regex"));
-
 static RE_STRING: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:^|[\s<,&])&?\s*str\b"#).expect("valid regex"));
 
@@ -97,10 +68,6 @@ static RE_FLOAT_TYPES: Lazy<Regex> =
 
 static RE_BOOL: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?:^|[\s<,])bool\b"#).expect("valid regex"));
-
-#[allow(dead_code)]
-static RE_TEST_ATTR: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?m)^\s*#\[(test|should_panic)"#).expect("valid regex"));
 
 static RE_PUB_FN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?m)^\s*pub\s+(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("#)

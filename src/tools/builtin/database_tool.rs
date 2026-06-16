@@ -276,10 +276,9 @@ fn detect_sql_injection_risks(sql: &str) -> Option<String> {
 
 /// Validates that a SQL statement uses parameterized queries when appropriate.
 /// Returns true if the SQL appears to be safe (uses placeholders or is a simple DDL).
-/// Reserved for future use in stricter SQL validation modes.
-#[allow(dead_code)]
+/// Currently unused but kept for future SQL validation needs.
 #[inline]
-fn is_safe_sql(sql: &str) -> bool {
+fn _is_safe_sql(sql: &str) -> bool {
     let sql_lower = sql.to_lowercase();
     let sql_lower = sql_lower.trim();
 

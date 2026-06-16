@@ -95,10 +95,6 @@ pub struct RiskManager {
     // 内部状态
     peak_equity: f64,
     current_equity: f64,
-    #[allow(dead_code)]
-    initial_equity: f64,
-    #[allow(dead_code)]
-    is_reduced: bool,
     trade_history: Vec<f64>, // 存储每笔交易的PnL百分比
 }
 
@@ -110,8 +106,6 @@ impl RiskManager {
             drawdown_control: DrawdownControl::default(),
             peak_equity: initial_equity,
             current_equity: initial_equity,
-            initial_equity,
-            is_reduced: false,
             trade_history: Vec::new(),
         }
     }

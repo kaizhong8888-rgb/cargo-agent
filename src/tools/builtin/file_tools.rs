@@ -126,8 +126,6 @@ struct GitIgnoreMatcher {
 
 #[derive(Debug)]
 struct GitIgnorePattern {
-    #[allow(dead_code)]
-    raw: String,
     re: Regex,
     dir_only: bool,
     negated: bool,
@@ -226,7 +224,6 @@ impl GitIgnorePattern {
 
         let re = Regex::new(&regex_str).ok()?;
         Some(GitIgnorePattern {
-            raw: line.to_string(),
             re,
             dir_only,
             negated,
@@ -330,7 +327,12 @@ impl Tool for ListDirTool {
 
         if recursive {
             let entries = list_dir_recursive(
-                dir_path, dir_path, 0, max_depth, max_preview_lines, gitignore.as_ref(),
+                dir_path,
+                dir_path,
+                0,
+                max_depth,
+                max_preview_lines,
+                gitignore.as_ref(),
             )?;
             Ok(serde_json::json!({
                 "status": "ok",
@@ -357,10 +359,47 @@ impl Tool for ListDirTool {
 // ============================================================================
 
 const TEXT_EXTENSIONS: &[&str] = &[
-    "rs", "toml", "md", "txt", "json", "yaml", "yml", "xml", "html", "css", "js", "ts", "py",
-    "rb", "go", "java", "c", "cpp", "h", "hpp", "sh", "bash", "zsh", "fish", "lua", "sql", "r",
-    "scala", "kt", "swift", "zig", "lock", "csv", "cfg", "ini", "env", "gitignore",
-    "gitattributes", "editorconfig", "dockerfile", "conf",
+    "rs",
+    "toml",
+    "md",
+    "txt",
+    "json",
+    "yaml",
+    "yml",
+    "xml",
+    "html",
+    "css",
+    "js",
+    "ts",
+    "py",
+    "rb",
+    "go",
+    "java",
+    "c",
+    "cpp",
+    "h",
+    "hpp",
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "lua",
+    "sql",
+    "r",
+    "scala",
+    "kt",
+    "swift",
+    "zig",
+    "lock",
+    "csv",
+    "cfg",
+    "ini",
+    "env",
+    "gitignore",
+    "gitattributes",
+    "editorconfig",
+    "dockerfile",
+    "conf",
 ];
 
 fn preview_file(path: &Path, max_lines: usize) -> Option<Vec<String>> {
@@ -404,15 +443,19 @@ fn list_dir_flat(
     gitignore: Option<&GitIgnoreMatcher>,
 ) -> Result<Vec<Value>, String> {
     let mut entries = Vec::new();
-    let read_dir =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
+    let read_dir = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
     let mut dir_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
     dir_entries.sort_by_key(|e| e.file_name());
 
     for entry in &dir_entries {
         let name = entry.file_name().to_string_lossy().to_string();
-        let file_type = entry.file_type().map_err(|e| format!("Failed to get file type: {e}"))?;
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to get file type: {e}"))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {e}"))?;
         let kind = if file_type.is_dir() {
             "directory"
         } else if file_type.is_symlink() {
@@ -444,9 +487,18 @@ fn list_dir_flat(
                     .map(|c| c.lines().count() as u64)
                     .unwrap_or(0);
                 if let Some(obj) = item.as_object_mut() {
-                    obj.insert("preview".to_string(), Value::Array(preview.into_iter().map(Value::String).collect()));
-                    obj.insert("preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated)));
-                    obj.insert("total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines)));
+                    obj.insert(
+                        "preview".to_string(),
+                        Value::Array(preview.into_iter().map(Value::String).collect()),
+                    );
+                    obj.insert(
+                        "preview_lines".to_string(),
+                        Value::Number(serde_json::Number::from(truncated)),
+                    );
+                    obj.insert(
+                        "total_lines".to_string(),
+                        Value::Number(serde_json::Number::from(total_lines)),
+                    );
                 }
             }
         }
@@ -468,14 +520,18 @@ fn list_dir_recursive(
         return Ok(vec![]);
     }
     let mut entries = Vec::new();
-    let read_dir =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
+    let read_dir = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
     let mut dir_entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
     dir_entries.sort_by_key(|e| e.file_name());
 
     for entry in &dir_entries {
-        let file_type = entry.file_type().map_err(|e| format!("Failed to get file type: {e}"))?;
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to get file type: {e}"))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {e}"))?;
         let kind = if file_type.is_dir() {
             "directory"
         } else if file_type.is_symlink() {
@@ -508,7 +564,12 @@ fn list_dir_recursive(
 
         if file_type.is_dir() {
             let children = list_dir_recursive(
-                root, &full_path, depth + 1, max_depth, max_preview_lines, gitignore,
+                root,
+                &full_path,
+                depth + 1,
+                max_depth,
+                max_preview_lines,
+                gitignore,
             )?;
             if !children.is_empty() {
                 if let Some(obj) = item.as_object_mut() {
@@ -525,9 +586,18 @@ fn list_dir_recursive(
                     .map(|c| c.lines().count() as u64)
                     .unwrap_or(0);
                 if let Some(obj) = item.as_object_mut() {
-                    obj.insert("preview".to_string(), Value::Array(preview.into_iter().map(Value::String).collect()));
-                    obj.insert("preview_lines".to_string(), Value::Number(serde_json::Number::from(truncated)));
-                    obj.insert("total_lines".to_string(), Value::Number(serde_json::Number::from(total_lines)));
+                    obj.insert(
+                        "preview".to_string(),
+                        Value::Array(preview.into_iter().map(Value::String).collect()),
+                    );
+                    obj.insert(
+                        "preview_lines".to_string(),
+                        Value::Number(serde_json::Number::from(truncated)),
+                    );
+                    obj.insert(
+                        "total_lines".to_string(),
+                        Value::Number(serde_json::Number::from(total_lines)),
+                    );
                 }
             }
         }
@@ -579,7 +649,8 @@ impl Tool for GrepTool {
             },
             ToolParameter {
                 name: "file_pattern".to_string(),
-                description: "Optional file regex pattern to filter (e.g. '*.rs', '*.toml')".to_string(),
+                description: "Optional file regex pattern to filter (e.g. '*.rs', '*.toml')"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -591,7 +662,8 @@ impl Tool for GrepTool {
             },
             ToolParameter {
                 name: "context_lines".to_string(),
-                description: "Number of context lines before/after each match (default: 0)".to_string(),
+                description: "Number of context lines before/after each match (default: 0)"
+                    .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -603,13 +675,16 @@ impl Tool for GrepTool {
             },
             ToolParameter {
                 name: "files_only".to_string(),
-                description: "If true, only return matching file names without line details (default: false)".to_string(),
+                description:
+                    "If true, only return matching file names without line details (default: false)"
+                        .to_string(),
                 required: false,
                 parameter_type: "boolean".to_string(),
             },
             ToolParameter {
                 name: "max_file_size".to_string(),
-                description: "Skip files larger than this many bytes (default: 1MB = 1048576)".to_string(),
+                description: "Skip files larger than this many bytes (default: 1MB = 1048576)"
+                    .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -623,11 +698,26 @@ impl Tool for GrepTool {
             .ok_or("Missing required parameter: pattern")?;
         let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let file_pattern = params.get("file_pattern").and_then(|v| v.as_str());
-        let max_results = params.get("max_results").and_then(|v| v.as_u64()).unwrap_or(30) as usize;
-        let context_lines = params.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let case_sensitive = params.get("case_sensitive").and_then(|v| v.as_bool()).unwrap_or(false);
-        let files_only = params.get("files_only").and_then(|v| v.as_bool()).unwrap_or(false);
-        let max_file_size = params.get("max_file_size").and_then(|v| v.as_u64()).unwrap_or(1_048_576) as usize;
+        let max_results = params
+            .get("max_results")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30) as usize;
+        let context_lines = params
+            .get("context_lines")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+        let case_sensitive = params
+            .get("case_sensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let files_only = params
+            .get("files_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let max_file_size = params
+            .get("max_file_size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1_048_576) as usize;
 
         let search_dir = Path::new(path);
         if !search_dir.exists() || !search_dir.is_dir() {
@@ -642,11 +732,13 @@ impl Tool for GrepTool {
         } else {
             format!("(?i){pattern_str}")
         };
-        let re = Regex::new(&regex_str).map_err(|e| format!("Invalid regex pattern '{pattern_str}': {e}"))?;
+        let re = Regex::new(&regex_str)
+            .map_err(|e| format!("Invalid regex pattern '{pattern_str}': {e}"))?;
 
         let file_re: Option<Regex> = file_pattern.map(|fp| {
             let glob_re = fp.replace('.', "\\.").replace('*', ".*").replace('?', ".");
-            Regex::new(&format!("(?i)^{glob_re}$")).unwrap_or_else(|_| Regex::new(".*").expect("fallback"))
+            Regex::new(&format!("(?i)^{glob_re}$"))
+                .unwrap_or_else(|_| Regex::new(".*").expect("fallback"))
         });
 
         let mut opt = GrepOptions {
@@ -689,13 +781,11 @@ impl Tool for GrepTool {
 fn is_binary_file(path: &Path) -> bool {
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let binary_extensions: HashSet<&str> = [
-        "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg",
-        "woff", "woff2", "ttf", "eot", "otf",
-        "mp3", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv",
-        "zip", "tar", "gz", "bz2", "7z", "rar", "xz", "zst",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "o", "so", "dylib", "dll", "exe", "class", "jar", "wasm",
-        "iso", "img", "bin", "dat", "db", "sqlite", "ttc", "dfont",
+        "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "woff", "woff2", "ttf", "eot", "otf",
+        "mp3", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "zip", "tar", "gz", "bz2", "7z",
+        "rar", "xz", "zst", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "o", "so", "dylib",
+        "dll", "exe", "class", "jar", "wasm", "iso", "img", "bin", "dat", "db", "sqlite", "ttc",
+        "dfont",
     ]
     .iter()
     .cloned()
@@ -719,8 +809,17 @@ fn should_skip_entry(dir_name: &str, _path: &Path) -> bool {
     }
     matches!(
         name_lower.as_str(),
-        "node_modules" | "target" | "vendor" | ".git" | ".svn"
-            | "__pycache__" | ".venv" | "venv" | ".idea" | ".vscode" | ".DS_Store"
+        "node_modules"
+            | "target"
+            | "vendor"
+            | ".git"
+            | ".svn"
+            | "__pycache__"
+            | ".venv"
+            | "venv"
+            | ".idea"
+            | ".vscode"
+            | ".DS_Store"
     )
 }
 
@@ -734,8 +833,8 @@ fn grep_dir(dir: &Path, opt: &mut GrepOptions, depth: usize) -> Result<(), Strin
             return Ok(());
         }
     }
-    let read_dir =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
+    let read_dir = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
     let mut entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -817,8 +916,8 @@ fn grep_dir_files_only(dir: &Path, opt: &mut GrepOptions, depth: usize) -> Resul
             return Ok(());
         }
     }
-    let read_dir =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
+    let read_dir = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {e}", dir.display()))?;
     let mut entries: Vec<_> = read_dir.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -892,7 +991,8 @@ mod tests {
     use std::io::Write;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("file_tools_test_{}_{}", std::process::id(), name));
+        let path =
+            std::env::temp_dir().join(format!("file_tools_test_{}_{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         path
@@ -923,8 +1023,13 @@ mod tests {
         let file = create_file(&dir, "test.txt", "hello world");
         let tool = ReadFile;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String(file.to_string_lossy().to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String(file.to_string_lossy().to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["status"], "ok");
@@ -936,7 +1041,9 @@ mod tests {
     fn test_read_file_missing_path() {
         let tool = ReadFile;
         let params = HashMap::new();
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_err(), "expected error for missing path");
     }
 
@@ -944,8 +1051,13 @@ mod tests {
     fn test_read_file_not_found() {
         let tool = ReadFile;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String("/nonexistent/file.txt".to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String("/nonexistent/file.txt".to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["status"], "error");
     }
@@ -958,13 +1070,24 @@ mod tests {
         let file_path = dir.join("output.txt");
         let tool = WriteFile;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String(file_path.to_string_lossy().to_string()));
-        params.insert("content".to_string(), Value::String("written content".to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String(file_path.to_string_lossy().to_string()),
+        );
+        params.insert(
+            "content".to_string(),
+            Value::String("written content".to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["status"], "ok");
         assert!(file_path.exists());
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "written content");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "written content"
+        );
         cleanup(&dir);
     }
 
@@ -972,7 +1095,9 @@ mod tests {
     fn test_write_file_missing_params() {
         let tool = WriteFile;
         let params = HashMap::new();
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_err(), "expected error for missing parameters");
     }
 
@@ -986,8 +1111,13 @@ mod tests {
         create_subdir(&dir, "sub");
         let tool = ListDirTool;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["status"], "ok");
@@ -1004,10 +1134,18 @@ mod tests {
         create_file(&sub, "nested.txt", "nested");
         let tool = ListDirTool;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
         params.insert("recursive".to_string(), Value::Bool(true));
-        params.insert("max_depth".to_string(), Value::Number(serde_json::Number::from(5)));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "max_depth".to_string(),
+            Value::Number(serde_json::Number::from(5)),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         let entries = v["entries"].as_array().unwrap();
@@ -1019,8 +1157,13 @@ mod tests {
     fn test_list_directory_nonexistent() {
         let tool = ListDirTool;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String("/nonexistent_path_xyz".to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String("/nonexistent_path_xyz".to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         assert_eq!(result.unwrap()["status"], "error");
     }
@@ -1033,9 +1176,14 @@ mod tests {
         create_file(&dir, "ignore.log", "should be ignored");
         let tool = ListDirTool;
         let mut params = HashMap::new();
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
         params.insert("use_gitignore".to_string(), Value::Bool(true));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         let entries = v["entries"].as_array().unwrap();
@@ -1070,7 +1218,9 @@ mod tests {
 
     #[test]
     fn test_gitignore_is_ignored() {
-        let mut matcher = GitIgnoreMatcher { patterns: Vec::new() };
+        let mut matcher = GitIgnoreMatcher {
+            patterns: Vec::new(),
+        };
         if let Some(p) = GitIgnorePattern::parse("*.log") {
             matcher.patterns.push(p);
         }
@@ -1081,7 +1231,9 @@ mod tests {
 
     #[test]
     fn test_gitignore_negation_overrides() {
-        let mut matcher = GitIgnoreMatcher { patterns: Vec::new() };
+        let mut matcher = GitIgnoreMatcher {
+            patterns: Vec::new(),
+        };
         if let Some(p) = GitIgnorePattern::parse("*.log") {
             matcher.patterns.push(p);
         }
@@ -1094,7 +1246,9 @@ mod tests {
 
     #[test]
     fn test_gitignore_dir_only_skips_files() {
-        let mut matcher = GitIgnoreMatcher { patterns: Vec::new() };
+        let mut matcher = GitIgnoreMatcher {
+            patterns: Vec::new(),
+        };
         if let Some(p) = GitIgnorePattern::parse("target/") {
             matcher.patterns.push(p);
         }
@@ -1129,8 +1283,13 @@ mod tests {
         let tool = GrepTool;
         let mut params = HashMap::new();
         params.insert("pattern".to_string(), Value::String("hello".to_string()));
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["status"], "ok");
@@ -1145,8 +1304,13 @@ mod tests {
         let tool = GrepTool;
         let mut params = HashMap::new();
         params.insert("pattern".to_string(), Value::String("hello".to_string()));
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["status"], "ok");
@@ -1162,9 +1326,14 @@ mod tests {
         let tool = GrepTool;
         let mut params = HashMap::new();
         params.insert("pattern".to_string(), Value::String("test".to_string()));
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
         params.insert("files_only".to_string(), Value::Bool(true));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["files_found"].as_u64().unwrap_or(0), 1);
@@ -1177,9 +1346,17 @@ mod tests {
         create_file(&dir, "test.txt", "nothing here");
         let tool = GrepTool;
         let mut params = HashMap::new();
-        params.insert("pattern".to_string(), Value::String("zzz_nonexistent_zzz".to_string()));
-        params.insert("path".to_string(), Value::String(dir.to_string_lossy().to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        params.insert(
+            "pattern".to_string(),
+            Value::String("zzz_nonexistent_zzz".to_string()),
+        );
+        params.insert(
+            "path".to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_ok());
         let v = result.unwrap();
         assert_eq!(v["total_matches"].as_u64().unwrap_or(0), 0);
@@ -1192,7 +1369,9 @@ mod tests {
         let mut params = HashMap::new();
         params.insert("pattern".to_string(), Value::String("[invalid".to_string()));
         params.insert("path".to_string(), Value::String(".".to_string()));
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(&params));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(&params));
         assert!(result.is_err(), "expected error for invalid regex");
     }
 

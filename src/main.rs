@@ -134,14 +134,82 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
                 SlashAction::Dashboard => {
-                    #[cfg(feature = "tui")] {
+                    #[cfg(feature = "tui")]
+                    {
                         show_dashboard(&gateway);
                     }
-                    #[cfg(not(feature = "tui"))] {
+                    #[cfg(not(feature = "tui"))]
+                    {
                         println!(
                             "\n  Dashboard requires the `tui` feature.\n  Rebuild with default features or `--features tui`.\n"
                         );
                     }
+                    continue;
+                }
+                SlashAction::Loop {
+                    interval_secs,
+                    command,
+                } => {
+                    let cmd_clone = command.clone();
+                    let interval = interval_secs;
+                    let loop_mgr = gateway.loop_manager();
+                    let loop_id = loop_mgr
+                        .start(
+                            format!("Loop: {cmd_clone}"),
+                            cmd_clone,
+                            interval,
+                            move |cmd| {
+                                // The loop will send the command to the agent
+                                // For now, just log it
+                                println!("\n🔄 Loop executing: {cmd}\n");
+                            },
+                        )
+                        .await;
+                    println!("\n  🔄 Loop started with ID: {loop_id}\n  Interval: every {interval_secs}s\n  Command: {command}\n  Use /loop:stop {loop_id} to stop it.\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::ListLoops => {
+                    let text = gateway.slash_loop_list().await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::StopLoop { id } => {
+                    let id_num = id.parse::<u64>().unwrap_or(0);
+                    let text = gateway.slash_loop_stop(id_num).await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::StopAllLoops => {
+                    let text = gateway.slash_loop_stop_all().await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::SetGoal { description } => {
+                    let text = gateway.slash_goal_set(description).await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::ClearGoal => {
+                    let text = gateway.slash_goal_clear().await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::ShowGoal => {
+                    let text = gateway.slash_goal_show().await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
+                    continue;
+                }
+                SlashAction::GoalDone => {
+                    let text = gateway.slash_goal_done().await;
+                    println!("\n{text}\n");
+                    ui::thin_separator();
                     continue;
                 }
                 SlashAction::PassThrough => {
@@ -250,7 +318,8 @@ fn show_dashboard(gateway: &Gateway) {
 #[cfg(feature = "tui")]
 fn memory_usage_bytes() -> u64 {
     #[cfg(target_os = "macos")]
-    #[allow(deprecated)] // mach_task_self is deprecated in favor of mach2, but pulling mach2 just for this is overkill
+    #[allow(deprecated)]
+    // mach_task_self is deprecated in favor of mach2, but pulling mach2 just for this is overkill
     {
         // SAFETY: `task_info` is a standard macOS Mach API. We:
         // 1. Zero-initialize the info struct with `mem::zeroed` — valid for all-struct-of-integers types.

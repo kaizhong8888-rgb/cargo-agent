@@ -1070,13 +1070,16 @@ impl Tool for ManageSkillsTool {
             },
             ToolParameter {
                 name: "category".to_string(),
-                description: "Category for grouping (e.g. 'web-framework', 'database') (for create/update)".to_string(),
+                description:
+                    "Category for grouping (e.g. 'web-framework', 'database') (for create/update)"
+                        .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "version".to_string(),
-                description: "Semantic version of the skill (e.g. '1.0.0') (for create/update)".to_string(),
+                description: "Semantic version of the skill (e.g. '1.0.0') (for create/update)"
+                    .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
@@ -1088,13 +1091,17 @@ impl Tool for ManageSkillsTool {
             },
             ToolParameter {
                 name: "tags".to_string(),
-                description: "Comma-separated tags for fine-grained classification (for create/update)".to_string(),
+                description:
+                    "Comma-separated tags for fine-grained classification (for create/update)"
+                        .to_string(),
                 required: false,
                 parameter_type: "string".to_string(),
             },
             ToolParameter {
                 name: "priority".to_string(),
-                description: "Priority level 1-10 (higher = more important, default: 5) (for create/update)".to_string(),
+                description:
+                    "Priority level 1-10 (higher = more important, default: 5) (for create/update)"
+                        .to_string(),
                 required: false,
                 parameter_type: "number".to_string(),
             },
@@ -1221,17 +1228,11 @@ impl Tool for ManageSkillsTool {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let tags_str = params
-                    .get("tags")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let tags_str = params.get("tags").and_then(|v| v.as_str()).unwrap_or("");
                 let tags: Vec<String> = if tags_str.is_empty() {
                     vec![]
                 } else {
-                    tags_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect()
+                    tags_str.split(',').map(|s| s.trim().to_string()).collect()
                 };
                 let priority = params
                     .get("priority")
@@ -1255,7 +1256,14 @@ impl Tool for ManageSkillsTool {
                     };
                     (ts, ver)
                 } else {
-                    (chrono::Utc::now().to_rfc3339(), if version.is_empty() { "0.1.0".into() } else { version })
+                    (
+                        chrono::Utc::now().to_rfc3339(),
+                        if version.is_empty() {
+                            "0.1.0".into()
+                        } else {
+                            version
+                        },
+                    )
                 };
                 let updated_at = chrono::Utc::now().to_rfc3339();
 
@@ -1270,7 +1278,13 @@ impl Tool for ManageSkillsTool {
                     category,
                     version: final_version,
                     author: if author.is_empty() {
-                        existing.map_or("cargo-agent".into(), |s| if s.author.is_empty() { "cargo-agent".into() } else { s.author })
+                        existing.map_or("cargo-agent".into(), |s| {
+                            if s.author.is_empty() {
+                                "cargo-agent".into()
+                            } else {
+                                s.author
+                            }
+                        })
                     } else {
                         author
                     },
