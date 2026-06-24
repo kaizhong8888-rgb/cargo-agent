@@ -5,8 +5,10 @@
 //! verify (compare hash against expected value), batch (compute hashes of multiple files).
 
 use crate::tools::registry::{Tool, ToolParameter, ToolRegistry};
+#[allow(deprecated)]
 use md5::Md5 as Md5Hasher;
 use serde_json::Value;
+#[allow(deprecated)]
 use sha1::Sha1 as Sha1Hasher;
 use sha2::{Digest, Sha256, Sha512};
 use std::collections::HashMap;

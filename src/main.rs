@@ -321,15 +321,9 @@ fn memory_usage_bytes() -> u64 {
     #[allow(deprecated)]
     // mach_task_self is deprecated in favor of mach2, but pulling mach2 just for this is overkill
     {
-        // SAFETY: `task_info` is a standard macOS Mach API. We:
-        // 1. Zero-initialize the info struct with `mem::zeroed` — valid for all-struct-of-integers types.
-        // 2. Pass the correct struct size via `count`.
-        // 3. Cast the mutable pointer to `task_info_t` — this is the expected C API signature.
-        // 4. `mach_task_self()` returns the current task port, always valid in the current process.
-        // If the call fails (non-macOS or error), we safely return 0 below.
-        let mut info = unsafe { std::mem::zeroed::<libc::mach_task_basic_info_data_t>() };
+        let mut info = unsafe { std::mem::zeroed::<libc::mach_task_basic_info_data_t>() }; // SAFETY: `mem::zeroed` is safe because the struct contains only integers.
         let mut count = libc::MACH_TASK_BASIC_INFO_COUNT;
-        let ret = unsafe {
+        let ret = unsafe { // SAFETY: `task_info` is a standard macOS Mach API with a valid task port.
             libc::task_info(
                 libc::mach_task_self(),
                 libc::MACH_TASK_BASIC_INFO,

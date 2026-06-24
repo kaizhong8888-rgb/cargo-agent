@@ -1716,7 +1716,7 @@ fn main() {
     fn test_check_security_openai_key() {
         let code = r#"
 fn call_llm() {
-    let key = "sk-abcdefghijklmnopqrstuvwxyz123456";
+    let key = "sk-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 }
 "#;
         let lines: Vec<&str> = code.lines().collect();

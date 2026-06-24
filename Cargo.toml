@@ -42,6 +42,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.36", features = ["full"] }
 reqwest = { version = "0.11", features = ["blocking", "json", "multipart", "stream"] }
+axum = { version = "0.7", features = ["json", "macros"] }
 anyhow = "1.0"
 thiserror = "2.0"
 futures = "0.3"
@@ -138,14 +139,6 @@ minijinja = { version = "2.20.0", optional = true }
 
 # TUI / terminal UI
 crossterm = { version = "0.28", features = ["event-stream"], optional = true }
-
-[[example]]
-name = "qqq_backtest"
-required-features = ["trading"]
-
-[[example]]
-name = "qqq_timeframe"
-required-features = ["trading"]
 
 [profile.release]
 lto = "thin"

@@ -1722,7 +1722,7 @@ mod tests {
         let mut ep = HashMap::new();
         ep.insert("action".to_string(), json!("encrypt"));
         ep.insert("data".to_string(), json!("password protected"));
-        ep.insert("password".to_string(), json!("my-secret-password"));
+        ep.insert("password".to_string(), json!("test_password_456"));
         let er = tool.execute(&ep).await.unwrap();
         let combined = er["combined"].as_str().unwrap();
         let parts: Vec<&str> = combined.split(':').collect();
@@ -1732,7 +1732,7 @@ mod tests {
         let mut dp = HashMap::new();
         dp.insert("action".to_string(), json!("decrypt"));
         dp.insert("data".to_string(), Value::String(combined.to_string()));
-        dp.insert("password".to_string(), json!("my-secret-password"));
+        dp.insert("password".to_string(), json!("test_password_456"));
         let dr = tool.execute(&dp).await.unwrap();
         assert_eq!(dr["data"], "password protected");
     }
@@ -1841,7 +1841,7 @@ mod tests {
     #[tokio::test]
     async fn test_password_hash_verify_roundtrip() {
         let tool = make_tool();
-        let password = "my-s3cure-p@ssw0rd!";
+        let password = "test_password_123";
         let mut hp = HashMap::new();
         hp.insert("action".to_string(), json!("hash_password"));
         hp.insert("data".to_string(), json!(password));
